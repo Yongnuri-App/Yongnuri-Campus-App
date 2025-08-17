@@ -1,8 +1,8 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Image, Animated } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../types/navigation';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Image, View } from 'react-native';
+import { RootStackParamList } from '../../types/navigation';
 import styles from './LoadingScreen.styles';
 
 const LoadingScreen = () => {
@@ -27,9 +27,9 @@ const LoadingScreen = () => {
 
   return (
     <View style={styles.container}>
-      <Image source={require('../assets/images/back.png')} style={styles.background} />
+      <Image source={require('../../assets/images/back.png')} style={styles.background} />
       <Animated.Image
-        source={require('../assets/images/yongnuri-icon.png')}
+        source={require('../../assets/images/yongnuri-icon.png')}
         style={[
           styles.icon,
           {
