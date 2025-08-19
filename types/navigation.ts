@@ -5,4 +5,5 @@ export type RootStackParamList = {
   Signup: undefined;         // 회원가입 페이지
   PasswordReset: undefined;  // 비밀번호 재설정 페이지
   Main: undefined;           // 로그인 성공 후 메인 페이지
+  Search: undefined;         // 검색 페이지
 };

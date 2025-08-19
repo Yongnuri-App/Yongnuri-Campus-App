@@ -1,8 +1,10 @@
+import { useNavigation } from '@react-navigation/native';
 import React, { useState } from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
 import styles from './MainHeader.styles';
 
 export default function MainHeader() {
+  const navigation = useNavigation<any>();
   // TODO: 알림 개수 상태 (나중에 서버와 연동 가능)
   const [notificationCount, setNotificationCount] = useState(3);
 
@@ -21,7 +23,7 @@ export default function MainHeader() {
       {/* 우측: 아이콘 그룹 */}
       <View style={styles.iconGroup}>
         {/* 검색 */}
-        <TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Search')}>
           <Image
             source={require('../../assets/images/search.png')}
             style={styles.icon}

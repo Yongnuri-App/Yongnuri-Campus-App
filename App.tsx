@@ -10,6 +10,7 @@ import LoadingScreen from './pages/Loading/LoadingScreen';
 import LoginPage from './pages/Login/LoginPage';
 import MainPage from './pages/Main/MainPage';
 import PasswordResetPage from './pages/PasswordReset/PasswordResetPage';
+import SearchPage from './pages/Search/SearchPage';
 import SignUpPage from './pages/SignUp/SignUpPage';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -26,6 +27,8 @@ export default function App() {
         <Stack.Screen name="Signup" component={SignUpPage} />
         <Stack.Screen name="PasswordReset" component={PasswordResetPage} />
         <Stack.Screen name="Main" component={MainPage} />
+        <Stack.Screen name="Search" component={SearchPage} />
+        {/* 추가적인 페이지가 필요하면 여기에 계속 추가 */}
       </Stack.Navigator>
     </NavigationContainer>
   );
