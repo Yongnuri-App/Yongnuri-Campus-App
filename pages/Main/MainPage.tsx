@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
 import BottomTabBar, { TabKey } from '../../components/Bottom/BottomTabBar';
+import CategoryChips, { DEFAULT_CATEGORIES } from '../../components/CategoryChips/CategoryChips';
 import FloatingWriteButton from '../../components/FloatingButton/FloatingWriteButton';
 import MainHeader from '../../components/Header/MainHeader';
 import styles from './MainPage.styles';
 
 export default function MainPage() {
+  // 카테고리 기본값: '전체'
+  const [category, setCategory] = useState<string>('all');
   // 기본 탭: "중고거래(market)"
   const [tab, setTab] = useState<TabKey>('market');
 
@@ -22,8 +25,17 @@ export default function MainPage() {
       {/* 상단 헤더 (컴포넌트 분리) */}
       <MainHeader />
 
+      {/* 카테고리 칩 컴포넌트 */}
+      <CategoryChips
+        value={category}
+        onChange={setCategory}
+        items={DEFAULT_CATEGORIES}
+        containerStyle={{ marginTop: 12, marginBottom: 8 }}
+      />
+
       {/* 메인 컨텐츠 예시 */}
       <View style={styles.content}>
+        {/* TODO: 선택된 탭/카테고리 상태를 활용하는 자리 (실제 리스트/API 필터 연결 예정) */}
         <Text style={styles.exampleText}>
           {tab === 'market' && '👜 중고거래 컨텐츠'}
           {tab === 'lost' && '📦 분실물 컨텐츠'}
