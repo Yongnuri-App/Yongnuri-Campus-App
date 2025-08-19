@@ -8,6 +8,7 @@ import { RootStackParamList } from './types/navigation';
 // 페이지 컴포넌트들
 import LoadingScreen from './pages/Loading/LoadingScreen';
 import LoginPage from './pages/Login/LoginPage';
+import MainPage from './pages/Main/MainPage';
 import PasswordResetPage from './pages/PasswordReset/PasswordResetPage';
 import SignUpPage from './pages/SignUp/SignUpPage';
 
@@ -24,6 +25,7 @@ export default function App() {
         <Stack.Screen name="Login" component={LoginPage} />
         <Stack.Screen name="Signup" component={SignUpPage} />
         <Stack.Screen name="PasswordReset" component={PasswordResetPage} />
+        <Stack.Screen name="Main" component={MainPage} />
       </Stack.Navigator>
     </NavigationContainer>
   );
