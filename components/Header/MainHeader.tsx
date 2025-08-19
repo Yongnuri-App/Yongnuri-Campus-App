@@ -31,7 +31,7 @@ export default function MainHeader() {
         </TouchableOpacity>
 
         {/* 알림 + 뱃지 */}
-        <TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Notification')}>
           <Image
             source={require('../../assets/images/bell.png')}
             style={styles.icon}
@@ -46,7 +46,7 @@ export default function MainHeader() {
         </TouchableOpacity>
 
         {/* 마이페이지 */}
-        <TouchableOpacity>
+        <TouchableOpacity onPress={() => console.log('마이페이지 이동 예정')}>
           <Image
             source={require('../../assets/images/person.png')}
             style={styles.icon}
