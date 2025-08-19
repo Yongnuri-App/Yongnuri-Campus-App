@@ -27,7 +27,7 @@ const LoadingScreen = () => {
 
   return (
     <View style={styles.container}>
-      <Image source={require('../../assets/images/back.png')} style={styles.background} />
+      <Image source={require('../../assets/images/background.png')} style={styles.background} />
       <Animated.Image
         source={require('../../assets/images/yongnuri-icon.png')}
         style={[
