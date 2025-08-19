@@ -45,7 +45,8 @@ export default function SignUpPage({ navigation }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.inner}>
-        {/* 🔙 뒤로가기 */}
+        {/* 뒤로가기 + 제목 */}
+        <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Image
             source={require('../../assets/images/back.png')}
@@ -53,9 +54,11 @@ export default function SignUpPage({ navigation }: Props) {
             resizeMode="contain"
           />
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>회원가입</Text>
+        </View>
 
-        {/* 제목 */}
-        <Text style={styles.title}>회원가입</Text>
+        {/* 본인인증하기 */}
+        <Text style={styles.sectionTitle}>본인인증하기</Text>
 
         {/* 이메일 */}
         <Text style={styles.label}>이메일</Text>

@@ -1,7 +1,5 @@
-// pages/SignUp/SignUpPage.styles.ts
-import { Dimensions, StyleSheet } from 'react-native';
-
-const { width } = Dimensions.get('window');
+// pages/PasswordReset/PasswordResetPage.styles.ts
+import { StyleSheet } from 'react-native';
 
 const styles = StyleSheet.create({
   container: {
@@ -37,6 +35,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#1E1E1E',
+    // marginBottom: 20,
   },
   sectionTitle: {
     fontSize: 18,
@@ -60,12 +59,26 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     paddingHorizontal: 12,
     marginBottom: 10,
+    paddingRight: 40, // correct.png 공간 확보
+  },
+  inputWrapper: {
+    position: 'relative',
+    width: '100%',
+    marginBottom: 10,
+  },
+  correctIcon: {
+    position: 'absolute',
+    right: 12,
+    top: '50%',
+    width: 24,
+    height: 24,
+    transform: [{ translateY: -17 }],
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 5,
+    marginBottom: 10,
   },
   subButton: {
     width: 94,
@@ -81,18 +94,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
     color: '#979797',
-  },
-  inputWrapper: {
-    position: 'relative',
-    width: '100%',
-  },
-  correctIcon: {
-    position: 'absolute',
-    right: 12, // 인풋 오른쪽 안쪽 위치
-    top: '50%',
-    width: 24,
-    height: 24,
-    transform: [{ translateY: -17 }], // 세로 중앙 정렬
   },
   signUpButton: {
     marginTop: 20,
