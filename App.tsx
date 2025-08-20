@@ -9,6 +9,7 @@ import { RootStackParamList } from './types/navigation';
 import LoadingScreen from './pages/Loading/LoadingScreen';
 import LoginPage from './pages/Login/LoginPage';
 import MainPage from './pages/Main/MainPage';
+import SellItemPage from './pages/Market/SellItemPage';
 import NotificationPage from './pages/Notification/NotificationPage';
 import PasswordResetPage from './pages/PasswordReset/PasswordResetPage';
 import SearchPage from './pages/Search/SearchPage';
@@ -30,6 +31,7 @@ export default function App() {
         <Stack.Screen name="Main" component={MainPage} />
         <Stack.Screen name="Search" component={SearchPage} />
         <Stack.Screen name="Notification" component={NotificationPage} />
+        <Stack.Screen name="SellItem" component={SellItemPage} />
         {/* 추가적인 페이지가 필요하면 여기에 계속 추가 */}
       </Stack.Navigator>
     </NavigationContainer>

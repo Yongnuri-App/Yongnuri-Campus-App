@@ -7,4 +7,5 @@ export type RootStackParamList = {
   Main: undefined;           // 로그인 성공 후 메인 페이지
   Search: undefined;         // 검색 페이지
   Notification: undefined;   // 알림 페이지
+  SellItem: undefined;       // 판매 아이템 등록 페이지
 };

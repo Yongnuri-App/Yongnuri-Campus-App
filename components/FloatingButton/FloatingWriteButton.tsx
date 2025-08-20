@@ -1,5 +1,8 @@
+import type { NavigationProp } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import React from "react";
 import { Image, Platform, Text, TouchableOpacity, View } from "react-native";
+import { RootStackParamList } from "../../types/navigation";
 import { TabKey } from "../Bottom/BottomTabBar";
 import styles from "./FloatingWriteButton.styles";
 
@@ -20,6 +23,7 @@ export default function FloatingWriteButton({
   disabled = false,
   onPressOverride,
 }: Props) {
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   // ✅ 탭별 onPress 동작 (페이지 미구현이라 TODO로 남김)
   const handlePress = () => {
     if (onPressOverride) {
@@ -30,7 +34,7 @@ export default function FloatingWriteButton({
     // TODO: 실제 네비게이션 연결 (예: navigation.navigate('xxxWrite'))
     switch (activeTab) {
       case 'market':
-        console.log('중고거래 글쓰기로 이동 (TODO: MarketWritePage)');
+        navigation.navigate("SellItem");
         break;
       case 'lost':
         console.log('분실물 글쓰기로 이동 (TODO: LostWritePage)');
