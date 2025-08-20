@@ -37,7 +37,7 @@ export default function FloatingWriteButton({
         navigation.navigate("SellItem");
         break;
       case 'lost':
-        console.log('분실물 글쓰기로 이동 (TODO: LostWritePage)');
+        navigation.navigate("LostItem");
         break;
       case 'chat':
         console.log('채팅은 글쓰기 없음');
