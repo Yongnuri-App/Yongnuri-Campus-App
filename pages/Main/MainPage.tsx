@@ -6,7 +6,7 @@ import FloatingWriteButton from '../../components/FloatingButton/FloatingWriteBu
 import MainHeader from '../../components/Header/MainHeader';
 import styles from './MainPage.styles';
 
-export default function MainPage() {
+export default function MainPage({ navigation }: any) {
   // 카테고리 기본값: '전체'
   const [category, setCategory] = useState<string>('all');
   // 기본 탭: "중고거래(market)"
@@ -16,8 +16,11 @@ export default function MainPage() {
   const handleTabChange = (next: TabKey) => {
     setTab(next);
 
-    // TODO: 필요하면 여기서 라우팅 or 메인 컨텐츠 스위칭 처리
-    // ex) if (next === 'chat') navigation.navigate('ChatList');
+    if (next === 'chat') {
+      // 이미 채팅 페이지에 있다면 중복 push 방지용으로 replace 권장
+      navigation.replace('ChatList');
+      return;
+    }
   };
 
   return (
@@ -51,8 +54,6 @@ export default function MainPage() {
       {/* 글쓰기 버튼 (플로팅 버튼) */}
       <FloatingWriteButton
         activeTab={tab}
-        // bottomOffset={100} // 필요시 수동 조정
-        // onPressOverride={() => navigation.navigate('어떤페이지')}
       />
     </View>
   );

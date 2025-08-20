@@ -54,7 +54,7 @@ export default StyleSheet.create({
     fontWeight: '700',
     color: '#1E1E1E',
     marginBottom: 8,
-    marginLeft: 5,
+    marginLeft: 3,
   },
 
   /* 인풋 (단일 라인) */

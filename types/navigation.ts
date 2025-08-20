@@ -9,4 +9,5 @@ export type RootStackParamList = {
   Notification: undefined;   // 알림 페이지
   SellItem: undefined;       // 판매 아이템 등록 페이지
   LostItem: undefined;       // 분실물 등록 페이지
+  ChatList: undefined; // 채팅 목록 페이지
 };
