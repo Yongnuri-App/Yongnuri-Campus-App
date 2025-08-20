@@ -10,6 +10,8 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import LocationPicker from '../../components/LocationPicker/LocationPicker';
+import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import styles from './SellItemPage.styles';
 
 // 판매/나눔 모드 타입
@@ -68,22 +70,6 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
     setImages(prev => [...prev, fakeUri]);
   };
 
-  /** 장소 선택 (Mock) */
-  const handlePickLocation = () => {
-    // TODO: ActionSheet/모달 선택 등으로 구현
-    Alert.alert(
-      '거래 희망 장소',
-      '장소 선택 모달을 연결해주세요. (TODO)',
-      [
-        { text: '용인대 정문', onPress: () => setLocation('용인대 정문') },
-        { text: '무도대학', onPress: () => setLocation('무도대학') },
-        { text: '체육과학대학', onPress: () => setLocation('체육과학대학') },
-        { text: 'AI바이오융합대학', onPress: () => setLocation('AI바이오융합대학') },
-        { text: '취소', style: 'cancel' },
-      ],
-    );
-  };
-
   /** 작성 완료 */
   const handleSubmit = () => {
     // 간단 검증
@@ -129,7 +115,7 @@ return (
       behavior={Platform.select({ ios: 'padding', android: undefined })}
       style={styles.container}
     >
-      {/* ✅ ScrollView 내부에 inner 컨테이너로 전체 여백/레이아웃 관리 */}
+      {/* ScrollView 내부에 inner 컨테이너로 전체 여백/레이아웃 관리 */}
       <ScrollView contentContainerStyle={styles.inner}>
         {/* 상단 헤더: 뒤로가기 + 중앙 타이틀 */}
         <View style={styles.header}>
@@ -148,14 +134,11 @@ return (
         </View>
 
         {/* 사진 영역 */}
-        <View style={styles.photoRow}>
-          <TouchableOpacity style={styles.photoBox} onPress={handleAddPhoto} activeOpacity={0.8}>
-            <Image source={require('../../assets/images/camera.png')} style={styles.cameraIcon} />
-            <Text style={styles.photoCountText}>
-              {images.length}/10
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <PhotoPicker
+          images={images}
+          max={10}
+          onAddPress={handleAddPhoto}
+        />
 
         {/* 제목 */}
         <View style={styles.field}>
@@ -229,23 +212,11 @@ return (
         </View>
 
         {/* 거래 희망 장소 */}
-        <View style={styles.field}>
-          <Text style={styles.label}>거래 희망 장소</Text>
-
-          <TouchableOpacity onPress={handlePickLocation} activeOpacity={0.8}>
-            <View style={styles.selectBox}>
-              <Text
-                style={location ? styles.selectValue : styles.selectPlaceholder}
-                numberOfLines={1}
-              >
-                {location ? location : '장소를 선택해 주세요.'}
-              </Text>
-
-              {/* 드롭다운 아이콘 대체(필요 시 이미지 교체 가능) */}
-              <Text style={styles.dropdownIcon}>⌄</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
+        <LocationPicker
+          value={location}
+          onChange={setLocation}
+          placeholder="장소를 선택해 주세요."
+        />
 
         {/* 스크롤 하단 여백 */}
         <View style={styles.submitSpacer} />

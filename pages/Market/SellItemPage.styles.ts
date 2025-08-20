@@ -10,6 +10,7 @@ export default StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 24,
   },
+  /* ===== Header ===== */
   header: {
     height: 44,
     justifyContent: 'center',
@@ -40,42 +41,6 @@ export default StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#1E1E1E',
-  },
-
-  /* ===== Content ===== */
-  scrollContent: {
-    paddingHorizontal: 19,
-    paddingTop: 16,
-    paddingBottom: 24,
-  },
-
-  /* 사진 행: 카메라 + 개수 텍스트 */
-  photoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 18,
-  },
-  photoBox: {
-    width: 65,
-    height: 65,
-    borderWidth: 1,
-    borderColor: '#979797',
-    borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 6,
-  },
-  cameraIcon: {
-    width: 25,
-    height: 25,
-    resizeMode: 'contain',
-    opacity: 0.7,
-    marginBottom: 3,
-  },
-  photoCountText: {
-    fontSize: 10,
-    lineHeight: 12,
-    color: '#979797',
   },
 
   /* 공통 필드 래퍼 */
@@ -149,32 +114,6 @@ export default StyleSheet.create({
   modeChipTextLight: {
     color: '#FFFFFF',
     fontWeight: '400',
-  },
-
-  /* 장소 선택 박스 */
-  selectBox: {
-    height: 47,
-    borderWidth: 1,
-    borderColor: '#979797',
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    backgroundColor: '#FFFFFF',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  selectPlaceholder: {
-    fontSize: 14,
-    color: '#979797',
-  },
-  selectValue: {
-    fontSize: 14,
-    color: '#1E1E1E',
-  },
-  dropdownIcon: {
-    fontSize: 16,
-    color: '#979797',
-    marginLeft: 8,
   },
 
   /* 하단 버튼 영역 */
