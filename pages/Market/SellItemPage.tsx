@@ -1,25 +1,22 @@
 // pages/Market/SellItemPage.tsx
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActionSheetIOS,
   Alert,
   Image,
-  Platform,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-// (선택) 압축 원하면 사용
-// import * as ImageManipulator from 'expo-image-manipulator';
 
 import LocationPicker from '../../components/LocationPicker/LocationPicker';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import styles from './SellItemPage.styles';
+
+// 커스텀 훅
+import useImagePicker from '../../hooks/useImagePicker';
 
 // 판매/나눔 모드 타입
 type SaleMode = 'sell' | 'donate' | null;
@@ -41,8 +38,9 @@ const formatKRW = (digits: string) => {
 };
 
 const SellItemPage: React.FC<Props> = ({ navigation }) => {
-  // 사진 최대 10장
-  const [images, setImages] = useState<string[]>([]);
+  // ✅ 사진은 훅이 관리 (UI는 PhotoPicker)
+  const { images, setImages, openAdd, removeAt } = useImagePicker({ max: MAX_IMAGES });
+
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [mode, setMode] = useState<SaleMode>(null);
@@ -92,100 +90,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
     if (next === 'donate') setPriceRaw(''); // 나눔 전환 시 가격 초기화
   };
 
-  /** 사진 추가 (iOS: 액션시트, Android/Web: Alert) */
-  const handleAddPhoto = async () => {
-    if (images.length >= MAX_IMAGES) {
-      Alert.alert('알림', `사진은 최대 ${MAX_IMAGES}장까지 업로드할 수 있어요.`);
-      return;
-    }
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: ['사진 보관함에서 선택', '파일에서 선택', '취소'],
-          cancelButtonIndex: 2,
-        },
-        async (buttonIndex) => {
-          if (buttonIndex === 0) await pickFromPhotos();
-          else if (buttonIndex === 1) await pickFromFiles();
-        }
-      );
-    } else {
-      Alert.alert('사진 추가', '추가 방법을 선택해주세요.', [
-        { text: '사진 보관함', onPress: () => pickFromPhotos() },
-        { text: '파일', onPress: () => pickFromFiles() },
-        { text: '취소', style: 'cancel' },
-      ]);
-    }
-  };
-
-  /** 사진 보관함에서 선택 (expo-image-picker) */
-  const pickFromPhotos = async () => {
-    try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('권한 필요', '사진 보관함 접근 권한을 허용해주세요.');
-        return;
-      }
-
-      const remain = MAX_IMAGES - images.length;
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsMultipleSelection: false,
-        quality: 1,
-      });
-
-      if (result.canceled) return;
-
-      const assetUris = (result.assets ?? []).map((a) => a.uri);
-      const toAdd = assetUris.slice(0, remain);
-
-      // (선택) 압축 처리 가능
-      setImages((prev) => [...prev, ...toAdd]);
-    } catch (e) {
-      console.log('pickFromPhotos error', e);
-      Alert.alert('오류', '사진을 불러오지 못했어요.');
-    }
-  };
-
-  /** 파일 앱에서 선택 (expo-document-picker) — 이미지 파일만 허용 */
-  const pickFromFiles = async () => {
-    try {
-      const remain = MAX_IMAGES - images.length;
-
-      const res = await DocumentPicker.getDocumentAsync({
-        type: ['image/*'],
-        multiple: false,
-        copyToCacheDirectory: true,
-      });
-
-      if ((res as any).canceled) return;
-
-      const assets = (res as any).assets ?? [];
-      if (!assets.length) return;
-
-      const chosen: string[] = [];
-      for (const a of assets) {
-        const uri: string | undefined = a.uri;
-        const mime: string | undefined =
-          a.mimeType || (Array.isArray(a.mimeType) ? a.mimeType[0] : undefined);
-        if (!uri) continue;
-        if (mime && !String(mime).startsWith('image/')) {
-          Alert.alert('알림', '이미지 파일만 업로드할 수 있어요.');
-          continue;
-        }
-        chosen.push(uri);
-      }
-
-      const toAdd = chosen.slice(0, remain);
-      if (toAdd.length) setImages((prev) => [...prev, ...toAdd]);
-    } catch (e) {
-      console.log('pickFromFiles error', e);
-      Alert.alert('오류', '파일을 불러오지 못했어요.');
-    }
-  };
-
-  /** 초안 복원 */
+  /** ⬇️⬇️ 초안 복원: 훅의 setImages 사용 ⬇️⬇️ */
   useEffect(() => {
     (async () => {
       try {
@@ -202,7 +107,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
         console.log('draft load fail', e);
       }
     })();
-  }, []);
+  }, [setImages]);
 
   /** 초안 저장(디바운스 300ms) */
   useEffect(() => {
@@ -255,7 +160,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
     return () => {
       if (sub) sub();
     };
-  }, [isDirty, submitting, navigation]);
+  }, [isDirty, submitting, navigation, setImages]);
 
   /** 제출 */
   const handleSubmit = async () => {
@@ -293,7 +198,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
       await AsyncStorage.removeItem(DRAFT_KEY);
       Alert.alert('완료', '게시글이 작성되었습니다.');
 
-      // 3) 폼/상태도 깔끔히 리셋 (선택)
+      // 3) 폼/상태 리셋
       setImages([]);
       setTitle('');
       setDesc('');
@@ -301,7 +206,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
       setPriceRaw('');
       setLocation('');
 
-      // 4) 메인으로 이동
+      // 4) 뒤로가기
       navigation?.goBack?.();
     } catch (e: any) {
       Alert.alert('오류', e?.message || '작성에 실패했어요. 잠시 후 다시 시도해주세요.');
@@ -328,8 +233,13 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
 
-        {/* 사진 영역 */}
-        <PhotoPicker images={images} max={MAX_IMAGES} onAddPress={handleAddPhoto} />
+        {/* 사진 영역 (UI만, 동작은 훅) */}
+        <PhotoPicker
+          images={images}
+          max={MAX_IMAGES}
+          onAddPress={openAdd}
+          onRemoveAt={removeAt}
+        />
 
         {/* 제목 */}
         <View style={styles.field}>
@@ -412,6 +322,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
             placeholderTextColor="#979797"
             value={priceDisplay}
             onChangeText={(t) => {
+              // 숫자만 추출 + 선행 0 제거
               const onlyDigits = t.replace(/[^\d]/g, '');
               const normalized = onlyDigits.replace(/^0+(\d)/, '$1');
               setPriceRaw(normalized);

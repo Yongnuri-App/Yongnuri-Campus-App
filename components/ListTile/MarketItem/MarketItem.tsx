@@ -31,7 +31,7 @@ export default function MarketItem({ title, subtitle, price, likeCount, image }:
       {/* 좋아요 영역 */}
       <View style={styles.likeWrap}>
         <Image
-          source={require('../../assets/images/grayheart.png')}
+          source={require('../../../assets/images/grayheart.png')}
           style={styles.likeIcon}
         />
         <Text style={styles.likeCount}>{likeCount}</Text>

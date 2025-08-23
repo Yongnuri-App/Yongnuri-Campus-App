@@ -1,25 +1,22 @@
 // pages/LostAndFound/LostPostCreatePage.tsx
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActionSheetIOS,
   Alert,
   Image,
-  Platform,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-// (선택) 압축 원하면 사용
-// import * as ImageManipulator from 'expo-image-manipulator';
 
-import styles from './LostPostPage.styles';
 import LocationPicker from '../../components/LocationPicker/LocationPicker';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
+import styles from './LostPostPage.styles';
+
+// ✅ 추가: 이미지 선택/권한/액션시트 로직을 캡슐화한 훅
+import useImagePicker from '../../hooks/useImagePicker';
 
 type Purpose = 'lost' | 'found';
 
@@ -32,8 +29,12 @@ const POSTS_KEY = 'lost_found_posts_v1';
 const MAX_PHOTOS = 10;
 
 const LostPostPage: React.FC<Props> = ({ navigation }) => {
-  // 상태
-  const [images, setImages] = useState<string[]>([]);
+  /** ----------------------------------------------------------
+   *  이미지 선택은 훅이 관리 (images/setImages/openAdd/removeAt)
+   * ---------------------------------------------------------- */
+  const { images, setImages, openAdd, removeAt } = useImagePicker({ max: MAX_PHOTOS });
+
+  // 나머지 폼 상태
   const [purpose, setPurpose] = useState<Purpose | null>(null);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -67,91 +68,9 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
     Alert.alert('뒤로가기', '네비게이션이 연결되어 있지 않습니다.');
   }, [navigation]);
 
-  // ===== 사진 추가 =====
-  const handleAddPhoto = async () => {
-    if (images.length >= MAX_PHOTOS) {
-      Alert.alert('알림', `사진은 최대 ${MAX_PHOTOS}장까지 업로드할 수 있어요.`);
-      return;
-    }
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: ['사진 보관함에서 선택', '파일에서 선택', '취소'],
-          cancelButtonIndex: 2,
-        },
-        async (idx) => {
-          if (idx === 0) await pickFromPhotos();
-          else if (idx === 1) await pickFromFiles();
-        }
-      );
-    } else {
-      Alert.alert('사진 추가', '추가 방법을 선택해주세요.', [
-        { text: '사진 보관함', onPress: () => pickFromPhotos() },
-        { text: '파일', onPress: () => pickFromFiles() },
-        { text: '취소', style: 'cancel' },
-      ]);
-    }
-  };
-
-  const pickFromPhotos = async () => {
-    try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('권한 필요', '사진 보관함 접근 권한을 허용해주세요.');
-        return;
-      }
-      const remain = MAX_PHOTOS - images.length;
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsMultipleSelection: false,
-        quality: 1,
-      });
-      if (result.canceled) return;
-      const assetUris = (result.assets ?? []).map((a) => a.uri);
-      const toAdd = assetUris.slice(0, remain);
-
-      // (선택) 압축 처리 가능
-      setImages((prev) => [...prev, ...toAdd]);
-    } catch (e) {
-      console.log('pickFromPhotos error', e);
-      Alert.alert('오류', '사진을 불러오지 못했어요.');
-    }
-  };
-
-  const pickFromFiles = async () => {
-    try {
-      const remain = MAX_PHOTOS - images.length;
-      const res = await DocumentPicker.getDocumentAsync({
-        type: ['image/*'],
-        multiple: false,
-        copyToCacheDirectory: true,
-      });
-      if ((res as any).canceled) return;
-
-      const assets = (res as any).assets ?? [];
-      if (!assets.length) return;
-
-      const chosen: string[] = [];
-      for (const a of assets) {
-        const uri: string | undefined = a.uri;
-        const mime: string | undefined =
-          a.mimeType || (Array.isArray(a.mimeType) ? a.mimeType[0] : undefined);
-        if (!uri) continue;
-        if (mime && !String(mime).startsWith('image/')) {
-          Alert.alert('알림', '이미지 파일만 업로드할 수 있어요.');
-          continue;
-        }
-        chosen.push(uri);
-      }
-      const toAdd = chosen.slice(0, remain);
-      if (toAdd.length) setImages((prev) => [...prev, ...toAdd]);
-    } catch (e) {
-      console.log('pickFromFiles error', e);
-      Alert.alert('오류', '파일을 불러오지 못했어요.');
-    }
-  };
-
-  // ===== 초안 복원 =====
+  /** =======================
+   *  초안 복원
+   *  ======================= */
   useEffect(() => {
     (async () => {
       try {
@@ -167,9 +86,11 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
         console.log('draft load fail', e);
       }
     })();
-  }, []);
+  }, [setImages]);
 
-  // ===== 초안 저장(디바운스) =====
+  /** =======================
+   *  초안 저장(디바운스)
+   *  ======================= */
   useEffect(() => {
     if (skipSaveRef.current) return; // '나가기' 이후 저장 스킵
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -186,7 +107,9 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
     };
   }, [images, purpose, title, desc, place]);
 
-  // ===== 이탈 방지 (나가기시 드래프트 스킵 & 리셋) =====
+  /** =======================
+   *  이탈 방지 (나가기시 드래프트 스킵 & 리셋)
+   *  ======================= */
   useEffect(() => {
     const sub = navigation?.addListener?.('beforeRemove', (e: any) => {
       if (!isDirty || submitting) return;
@@ -217,9 +140,11 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
     return () => {
       if (sub) sub();
     };
-  }, [isDirty, submitting, navigation]);
+  }, [isDirty, submitting, navigation, setImages]);
 
-  // ===== 제출: 로컬 피드에 저장(최신순) =====
+  /** =======================
+   *  제출: 로컬 피드에 저장(최신순)
+   *  ======================= */
   const handleSubmit = useCallback(async () => {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
@@ -229,7 +154,7 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
         title: title.trim(),
         content: desc.trim(),
         location: place.trim(),
-        photos: images, // TODO: 추후 업로드 후 URL 사용
+        photos: images, // TODO: 실제 업로드 후 URL 사용
       };
 
       const newItem = {
@@ -265,7 +190,7 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
     } finally {
       setSubmitting(false);
     }
-  }, [canSubmit, desc, images, navigation, place, purpose, submitting, title]);
+  }, [canSubmit, desc, images, navigation, place, purpose, submitting, title, setImages]);
 
   return (
     <View style={styles.container}>
@@ -297,14 +222,12 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* 사진 영역 */}
+          {/* 사진 영역: UI는 PhotoPicker, 동작은 훅 */}
           <PhotoPicker
             images={images}
             max={MAX_PHOTOS}
-            onAddPress={handleAddPhoto}
-            onRemoveAt={(index) =>
-              setImages((prev) => prev.filter((_, i) => i !== index))
-            }
+            onAddPress={openAdd}
+            onRemoveAt={removeAt}
           />
 
           {/* 작성 목적 (분실/습득) */}

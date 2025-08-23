@@ -1,15 +1,15 @@
 // pages/Main/MainPage.tsx
-import React, { useCallback, useMemo, useState } from 'react';
-import { FlatList, Text, View, RefreshControl } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { FlatList, RefreshControl, Text, View } from 'react-native';
 
 import BottomTabBar, { TabKey } from '../../components/Bottom/BottomTabBar';
 import CategoryChips, { DEFAULT_CATEGORIES } from '../../components/CategoryChips/CategoryChips';
 import FloatingWriteButton from '../../components/FloatingButton/FloatingWriteButton';
 import MainHeader from '../../components/Header/MainHeader';
-import MarketItem from '../../components/MarketItem/MarketItem';
-import LostItem from '../../components/LostItem/LostItem';
+import LostItem from '../../components/ListTile/LostItem/LostItem';
+import MarketItem from '../../components/ListTile/MarketItem/MarketItem';
 import styles from './MainPage.styles';
 
 const POSTS_KEY_MAP = {
@@ -189,7 +189,7 @@ export default function MainPage({ navigation }: any) {
             ListEmptyComponent={
               <Text style={{ color: '#979797', marginTop: 24, textAlign: 'center' }}>
                 {category === 'all'
-                  ? '아직 분실물/습득물 게시글이 없어요. 오른쪽 아래 버튼으로 첫 글을 올려보세요!'
+                  ? '아직 분실물/습득물 게시글이 없어요.\n 오른쪽 아래 버튼으로 첫 글을 올려보세요!'
                   : '이 카테고리에 해당하는 게시글이 없어요.'}
               </Text>
             }
