@@ -43,7 +43,7 @@ export default function FloatingWriteButton({
         console.log('채팅은 글쓰기 없음');
         break;
       case 'group':
-        console.log('공동구매 글쓰기로 이동 (TODO: GroupBuyWritePage)');
+        navigation.navigate("GroupBuyRecruit");
         break;
       case 'notice':
         console.log('공지사항 글쓰기로 이동 (TODO: NoticeWritePage)');

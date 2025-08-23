@@ -7,6 +7,7 @@ import { RootStackParamList } from './types/navigation';
 
 // 페이지 컴포넌트들
 import ChatListPage from './pages/Chat/ChatListPage';
+import GroupBuyRecruitPage from './pages/GroupBuy/GroupBuyRecruitPage';
 import LoadingScreen from './pages/Loading/LoadingScreen';
 import LoginPage from './pages/Login/LoginPage';
 import LostPostPage from './pages/LostAndFound/LostPostPage';
@@ -36,6 +37,7 @@ export default function App() {
         <Stack.Screen name="SellItem" component={SellItemPage} />
         <Stack.Screen name="LostItem" component={LostPostPage} />
         <Stack.Screen name="ChatList" component={ChatListPage} />
+        <Stack.Screen name="GroupBuyRecruit" component={GroupBuyRecruitPage} />
         {/* 추가적인 페이지가 필요하면 여기에 계속 추가 */}
       </Stack.Navigator>
     </NavigationContainer>
