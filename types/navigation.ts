@@ -17,6 +17,7 @@ export type RootStackParamList = {
   LostPost: undefined;
   ChatList: undefined; // 채팅 목록 페이지
   MarketDetail: { id: string }; // 마켓 상세 페이지 (id 필요)
+  LostDetail: { id: string };
 };
 
 /** 화면 컴포넌트에서 사용할 공용 Props 타입 */

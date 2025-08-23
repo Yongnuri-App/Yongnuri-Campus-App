@@ -195,6 +195,7 @@ export default function MainPage({ navigation }: any) {
                 typeLabel={item.type === 'found' ? '습득' : '분실'}
                 likeCount={item.likeCount ?? 0}
                 image={item.images?.[0] ?? ''}
+                onPress={() => navigation.navigate('LostDetail', { id: item.id })}
               />
             )}
             ListEmptyComponent={

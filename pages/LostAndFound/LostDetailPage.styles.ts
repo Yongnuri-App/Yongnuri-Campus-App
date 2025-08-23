@@ -1,17 +1,15 @@
-// pages/Market/MarketDetailPage.styles.ts
+// pages/LostAndFound/LostDetailPage.styles.ts
 import { Dimensions, StyleSheet } from 'react-native';
 const { width } = Dimensions.get('window');
 
 export default StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
-  
-  /* ✅ 전체 ScrollView의 content 컨테이너 (하단 여백만) */
   contentContainer: { paddingBottom: 16 },
 
-  /* ===== 이미지 상단 영역 ===== */
+  /* ===== 상단 이미지 ===== */
   imageArea: {
     width: '100%',
-    height: 390, // 피그마 스펙
+    height: 390,                 // 피그마 스펙
     backgroundColor: '#D9D9D9',
   },
   mainImage: {
@@ -20,19 +18,16 @@ export default StyleSheet.create({
     resizeMode: 'cover',
     backgroundColor: '#D9D9D9',
   },
-  imagePlaceholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  imagePlaceholder: { alignItems: 'center', justifyContent: 'center' },
   imagePlaceholderText: { color: '#979797' },
 
-  /* 오버레이 아이콘 공통 */
+  /* 오버레이 아이콘 */
   iconBtn: {
     position: 'absolute',
     // width: 32,
     // height: 32,
     // borderRadius: 16,
-    // backgroundColor: 'rgba(255,255,255,0.8)',
+    // backgroundColor: 'rgba(255,255,255,0.8)', // 밝은 아이콘/어두운 배경 모두 대비 확보
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -40,7 +35,7 @@ export default StyleSheet.create({
   iconLeftTop: { top: 55, left: 16 },
   iconRightTop: { top: 55, right: 16 },
 
-  /* 우하단 이미지 카운터 */
+  /* 우하단 카운터 */
   counterPill: {
     position: 'absolute',
     right: 12,
@@ -55,58 +50,42 @@ export default StyleSheet.create({
   counterText: { color: '#FFFFFF', fontSize: 11, fontWeight: '500' },
 
   /* ===== 본문 ===== */
-  content: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 16 },
-
   body: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 16 },
-  
-  /* 프로필 */
-  profileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 53,
-  },
-  avatar: {
-    width: 53,
-    height: 53,
-    borderRadius: 26.5,
-    backgroundColor: '#D9D9D9', // 임시
-  },
+
+  /* 임시 프로필 */
+  profileRow: { flexDirection: 'row', alignItems: 'center', height: 53 },
+  avatar: { width: 53, height: 53, borderRadius: 26.5, backgroundColor: '#D9D9D9' },
   profileTextCol: { marginLeft: 9, justifyContent: 'center' },
   profileName: { fontSize: 16, fontWeight: '700', color: '#1E1E1E', lineHeight: 23 },
   profileDept: { fontSize: 12, fontWeight: '400', color: '#979797', lineHeight: 17 },
 
-  divider: {
-    height: 1,
-    backgroundColor: '#EDEDED',
-    marginTop: 16,
-    marginBottom: 12,
-  },
+  divider: { height: 1, backgroundColor: '#EDEDED', marginTop: 16, marginBottom: 12 },
 
-  /* 제목/가격/시간 */
-  titleBlock: { gap: 8 },
-  title: { fontSize: 20, fontWeight: '700', color: '#000000' },
-  price: { fontSize: 18, fontWeight: '700', color: '#000000' },
-  time: { fontSize: 14, fontWeight: '600', color: '#979797' },
-
-  /* 설명 */
-  desc: {
-    marginTop: 20,
-    fontSize: 15,
-    lineHeight: 20,
-    color: '#212124',
-  },
-
-  /* 거래 희망 장소 */
-  locationRow: {
-    flexDirection: 'row',
+  /* 뱃지 + 제목 */
+  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  badge: {
+    paddingHorizontal: 8,
+    height: 22,
+    borderRadius: 5,
     alignItems: 'center',
-    marginTop: 20,
-    gap: 8,
+    justifyContent: 'center',
   },
+  badgeLost: { backgroundColor: '#F070C8' },
+  badgeFound: { backgroundColor: '#419EBD' }, 
+  badgeText: { fontSize: 12, fontWeight: '600', color: '#FFFFFF' },
+
+  title: { fontSize: 20, fontWeight: '700', color: '#000000', flexShrink: 1 },
+
+  time: { marginTop: 8, fontSize: 14, fontWeight: '600', color: '#979797' },
+
+  desc: { marginTop: 20, fontSize: 15, lineHeight: 20, color: '#212124' },
+
+  /* 분실/습득 장소 */
+  locationRow: { flexDirection: 'row', alignItems: 'center', marginTop: 20, gap: 8 },
   locationLabel: { fontSize: 16, fontWeight: '700', color: '#000000' },
   locationValue: { fontSize: 16, fontWeight: '400', color: '#000000' },
 
-  /* 로딩/플레이스홀더 */
+  /* 로딩 */
   fallback: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },
   fallbackText: { color: '#797979' },
 });

@@ -10,6 +10,7 @@ import ChatListPage from './pages/Chat/ChatListPage';
 import GroupBuyRecruitPage from './pages/GroupBuy/GroupBuyRecruitPage';
 import LoadingScreen from './pages/Loading/LoadingScreen';
 import LoginPage from './pages/Login/LoginPage';
+import LostDetailPage from './pages/LostAndFound/LostDetailPage';
 import LostPostPage from './pages/LostAndFound/LostPostPage';
 import MainPage from './pages/Main/MainPage';
 import MarketDetailPage from './pages/Market/MarketDetailPage';
@@ -41,6 +42,7 @@ export default function App() {
         <Stack.Screen name="GroupBuyRecruit" component={GroupBuyRecruitPage} />
         <Stack.Screen name="LostPost" component={LostPostPage} />
         <Stack.Screen name="MarketDetail" component={MarketDetailPage} />
+        <Stack.Screen name="LostDetail" component={LostDetailPage} />
         {/* 추가적인 페이지가 필요하면 여기에 계속 추가 */}
       </Stack.Navigator>
     </NavigationContainer>
