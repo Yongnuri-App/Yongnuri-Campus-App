@@ -8,8 +8,9 @@ export type RootStackParamList = {
   Search: undefined;         // 검색 페이지
   Notification: undefined;   // 알림 페이지
   SellItem: undefined;       // 판매 아이템 등록 페이지
-  LostItem: undefined;       // 분실물 등록 페이지
+  // LostItem: undefined;       // 분실물 등록 페이지
   GroupBuyRecruit: undefined; // 공동구매 모집글 작성 페이지
+  LostPost: undefined;
   ChatList: undefined; // 채팅 목록 페이지
 
 };

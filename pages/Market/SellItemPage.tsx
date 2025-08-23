@@ -1,15 +1,22 @@
-import React, { useMemo, useState } from 'react';
+// pages/Market/SellItemPage.tsx
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActionSheetIOS,
+  Alert,
+  Image,
+  Platform,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+// (선택) 압축 원하면 사용
+// import * as ImageManipulator from 'expo-image-manipulator';
+
 import LocationPicker from '../../components/LocationPicker/LocationPicker';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import styles from './SellItemPage.styles';
@@ -18,8 +25,12 @@ import styles from './SellItemPage.styles';
 type SaleMode = 'sell' | 'donate' | null;
 
 interface Props {
-  navigation?: any; // TODO: React Navigation 타입을 사용 중이면 적절한 Stack Param을 연결해주세요.
+  navigation?: any;
 }
+
+const DRAFT_KEY = 'sell_item_draft_v1';
+const POSTS_KEY = 'market_posts_v1';
+const MAX_IMAGES = 10;
 
 /** 숫자만 받은 뒤 "₩ 12,345" 형태로 보여주기 */
 const formatKRW = (digits: string) => {
@@ -34,90 +45,276 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
   const [images, setImages] = useState<string[]>([]);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
-  const [mode, setMode] = useState<SaleMode>(null); // 기본: 판매하기
-  const [priceRaw, setPriceRaw] = useState<string>(''); // 숫자만 저장
+  const [mode, setMode] = useState<SaleMode>(null);
+  const [priceRaw, setPriceRaw] = useState<string>(''); // 숫자만
   const [location, setLocation] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+
+  // '나가기' 시 자동저장 스킵을 위한 플래그/타이머
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipSaveRef = useRef(false);
 
   const isDonation = useMemo(() => mode === 'donate', [mode]);
   const isSell = useMemo(() => mode === 'sell', [mode]);
   const priceDisplay = useMemo(() => formatKRW(priceRaw), [priceRaw]);
 
+  /** 폼 유효성 (작성 완료 버튼 활성/비활성) */
+  const canSubmit = useMemo(() => {
+    if (!title.trim()) return false;
+    if (!desc.trim()) return false;
+    if (mode === null) return false;
+    if (mode === 'sell' && !priceRaw.trim()) return false;
+    if (!location.trim()) return false;
+    return true;
+  }, [title, desc, mode, priceRaw, location]);
+
+  /** 작성 중 여부(이탈 방지) */
+  const isDirty = useMemo(() => {
+    return (
+      images.length > 0 ||
+      !!title.trim() ||
+      !!desc.trim() ||
+      mode !== null ||
+      !!priceRaw.trim() ||
+      !!location.trim()
+    );
+  }, [images, title, desc, mode, priceRaw, location]);
+
   /** 뒤로가기 */
   const goBack = () => {
     if (navigation?.goBack) return navigation.goBack();
-    // 네비게이션이 없다면: 여기서는 안전하게 경고만
     Alert.alert('뒤로가기', '네비게이션이 연결되어 있지 않습니다.');
   };
 
-  /** 모드 변경: 판매하기/나눔하기 */
+  /** 모드 변경 */
   const handleChangeMode = (next: SaleMode) => {
     setMode(next);
     if (next === 'donate') setPriceRaw(''); // 나눔 전환 시 가격 초기화
   };
 
-  /** 사진 추가 (Mock)
-   * - 실제 구현 시 ImagePicker.launchImageLibraryAsync() 등으로 교체
-   * - 여기서는 최대 10장 제한만 동작
-   */
+  /** 사진 추가 (iOS: 액션시트, Android/Web: Alert) */
   const handleAddPhoto = async () => {
-    if (images.length >= 10) {
-      Alert.alert('알림', '사진은 최대 10장까지 업로드할 수 있어요.');
+    if (images.length >= MAX_IMAGES) {
+      Alert.alert('알림', `사진은 최대 ${MAX_IMAGES}장까지 업로드할 수 있어요.`);
       return;
     }
-    // TODO: ImagePicker 연결
-    // 예시로 임시 URI를 추가
-    const fakeUri = `local://image-${Date.now()}.jpg`;
-    setImages(prev => [...prev, fakeUri]);
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['사진 보관함에서 선택', '파일에서 선택', '취소'],
+          cancelButtonIndex: 2,
+        },
+        async (buttonIndex) => {
+          if (buttonIndex === 0) await pickFromPhotos();
+          else if (buttonIndex === 1) await pickFromFiles();
+        }
+      );
+    } else {
+      Alert.alert('사진 추가', '추가 방법을 선택해주세요.', [
+        { text: '사진 보관함', onPress: () => pickFromPhotos() },
+        { text: '파일', onPress: () => pickFromFiles() },
+        { text: '취소', style: 'cancel' },
+      ]);
+    }
   };
 
-  /** 작성 완료 */
-  const handleSubmit = () => {
-    // 간단 검증
-    if (!title.trim()) {
-      Alert.alert('알림', '제목을 입력해주세요.');
-      return;
-    }
-    if (!desc.trim()) {
-      Alert.alert('알림', '설명을 입력해주세요.');
-      return;
-    }
-    if (mode === null) {
-      Alert.alert('알림', '거래 방식을 선택해주세요.');
-      return;
-    }
-    if (!isDonation && !priceRaw.trim()) {
-      Alert.alert('알림', '판매하기를 선택한 경우 가격을 입력해주세요.');
-      return;
-    }
-    if (!location.trim()) {
-      Alert.alert('알림', '거래 희망 장소를 선택해주세요.');
-      return;
-    }
+  /** 사진 보관함에서 선택 (expo-image-picker) */
+  const pickFromPhotos = async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('권한 필요', '사진 보관함 접근 권한을 허용해주세요.');
+        return;
+      }
 
-    // TODO: 백엔드 API 연결
-    // 요청 바디 예시
-    const payload = {
-      title: title.trim(),
-      description: desc.trim(),
-      mode,
-      price: isDonation ? 0 : Number(priceRaw),
-      location: location.trim(),
-      images, // URI 리스트 (실제 업로드는 업로드 후 받은 URL들로 교체)
+      const remain = MAX_IMAGES - images.length;
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: false,
+        quality: 1,
+      });
+
+      if (result.canceled) return;
+
+      const assetUris = (result.assets ?? []).map((a) => a.uri);
+      const toAdd = assetUris.slice(0, remain);
+
+      // (선택) 압축 처리 가능
+      setImages((prev) => [...prev, ...toAdd]);
+    } catch (e) {
+      console.log('pickFromPhotos error', e);
+      Alert.alert('오류', '사진을 불러오지 못했어요.');
+    }
+  };
+
+  /** 파일 앱에서 선택 (expo-document-picker) — 이미지 파일만 허용 */
+  const pickFromFiles = async () => {
+    try {
+      const remain = MAX_IMAGES - images.length;
+
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ['image/*'],
+        multiple: false,
+        copyToCacheDirectory: true,
+      });
+
+      if ((res as any).canceled) return;
+
+      const assets = (res as any).assets ?? [];
+      if (!assets.length) return;
+
+      const chosen: string[] = [];
+      for (const a of assets) {
+        const uri: string | undefined = a.uri;
+        const mime: string | undefined =
+          a.mimeType || (Array.isArray(a.mimeType) ? a.mimeType[0] : undefined);
+        if (!uri) continue;
+        if (mime && !String(mime).startsWith('image/')) {
+          Alert.alert('알림', '이미지 파일만 업로드할 수 있어요.');
+          continue;
+        }
+        chosen.push(uri);
+      }
+
+      const toAdd = chosen.slice(0, remain);
+      if (toAdd.length) setImages((prev) => [...prev, ...toAdd]);
+    } catch (e) {
+      console.log('pickFromFiles error', e);
+      Alert.alert('오류', '파일을 불러오지 못했어요.');
+    }
+  };
+
+  /** 초안 복원 */
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(DRAFT_KEY);
+        if (!raw) return;
+        const d = JSON.parse(raw);
+        if (Array.isArray(d?.images)) setImages(d.images);
+        if (typeof d?.title === 'string') setTitle(d.title);
+        if (typeof d?.desc === 'string') setDesc(d.desc);
+        if (d?.mode === 'sell' || d?.mode === 'donate') setMode(d.mode);
+        if (typeof d?.priceRaw === 'string') setPriceRaw(d.priceRaw);
+        if (typeof d?.location === 'string') setLocation(d.location);
+      } catch (e) {
+        console.log('draft load fail', e);
+      }
+    })();
+  }, []);
+
+  /** 초안 저장(디바운스 300ms) */
+  useEffect(() => {
+    if (skipSaveRef.current) return; // '나가기' 선택 이후 저장 스킵
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        const draft = { images, title, desc, mode, priceRaw, location };
+        await AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      } catch (e) {
+        console.log('draft save fail', e);
+      }
+    }, 300);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
     };
+  }, [images, title, desc, mode, priceRaw, location]);
 
-    console.log('📝 제출 페이로드:', payload);
-    Alert.alert('완료', '게시글이 작성되었습니다. (API 연결 TODO)');
-    navigation?.goBack?.();
+  /** 이탈 방지 + '나가기' 시 드래프트 삭제/리셋 */
+  useEffect(() => {
+    const sub = navigation?.addListener?.('beforeRemove', (e: any) => {
+      if (!isDirty || submitting) return;
+      e.preventDefault();
+      Alert.alert('작성 중', '작성 중인 내용이 사라집니다. 나가시겠어요?', [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '나가기',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // 이후 자동 저장 막기
+              skipSaveRef.current = true;
+              if (saveTimer.current) clearTimeout(saveTimer.current);
+              // 드래프트 삭제
+              await AsyncStorage.removeItem(DRAFT_KEY);
+              // 메모리 상태도 즉시 리셋
+              setImages([]);
+              setTitle('');
+              setDesc('');
+              setMode(null);
+              setPriceRaw('');
+              setLocation('');
+            } finally {
+              navigation.dispatch(e.data.action); // 실제 화면 이탈
+            }
+          },
+        },
+      ]);
+    });
+    return () => {
+      if (sub) sub();
+    };
+  }, [isDirty, submitting, navigation]);
+
+  /** 제출 */
+  const handleSubmit = async () => {
+    if (!canSubmit || submitting) return;
+    setSubmitting(true);
+    try {
+      const payload = {
+        title: title.trim(),
+        description: desc.trim(),
+        mode, // 'sell' | 'donate'
+        price: isDonation ? 0 : Number(priceRaw), // number
+        location: location.trim(),
+        images, // string[]
+      };
+
+      // 1) 로컬 '게시글 목록'에 append (최신이 위로)
+      const newItem = {
+        id: String(Date.now()),
+        title: payload.title,
+        description: payload.description,
+        mode: payload.mode as 'sell' | 'donate',
+        price: payload.price,
+        location: payload.location,
+        images: payload.images,
+        likeCount: 0,
+        createdAt: new Date().toISOString(),
+      };
+
+      const raw = await AsyncStorage.getItem(POSTS_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      list.unshift(newItem);
+      await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(list));
+
+      // 2) 드래프트 삭제 및 알림
+      await AsyncStorage.removeItem(DRAFT_KEY);
+      Alert.alert('완료', '게시글이 작성되었습니다.');
+
+      // 3) 폼/상태도 깔끔히 리셋 (선택)
+      setImages([]);
+      setTitle('');
+      setDesc('');
+      setMode(null);
+      setPriceRaw('');
+      setLocation('');
+
+      // 4) 메인으로 이동
+      navigation?.goBack?.();
+    } catch (e: any) {
+      Alert.alert('오류', e?.message || '작성에 실패했어요. 잠시 후 다시 시도해주세요.');
+      console.log(e);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-return (
-    <KeyboardAvoidingView
-      behavior={Platform.select({ ios: 'padding', android: undefined })}
-      style={styles.container}
-    >
-      {/* ScrollView 내부에 inner 컨테이너로 전체 여백/레이아웃 관리 */}
+  return (
+    <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.inner}>
-        {/* 상단 헤더: 뒤로가기 + 중앙 타이틀 */}
+        {/* 상단 헤더 */}
         <View style={styles.header}>
           <TouchableOpacity onPress={goBack} style={styles.backButton}>
             <Image
@@ -126,23 +323,20 @@ return (
               resizeMode="contain"
             />
           </TouchableOpacity>
-
-          {/* 타이틀을 항상 가운데 정렬(왼쪽 버튼 폭과 무관) */}
           <View style={styles.headerTitleWrap}>
             <Text style={styles.headerTitle}>내 물건 팔기</Text>
           </View>
         </View>
 
         {/* 사진 영역 */}
-        <PhotoPicker
-          images={images}
-          max={10}
-          onAddPress={handleAddPhoto}
-        />
+        <PhotoPicker images={images} max={MAX_IMAGES} onAddPress={handleAddPhoto} />
 
         {/* 제목 */}
         <View style={styles.field}>
-          <Text style={styles.label}>제목</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <Text style={styles.label}>제목</Text>
+            <Text style={{ color: '#979797' }}>{title.length}/60</Text>
+          </View>
           <TextInput
             style={styles.input}
             placeholder="글 제목"
@@ -155,7 +349,10 @@ return (
 
         {/* 설명 */}
         <View style={styles.field}>
-          <Text style={styles.label}>설명</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <Text style={styles.label}>설명</Text>
+            <Text style={{ color: '#979797' }}>{desc.length}</Text>
+          </View>
           <TextInput
             style={[styles.input, styles.textarea]}
             placeholder="용누리 캠퍼스에 올릴 게시글 내용을 작성해주세요."
@@ -171,40 +368,53 @@ return (
         <View style={styles.field}>
           <Text style={styles.label}>거래 방식</Text>
 
-          {/* 모드 토글: 판매하기 / 나눔하기 */}
           <View style={styles.modeRow}>
             <TouchableOpacity
-                onPress={() => handleChangeMode('sell')}
-                style={[styles.modeChip, mode === 'sell' ? styles.modeChipActiveFill : styles.modeChipOutline]}
-                activeOpacity={0.8}
+              onPress={() => handleChangeMode('sell')}
+              style={[
+                styles.modeChip,
+                mode === 'sell' ? styles.modeChipActiveFill : styles.modeChipOutline,
+              ]}
+              activeOpacity={0.8}
             >
-                {/* 활성 시 글자도 진하게 */}
-                <Text style={[styles.modeChipText, mode === 'sell' ? styles.modeChipTextLight : styles.modeChipTextDark]}>
+              <Text
+                style={[
+                  styles.modeChipText,
+                  mode === 'sell' ? styles.modeChipTextLight : styles.modeChipTextDark,
+                ]}
+              >
                 판매하기
-                </Text>
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-                onPress={() => handleChangeMode('donate')}
-                style={[styles.modeChip, mode === 'donate' ? styles.modeChipActiveFill : styles.modeChipOutline]}
-                activeOpacity={0.8}
+              onPress={() => handleChangeMode('donate')}
+              style={[
+                styles.modeChip,
+                mode === 'donate' ? styles.modeChipActiveFill : styles.modeChipOutline,
+              ]}
+              activeOpacity={0.8}
             >
-                <Text style={[styles.modeChipText, mode === 'donate' ? styles.modeChipTextLight : styles.modeChipTextDark]}>
+              <Text
+                style={[
+                  styles.modeChipText,
+                  mode === 'donate' ? styles.modeChipTextLight : styles.modeChipTextDark,
+                ]}
+              >
                 나눔하기
-                </Text>
+              </Text>
             </TouchableOpacity>
           </View>
 
-          {/* 가격 입력: 판매하기일 때만 활성화 */}
           <TextInput
             style={[styles.input, !isSell && styles.inputDisabled]}
             placeholder="￦ 0"
             placeholderTextColor="#979797"
             value={priceDisplay}
             onChangeText={(t) => {
-              // 사용자가 입력한 문자열에서 숫자만 추출
               const onlyDigits = t.replace(/[^\d]/g, '');
-              setPriceRaw(onlyDigits);
+              const normalized = onlyDigits.replace(/^0+(\d)/, '$1');
+              setPriceRaw(normalized);
             }}
             editable={!isDonation}
             keyboardType="number-pad"
@@ -218,17 +428,21 @@ return (
           placeholder="장소를 선택해 주세요."
         />
 
-        {/* 스크롤 하단 여백 */}
         <View style={styles.submitSpacer} />
       </ScrollView>
 
-      {/* 하단 고정: 작성 완료 버튼 */}
+      {/* 하단 고정 버튼 */}
       <View style={styles.submitWrap}>
-        <TouchableOpacity style={styles.submitButton} activeOpacity={0.9} onPress={handleSubmit}>
-          <Text style={styles.submitText}>작성 완료</Text>
+        <TouchableOpacity
+          style={[styles.submitButton, { opacity: canSubmit && !submitting ? 1 : 0.6 }]}
+          activeOpacity={canSubmit && !submitting ? 0.9 : 1}
+          onPress={handleSubmit}
+          disabled={!canSubmit || submitting}
+        >
+          <Text style={styles.submitText}>{submitting ? '작성 중...' : '작성 완료'}</Text>
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 

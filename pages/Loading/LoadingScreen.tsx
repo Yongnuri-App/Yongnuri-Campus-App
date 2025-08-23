@@ -20,7 +20,7 @@ const LoadingScreen = () => {
 
     const timeout = setTimeout(() => {
       navigation.navigate('Login'); // 로그인 페이지 등록 필요
-    }, 1000);
+    }, 2000);
 
     return () => clearTimeout(timeout);
   }, [bounceAnim, navigation]);

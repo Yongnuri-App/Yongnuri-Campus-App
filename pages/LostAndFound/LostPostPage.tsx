@@ -1,9 +1,9 @@
 // pages/LostAndFound/LostPostCreatePage.tsx
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActionSheetIOS,
   Alert,
   Image,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   Text,
@@ -11,8 +11,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import styles from './LostPostPage.styles';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+// (선택) 압축 원하면 사용
+// import * as ImageManipulator from 'expo-image-manipulator';
 
+import styles from './LostPostPage.styles';
 import LocationPicker from '../../components/LocationPicker/LocationPicker';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 
@@ -22,49 +27,248 @@ interface Props {
   navigation?: any; // TODO: React Navigation 타입으로 교체
 }
 
+const DRAFT_KEY = 'lost_post_draft_v1';
+const POSTS_KEY = 'lost_found_posts_v1';
+const MAX_PHOTOS = 10;
+
 const LostPostPage: React.FC<Props> = ({ navigation }) => {
-  // 사진 목록(URI 배열)
+  // 상태
   const [images, setImages] = useState<string[]>([]);
   const [purpose, setPurpose] = useState<Purpose | null>(null);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [place, setPlace] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const MAX_PHOTOS = 10;
+  // draft 저장 제어
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipSaveRef = useRef(false);
 
+  // 유효성
   const canSubmit = useMemo(
     () => Boolean(purpose && title.trim() && desc.trim() && place.trim()),
     [purpose, title, desc, place]
   );
 
+  // 작성 중 판단(이탈 방지)
+  const isDirty = useMemo(
+    () =>
+      images.length > 0 ||
+      !!purpose ||
+      !!title.trim() ||
+      !!desc.trim() ||
+      !!place.trim(),
+    [images, purpose, title, desc, place]
+  );
+
+  // 뒤로가기
   const handleGoBack = useCallback(() => {
-    navigation?.goBack?.();
+    if (navigation?.goBack) return navigation.goBack();
+    Alert.alert('뒤로가기', '네비게이션이 연결되어 있지 않습니다.');
   }, [navigation]);
 
-  const handleSubmit = useCallback(() => {
-    if (!canSubmit) {
-      Alert.alert('작성 안내', '작성 목적, 제목, 설명, 장소를 모두 입력해 주세요.');
+  // ===== 사진 추가 =====
+  const handleAddPhoto = async () => {
+    if (images.length >= MAX_PHOTOS) {
+      Alert.alert('알림', `사진은 최대 ${MAX_PHOTOS}장까지 업로드할 수 있어요.`);
       return;
     }
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['사진 보관함에서 선택', '파일에서 선택', '취소'],
+          cancelButtonIndex: 2,
+        },
+        async (idx) => {
+          if (idx === 0) await pickFromPhotos();
+          else if (idx === 1) await pickFromFiles();
+        }
+      );
+    } else {
+      Alert.alert('사진 추가', '추가 방법을 선택해주세요.', [
+        { text: '사진 보관함', onPress: () => pickFromPhotos() },
+        { text: '파일', onPress: () => pickFromFiles() },
+        { text: '취소', style: 'cancel' },
+      ]);
+    }
+  };
 
-    const payload = {
-      type: purpose,
-      title: title.trim(),
-      content: desc.trim(),
-      location: place.trim(),
-      photos: images, // TODO: 백엔드 스펙에 맞게 uri → 업로드/변환
+  const pickFromPhotos = async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('권한 필요', '사진 보관함 접근 권한을 허용해주세요.');
+        return;
+      }
+      const remain = MAX_PHOTOS - images.length;
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: false,
+        quality: 1,
+      });
+      if (result.canceled) return;
+      const assetUris = (result.assets ?? []).map((a) => a.uri);
+      const toAdd = assetUris.slice(0, remain);
+
+      // (선택) 압축 처리 가능
+      setImages((prev) => [...prev, ...toAdd]);
+    } catch (e) {
+      console.log('pickFromPhotos error', e);
+      Alert.alert('오류', '사진을 불러오지 못했어요.');
+    }
+  };
+
+  const pickFromFiles = async () => {
+    try {
+      const remain = MAX_PHOTOS - images.length;
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ['image/*'],
+        multiple: false,
+        copyToCacheDirectory: true,
+      });
+      if ((res as any).canceled) return;
+
+      const assets = (res as any).assets ?? [];
+      if (!assets.length) return;
+
+      const chosen: string[] = [];
+      for (const a of assets) {
+        const uri: string | undefined = a.uri;
+        const mime: string | undefined =
+          a.mimeType || (Array.isArray(a.mimeType) ? a.mimeType[0] : undefined);
+        if (!uri) continue;
+        if (mime && !String(mime).startsWith('image/')) {
+          Alert.alert('알림', '이미지 파일만 업로드할 수 있어요.');
+          continue;
+        }
+        chosen.push(uri);
+      }
+      const toAdd = chosen.slice(0, remain);
+      if (toAdd.length) setImages((prev) => [...prev, ...toAdd]);
+    } catch (e) {
+      console.log('pickFromFiles error', e);
+      Alert.alert('오류', '파일을 불러오지 못했어요.');
+    }
+  };
+
+  // ===== 초안 복원 =====
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(DRAFT_KEY);
+        if (!raw) return;
+        const d = JSON.parse(raw);
+        if (Array.isArray(d?.images)) setImages(d.images);
+        if (d?.purpose === 'lost' || d?.purpose === 'found') setPurpose(d.purpose);
+        if (typeof d?.title === 'string') setTitle(d.title);
+        if (typeof d?.desc === 'string') setDesc(d.desc);
+        if (typeof d?.place === 'string') setPlace(d.place);
+      } catch (e) {
+        console.log('draft load fail', e);
+      }
+    })();
+  }, []);
+
+  // ===== 초안 저장(디바운스) =====
+  useEffect(() => {
+    if (skipSaveRef.current) return; // '나가기' 이후 저장 스킵
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        const draft = { images, purpose, title, desc, place };
+        await AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      } catch (e) {
+        console.log('draft save fail', e);
+      }
+    }, 300);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
     };
+  }, [images, purpose, title, desc, place]);
 
-    console.log('📝 Lost/Found Create Payload:', payload);
-    Alert.alert('등록 완료', '분실물 게시글이 작성되었습니다.');
-    navigation?.goBack?.();
-  }, [canSubmit, desc, images, navigation, place, purpose, title]);
+  // ===== 이탈 방지 (나가기시 드래프트 스킵 & 리셋) =====
+  useEffect(() => {
+    const sub = navigation?.addListener?.('beforeRemove', (e: any) => {
+      if (!isDirty || submitting) return;
+      e.preventDefault();
+      Alert.alert('작성 중', '작성 중인 내용이 사라집니다. 나가시겠어요?', [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '나가기',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              skipSaveRef.current = true;
+              if (saveTimer.current) clearTimeout(saveTimer.current);
+              await AsyncStorage.removeItem(DRAFT_KEY);
+              // 메모리 리셋
+              setImages([]);
+              setPurpose(null);
+              setTitle('');
+              setDesc('');
+              setPlace('');
+            } finally {
+              navigation.dispatch(e.data.action);
+            }
+          },
+        },
+      ]);
+    });
+    return () => {
+      if (sub) sub();
+    };
+  }, [isDirty, submitting, navigation]);
+
+  // ===== 제출: 로컬 피드에 저장(최신순) =====
+  const handleSubmit = useCallback(async () => {
+    if (!canSubmit || submitting) return;
+    setSubmitting(true);
+    try {
+      const payload = {
+        type: purpose as Purpose,
+        title: title.trim(),
+        content: desc.trim(),
+        location: place.trim(),
+        photos: images, // TODO: 추후 업로드 후 URL 사용
+      };
+
+      const newItem = {
+        id: String(Date.now()),
+        type: payload.type, // 'lost' | 'found'
+        title: payload.title,
+        content: payload.content,
+        location: payload.location,
+        images: payload.photos,
+        likeCount: 0,
+        createdAt: new Date().toISOString(),
+      };
+
+      const raw = await AsyncStorage.getItem(POSTS_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      list.unshift(newItem);
+      await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(list));
+
+      await AsyncStorage.removeItem(DRAFT_KEY);
+      Alert.alert('등록 완료', '분실물 게시글이 작성되었습니다.');
+
+      // 폼 리셋
+      setImages([]);
+      setPurpose(null);
+      setTitle('');
+      setDesc('');
+      setPlace('');
+
+      navigation?.goBack?.();
+    } catch (e: any) {
+      Alert.alert('오류', e?.message || '작성에 실패했어요. 잠시 후 다시 시도해주세요.');
+      console.log(e);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [canSubmit, desc, images, navigation, place, purpose, submitting, title]);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.select({ ios: 'padding', android: undefined })}
-    >
+    <View style={styles.container}>
       {/* inner: 화면 공통 여백/레이아웃을 한 곳에서 관리 */}
       <View style={styles.inner}>
         {/* ===== 헤더 ===== */}
@@ -75,7 +279,6 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
             accessibilityRole="button"
             accessibilityLabel="뒤로가기"
           >
-            {/* 요청한 아이콘 사용 */}
             <Image
               source={require('../../assets/images/back.png')}
               style={styles.backIcon}
@@ -97,12 +300,11 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
           {/* 사진 영역 */}
           <PhotoPicker
             images={images}
-            max={10}
-            onAddPress={() => {
-                // TODO: 나중에 카메라/갤러리 기능 붙이기
-                Alert.alert('사진 추가', '사진 선택 기능은 추후 구현 예정입니다.');
-            }}
-            onRemoveAt={(index) => setImages(prev => prev.filter((_, i) => i !== index))}
+            max={MAX_PHOTOS}
+            onAddPress={handleAddPhoto}
+            onRemoveAt={(index) =>
+              setImages((prev) => prev.filter((_, i) => i !== index))
+            }
           />
 
           {/* 작성 목적 (분실/습득) */}
@@ -190,12 +392,11 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
 
           {/* 장소 선택 */}
           <View style={styles.block}>
-            {/* <Text style={styles.label}>분실 / 습득 장소</Text> */}
             <LocationPicker
               value={place}
               onChange={setPlace}
               placeholder="장소를 선택해 주세요."
-              label="분실 / 습득 장소"  
+              label="분실 / 습득 장소"
             />
           </View>
 
@@ -206,17 +407,22 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
         {/* ===== 하단 고정 버튼 ===== */}
         <View style={styles.submitWrap}>
           <TouchableOpacity
-            style={[styles.submitButton]}
+            style={[
+              styles.submitButton,
+              { opacity: canSubmit && !submitting ? 1 : 0.6 },
+            ]}
             onPress={handleSubmit}
-            disabled={!canSubmit}
-            activeOpacity={0.9}
+            disabled={!canSubmit || submitting}
+            activeOpacity={canSubmit && !submitting ? 0.9 : 1}
           >
-        <Text style={styles.submitText}>작성 완료</Text>
-      </TouchableOpacity>
+            <Text style={styles.submitText}>
+              {submitting ? '작성 중...' : '작성 완료'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </View>
-  </View>
-</KeyboardAvoidingView>
   );
-}
+};
 
 export default LostPostPage;
