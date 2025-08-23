@@ -1,3 +1,8 @@
+import type {
+  NativeStackNavigationProp,
+  NativeStackScreenProps,
+} from '@react-navigation/native-stack';
+
 // 네비게이션 타입 정의
 export type RootStackParamList = {
   Loading: undefined;
@@ -8,9 +13,15 @@ export type RootStackParamList = {
   Search: undefined;         // 검색 페이지
   Notification: undefined;   // 알림 페이지
   SellItem: undefined;       // 판매 아이템 등록 페이지
-  // LostItem: undefined;       // 분실물 등록 페이지
   GroupBuyRecruit: undefined; // 공동구매 모집글 작성 페이지
   LostPost: undefined;
   ChatList: undefined; // 채팅 목록 페이지
-
+  MarketDetail: { id: string }; // 마켓 상세 페이지 (id 필요)
 };
+
+/** 화면 컴포넌트에서 사용할 공용 Props 타입 */
+export type RootStackScreenProps<T extends keyof RootStackParamList> =
+  NativeStackScreenProps<RootStackParamList, T>;
+
+/** useNavigation에서 쓸 내비게이션 타입(선택) */
+export type RootStackNavigationProp = NativeStackNavigationProp<RootStackParamList>;

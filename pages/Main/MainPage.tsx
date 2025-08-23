@@ -12,6 +12,7 @@ import LostItem from '../../components/ListTile/LostItem/LostItem';
 import MarketItem from '../../components/ListTile/MarketItem/MarketItem';
 import styles from './MainPage.styles';
 
+// 로컬 저장 키
 const POSTS_KEY_MAP = {
   market: 'market_posts_v1',
   lost: 'lost_found_posts_v1',
@@ -123,6 +124,12 @@ export default function MainPage({ navigation }: any) {
     return lostItems.filter(it => getCategoryIdFromLocation(it.location) === category);
   }, [lostItems, category]);
 
+  /** ✅ 타일 클릭 → 상세 페이지로 이동 */
+  const handlePressMarketItem = useCallback((id: string) => {
+    // types/navigation.ts의 RootStackParamList에 MarketDetail: { id: string } 등록되어 있어야 함
+    navigation.navigate('MarketDetail', { id });
+  }, [navigation]);
+
   return (
     <View style={styles.container}>
       <MainHeader />
@@ -143,6 +150,7 @@ export default function MainPage({ navigation }: any) {
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <MarketItem
+                id={item.id}
                 title={item.title}
                 subtitle={`${item.location} · ${timeAgo(item.createdAt)}`}
                 price={
@@ -151,7 +159,10 @@ export default function MainPage({ navigation }: any) {
                     : `${item.price.toLocaleString('ko-KR')}원`
                 }
                 likeCount={item.likeCount ?? 0}
-                image={item.images?.[0] ?? ''}
+                // image={item.images?.[0] ?? ''}
+                /** ✅ 이미지 안전 전달 (없으면 undefined) */
+                image={item.images && item.images.length > 0 ? item.images[0] : undefined}
+                onPress={handlePressMarketItem}
               />
             )}
             ListEmptyComponent={

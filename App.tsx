@@ -12,6 +12,7 @@ import LoadingScreen from './pages/Loading/LoadingScreen';
 import LoginPage from './pages/Login/LoginPage';
 import LostPostPage from './pages/LostAndFound/LostPostPage';
 import MainPage from './pages/Main/MainPage';
+import MarketDetailPage from './pages/Market/MarketDetailPage';
 import SellItemPage from './pages/Market/SellItemPage';
 import NotificationPage from './pages/Notification/NotificationPage';
 import PasswordResetPage from './pages/PasswordReset/PasswordResetPage';
@@ -39,6 +40,7 @@ export default function App() {
         <Stack.Screen name="ChatList" component={ChatListPage} />
         <Stack.Screen name="GroupBuyRecruit" component={GroupBuyRecruitPage} />
         <Stack.Screen name="LostPost" component={LostPostPage} />
+        <Stack.Screen name="MarketDetail" component={MarketDetailPage} />
         {/* 추가적인 페이지가 필요하면 여기에 계속 추가 */}
       </Stack.Navigator>
     </NavigationContainer>
