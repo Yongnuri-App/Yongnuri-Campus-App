@@ -31,9 +31,11 @@ const DEFAULT_OPTIONS: Option[] = [
   { label: '무도대학', value: '무도대학' },
   { label: '체육과학대학', value: '체육과학대학' },
   { label: 'AI바이오융합대학', value: 'AI바이오융합대학' },
+  { label: '문화예술대학', value: '문화예술대학' },
   { label: '본관 앞 광장', value: '본관 앞 광장' },
-  { label: '중앙도서관', value: '중앙도서관' },
   { label: '학생회관', value: '학생회관' },
+  { label: '중앙도서관', value: '중앙도서관' },
+  { label: '용오름대학', value: '용오름대학' },
 ];
 
 const LocationPicker: React.FC<Props> = ({

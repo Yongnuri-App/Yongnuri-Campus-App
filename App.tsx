@@ -36,6 +36,7 @@ export default function App() {
         <Stack.Screen name="SellItem" component={SellItemPage} />
         <Stack.Screen name="LostItem" component={LostPostPage} />
         <Stack.Screen name="ChatList" component={ChatListPage} />
+        <Stack.Screen name="LostPost" component={LostPostPage} />
         {/* 추가적인 페이지가 필요하면 여기에 계속 추가 */}
       </Stack.Navigator>
     </NavigationContainer>

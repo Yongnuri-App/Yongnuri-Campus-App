@@ -11,10 +11,14 @@ export type CategoryItem = {
 /** 기본 카테고리 리스트 */
 export const DEFAULT_CATEGORIES: CategoryItem[] = [
   { id: 'all', label: '전체' },
+  { id: 'maingate', label: '용인대정문' },
   { id: 'mudo', label: '무도대학' },
   { id: 'sports', label: '체육과학대학' },
   { id: 'aibio', label: 'AI바이오융합대학' },
   { id: 'arts', label: '문화예술대학' },
+  { id: 'square', label: '본관 앞 광장' },
+  { id: 'studentcenter', label: '학생회관' },
+  { id: 'library', label: '중앙도서관' },
   { id: 'yongoreum', label: '용오름대학' },
 ];
 
