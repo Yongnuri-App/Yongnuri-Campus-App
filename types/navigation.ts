@@ -24,6 +24,15 @@ export type RootStackParamList = {
 
   // ✅ 신고하기 페이지 (타겟 라벨은 선택)
   Report: { targetLabel?: string };
+
+  ChatRoom: {
+    postId: string;
+    sellerNickname: string;
+    productTitle: string;
+    productPrice: number;   // 숫자(KRW)
+    productImageUri?: string; // 썸네일 URL(없어도 OK)
+    initialMessage?: string; // 채팅방 진입 시 최초 메시지(없어도 OK)
+  };
 };
 
 /** 화면 컴포넌트에서 사용할 공용 Props 타입 */

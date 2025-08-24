@@ -234,7 +234,11 @@ export default function MarketDetailPage({
           <View style={{ height: 24 }} />
         </View>
       </ScrollView>
-      {/* 하단 고정 바 */}
+
+      {/* ===== 하단 고정 바 =====
+        - 좋아요 토글은 기존 로직 유지
+        - 전송 버튼을 누르면 채팅방으로 이동 + 필요한 파라미터 전달
+      */}
       <DetailBottomBar
         initialLiked={initialLiked} // ✅ 로컬 저장값으로 초기화
         onToggleLike={async (liked) => {
@@ -252,8 +256,18 @@ export default function MarketDetailPage({
           });
         }}
         onPressSend={(msg) => {
-          // TODO: 추후 채팅화면으로 navigate
-          Alert.alert('전송', `메시지: ${msg}`);
+          // ✅ (1) 필요 시 여기서 "첫 메시지 생성" API 호출 후 성공 시 이동
+          // TODO: 서버에 메시지 전송 로직 연결
+
+          // ✅ (2) 채팅방으로 이동 (게시글 요약 정보 전달)
+          navigation.navigate('ChatRoom', {
+            postId: item.id,
+            sellerNickname: profileName,      // 헤더에 표시할 닉네임
+            productTitle: item.title,         // 상품 제목
+            productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0), // 나눔이면 0 전달
+            productImageUri: images[0],       // 대표 이미지(첫 번째)
+            initialMessage: msg,             // 최초 메시지
+          });
         }}
       />
     </View>

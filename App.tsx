@@ -7,12 +7,12 @@ import { RootStackParamList } from './types/navigation';
 
 // 페이지 컴포넌트들
 import ChatListPage from './pages/Chat/ChatListPage';
+import GroupBuyDetailPage from './pages/GroupBuy/GroupBuyDetailPage';
 import GroupBuyRecruitPage from './pages/GroupBuy/GroupBuyRecruitPage';
 import LoadingScreen from './pages/Loading/LoadingScreen';
 import LoginPage from './pages/Login/LoginPage';
 import LostDetailPage from './pages/LostAndFound/LostDetailPage';
 import LostPostPage from './pages/LostAndFound/LostPostPage';
-import GroupBuyDetailPage from './pages/GroupBuy/GroupBuyDetailPage';
 import MainPage from './pages/Main/MainPage';
 import MarketDetailPage from './pages/Market/MarketDetailPage';
 import SellItemPage from './pages/Market/SellItemPage';
@@ -21,6 +21,7 @@ import PasswordResetPage from './pages/PasswordReset/PasswordResetPage';
 import SearchPage from './pages/Search/SearchPage';
 import SignUpPage from './pages/SignUp/SignUpPage';
 // ✅ 신고하기 페이지 추가
+import ChatRoomPage from './pages/Chat/ChatRoomPage';
 import ReportPage from './pages/Report/ReportPage';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -48,6 +49,7 @@ export default function App() {
         <Stack.Screen name="LostDetail" component={LostDetailPage} />
         {/* ✅ 신고하기 스크린 등록 */}
         <Stack.Screen name="Report" component={ReportPage} />
+        <Stack.Screen name="ChatRoom" component={ChatRoomPage} />
       </Stack.Navigator>
     </NavigationContainer>
   );
