@@ -1,3 +1,4 @@
+// components/ListTile/LostItem/LostItem.tsx
 import React from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
 import styles from './LostItem.styles';
@@ -9,6 +10,7 @@ type Props = {
   likeCount?: number;
   image?: string;
   onPress?: () => void;
+  bottomTag?: string;   // ✅ 추가
 };
 
 export default function LostItem({
@@ -18,8 +20,8 @@ export default function LostItem({
   likeCount = 0,
   image,
   onPress,
+  bottomTag,
 }: Props) {
-  // ✅ 타입별 색상 적용
   const isLost = typeLabel === '분실';
   const badgeStyle = isLost ? styles.badgeLost : styles.badgeFound;
 
@@ -34,16 +36,36 @@ export default function LostItem({
 
       {/* 텍스트 블록 */}
       <View style={styles.info}>
-        {/* 뱃지 + 제목 한 줄 */}
+        {/* 뱃지 + 제목 */}
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <View style={[styles.badge, badgeStyle]}>
             <Text style={styles.badgeText}>{typeLabel}</Text>
           </View>
-          <Text style={styles.title} numberOfLines={1}>{title}</Text>
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
         </View>
 
-        <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
+        <Text style={styles.subtitle} numberOfLines={1}>
+          {subtitle}
+        </Text>
       </View>
+
+      {/* 좋아요 영역 ✅ */}
+      <View style={styles.likeWrap}>
+        <Image
+          source={require('../../../assets/images/grayheart.png')}
+          style={styles.likeIcon}
+        />
+        <Text style={styles.likeCount}>{likeCount}</Text>
+      </View>
+
+      {/* ✅ 카드 내부 하단 배지 */}
+      {bottomTag ? (
+        <View pointerEvents="none" style={styles.bottomTagBox}>
+          <Text style={styles.bottomTagText}>{bottomTag}</Text>
+        </View>
+      ) : null}
     </TouchableOpacity>
   );
 }

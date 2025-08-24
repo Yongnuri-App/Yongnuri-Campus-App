@@ -1,5 +1,5 @@
-// src/screens/SearchPage/SearchPage.tsx
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+// pages/Search/SearchPage.tsx
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   Alert,
   FlatList,
@@ -10,21 +10,37 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import styles from './SearchPage.styles';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import styles from './SearchPage.styles';
+
+import MarketItem from '../../components/ListTile/MarketItem/MarketItem';
+import LostItem from '../../components/ListTile/LostItem/LostItem';
+import GroupItem from '../../components/ListTile/GroupItem/GroupItem';
 
 type Props = { navigation: any };
 
 const STORAGE_KEY = 'recent_keywords';
 const MAX_RECENTS = 15;
 
+const MARKET_KEY = 'market_posts_v1';
+const LOST_KEY = 'lost_found_posts_v1';
+const GROUP_KEY = 'groupbuy_posts_v1';
+
+type Unified =
+  | { kind: 'market'; id: string; data: any }
+  | { kind: 'lost'; id: string; data: any }
+  | { kind: 'group'; id: string; data: any };
+
 export default function SearchPage({ navigation }: Props) {
   const [keyword, setKeyword] = useState('');
   const [recent, setRecent] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingRecents, setLoadingRecents] = useState(true);
+
+  const [results, setResults] = useState<Unified[]>([]);
+  const [loadingResults, setLoadingResults] = useState(false);
+
   const inputRef = useRef<TextInput>(null);
 
-  // ---- 초기 로드: 로컬(AsyncStorage)에서 최근 검색어 가져오기 ----
   useEffect(() => {
     (async () => {
       try {
@@ -36,12 +52,13 @@ export default function SearchPage({ navigation }: Props) {
       } catch (e) {
         console.log('최근 검색어 로드 실패:', e);
       } finally {
-        setLoading(false);
+        setLoadingRecents(false);
       }
     })();
   }, []);
 
-  // ---- 저장 유틸 ----
+  const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+
   const persistRecent = async (list: string[]) => {
     setRecent(list);
     try {
@@ -51,56 +68,138 @@ export default function SearchPage({ navigation }: Props) {
     }
   };
 
-  // ---- 정규화 유틸: 앞뒤 공백 제거, 연속 공백 통일 ----
-  const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+  const timeAgo = (iso: string) => {
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return '방금 전';
+    if (m < 60) return `${m}분 전`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}시간 전`;
+    const d = Math.floor(h / 24);
+    return `${d}일 전`;
+  };
 
-  // ---- 검색 실행(아직 API 전 단계: 최근어 갱신 + 로그) ----
-  const runSearch = (raw: string) => {
+  const runSearch = useCallback(async (raw: string) => {
     const q = normalize(raw);
     if (!q) return;
-
-    // 키보드 닫기
     Keyboard.dismiss();
 
-    // 최근 검색어: 중복 제거하고 맨 앞으로
-    const next = [q, ...recent.filter((r) => r.toLowerCase() !== q.toLowerCase())].slice(
+    const next = [q, ...recent.filter(r => r.toLowerCase() !== q.toLowerCase())].slice(
       0,
       MAX_RECENTS
     );
     persistRecent(next);
 
-    // 👉 실제로는 여기서 API 호출하거나 검색결과 화면으로 이동
-    // navigation.navigate('SearchResult', { query: q });
-    console.log('검색 실행:', q);
-  };
+    setLoadingResults(true);
+    try {
+      const [mRaw, lRaw, gRaw] = await Promise.all([
+        AsyncStorage.getItem(MARKET_KEY),
+        AsyncStorage.getItem(LOST_KEY),
+        AsyncStorage.getItem(GROUP_KEY),
+      ]);
 
-  // ---- 단건 삭제 ----
+      const markets = (mRaw ? JSON.parse(mRaw) : []) as any[];
+      const losts = (lRaw ? JSON.parse(lRaw) : []) as any[];
+      const groups = (gRaw ? JSON.parse(gRaw) : []) as any[];
+
+      const qLower = q.toLowerCase();
+
+      const hitMarket: Unified[] = markets
+        .filter((it) => (`${it.title ?? ''} ${it.description ?? ''}`).toLowerCase().includes(qLower))
+        .map((it) => ({ kind: 'market', id: it.id, data: it }));
+
+      const hitLost: Unified[] = losts
+        .filter((it) => (`${it.title ?? ''} ${it.content ?? ''}`).toLowerCase().includes(qLower))
+        .map((it) => ({ kind: 'lost', id: it.id, data: it }));
+
+      const hitGroup: Unified[] = groups
+        .filter((it) => (`${it.title ?? ''} ${it.description ?? ''}`).toLowerCase().includes(qLower))
+        .map((it) => ({ kind: 'group', id: it.id, data: it }));
+
+      const merged = [...hitMarket, ...hitLost, ...hitGroup].sort((a, b) => {
+        const ta = new Date(a.data.createdAt ?? 0).getTime();
+        const tb = new Date(b.data.createdAt ?? 0).getTime();
+        return tb - ta;
+      });
+
+      setResults(merged);
+    } catch (e) {
+      console.log('검색 실패:', e);
+      Alert.alert('오류', '검색 중 문제가 발생했습니다.');
+      setResults([]);
+    } finally {
+      setLoadingResults(false);
+    }
+  }, [recent]);
+
   const removeOne = (word: string) => {
     const next = recent.filter((r) => r !== word);
     persistRecent(next);
   };
 
-  // ---- 전체 삭제 ----
   const clearKeywords = () => {
     if (recent.length === 0) return;
     Alert.alert('최근 검색어 삭제', '전체 삭제하시겠어요?', [
       { text: '취소', style: 'cancel' },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: () => persistRecent([]),
-      },
+      { text: '삭제', style: 'destructive', onPress: () => persistRecent([]) },
     ]);
   };
 
-  // ---- 검색 버튼 활성화 여부 ----
   const canSearch = useMemo(() => normalize(keyword).length > 0, [keyword]);
+
+  const renderResult = ({ item }: { item: Unified }) => {
+    if (item.kind === 'market') {
+      const it = item.data;
+      return (
+        <MarketItem
+          id={it.id}
+          title={it.title}
+          subtitle={`${it.location} · ${timeAgo(it.createdAt)}`}
+          price={it.mode === 'donate' ? '나눔' : `${Number(it.price || 0).toLocaleString('ko-KR')}원`}
+          likeCount={it.likeCount ?? 0}
+          image={it.images && it.images.length > 0 ? it.images[0] : undefined}
+          onPress={(id) => navigation.navigate('MarketDetail', { id })}
+          bottomTag="중고거래"  // ✅ 카드 내부 배지
+        />
+      );
+    }
+
+    if (item.kind === 'lost') {
+      const it = item.data;
+      return (
+        <LostItem
+          title={it.title}
+          subtitle={`${it.location} · ${timeAgo(it.createdAt)}`}
+          typeLabel={it.type === 'found' ? '습득' : '분실'}
+          likeCount={it.likeCount ?? 0}
+          image={it.images && it.images.length > 0 ? it.images[0] : undefined}
+          onPress={() => navigation.navigate('LostDetail', { id: it.id })}
+          bottomTag="분실물"    // ✅ 카드 내부 배지
+        />
+      );
+    }
+
+    const it = item.data;
+    return (
+      <GroupItem
+        title={it.title}
+        timeText={timeAgo(it.createdAt)}
+        recruitMode={(it.recruit?.mode ?? 'unlimited') as 'unlimited' | 'limited'}
+        recruitCount={it.recruit?.count ?? null}
+        image={it.images && it.images.length > 0 ? it.images[0] : undefined}
+        isClosed={!!it.isClosed}
+        onPress={() => {
+          // TODO: navigation.navigate('GroupDetail', { id: it.id })
+        }}
+        bottomTag="공동구매"    // ✅ 카드 내부 배지
+      />
+    );
+  };
 
   return (
     <View style={styles.container}>
-      {/* 상단 검색바 영역 (구조/스타일 유지) */}
+      {/* 상단 검색바 */}
       <View style={styles.searchBar}>
-        {/* 뒤로가기 버튼 */}
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Image
             source={require('../../assets/images/back.png')}
@@ -109,7 +208,6 @@ export default function SearchPage({ navigation }: Props) {
           />
         </TouchableOpacity>
 
-        {/* 검색 입력창 */}
         <TextInput
           ref={inputRef}
           style={styles.input}
@@ -120,10 +218,8 @@ export default function SearchPage({ navigation }: Props) {
           onSubmitEditing={() => {
             if (canSearch) runSearch(keyword);
           }}
-          // autoFocus={true} // 필요하면 주석 해제
         />
 
-        {/* 검색 버튼 */}
         <TouchableOpacity
           onPress={() => canSearch && runSearch(keyword)}
           activeOpacity={canSearch ? 0.7 : 1}
@@ -135,59 +231,74 @@ export default function SearchPage({ navigation }: Props) {
         </TouchableOpacity>
       </View>
 
-      {/* 최근 검색어 헤더 */}
-      <View style={styles.recentHeader}>
-        <Text style={styles.recentTitle}>최근 검색어</Text>
-        <TouchableOpacity onPress={clearKeywords}>
-          <Text style={styles.deleteAll}>전체 삭제</Text>
-        </TouchableOpacity>
-      </View>
+      {/* 최근 검색어 / 검색 결과 */}
+      {results.length === 0 ? (
+        <>
+          <View style={styles.recentHeader}>
+            <Text style={styles.recentTitle}>최근 검색어</Text>
+            <TouchableOpacity onPress={clearKeywords}>
+              <Text style={styles.deleteAll}>전체 삭제</Text>
+            </TouchableOpacity>
+          </View>
 
-      {/* 최근 검색어 리스트 (구조/스타일 유지) */}
-      {loading ? (
-        // 로딩 중엔 조용히 빈 리스트처럼(스켈레톤/스피너는 UI 변형될 수 있어 생략)
-        <FlatList
-          data={[]}
-          keyExtractor={(_, i) => i.toString()}
-          renderItem={() => null}
-        />
-      ) : recent.length === 0 ? (
-        // 빈 상태: 스타일은 건드리지 않고 동일 컨테이너에서 텍스트만 노출
-        <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
-          <Text style={{ color: '#999' }}>최근 검색어가 없습니다.</Text>
-        </View>
+          {loadingRecents ? (
+            <FlatList data={[]} keyExtractor={(_, i) => i.toString()} renderItem={() => null} />
+          ) : recent.length === 0 ? (
+            <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+              <Text style={{ color: '#999' }}>최근 검색어가 없습니다.</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={recent}
+              keyExtractor={(item, index) => `${item}-${index}`}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => (
+                <View style={styles.keywordRow}>
+                  <Image
+                    source={require('../../assets/images/time.png')}
+                    style={styles.iconTime}
+                  />
+                  <TouchableOpacity
+                    style={{ flex: 1 }}
+                    onPress={() => {
+                      setKeyword(item);
+                      runSearch(item);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.keywordText}>{item}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => removeOne(item)}>
+                    <Image
+                      source={require('../../assets/images/delete.png')}
+                      style={styles.iconDelete}
+                    />
+                  </TouchableOpacity>
+                </View>
+              )}
+            />
+          )}
+        </>
       ) : (
         <FlatList
-          data={recent}
-          keyExtractor={(item, index) => `${item}-${index}`}
-          keyboardShouldPersistTaps="handled"
-          renderItem={({ item }) => (
-            <View style={styles.keywordRow}>
-              <Image
-                source={require('../../assets/images/time.png')}
-                style={styles.iconTime}
-              />
-              {/* 키워드 탭: 입력창으로 채우고 바로 검색 */}
-              <TouchableOpacity
-                style={{ flex: 1 }}
-                onPress={() => {
-                  setKeyword(item);
-                  runSearch(item);
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.keywordText}>{item}</Text>
-              </TouchableOpacity>
-
-              {/* 단건 삭제 */}
-              <TouchableOpacity onPress={() => removeOne(item)}>
-                <Image
-                  source={require('../../assets/images/delete.png')}
-                  style={styles.iconDelete}
-                />
-              </TouchableOpacity>
+          data={results}
+          keyExtractor={(it) => `${it.kind}-${it.id}`}
+          renderItem={renderResult}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          ListHeaderComponent={
+            <View style={{ paddingLeft: 8, paddingTop: 5, paddingBottom: 10 }}>
+              <Text style={{ fontSize: 16, fontWeight: '600' }}>
+                검색 결과 ({results.length})
+              </Text>
             </View>
-          )}
+          }
+          ListEmptyComponent={
+            !loadingResults ? (
+              <View style={{ paddingHorizontal: 16, paddingVertical: 24 }}>
+                <Text style={{ color: '#999' }}>검색 결과가 없습니다.</Text>
+              </View>
+            ) : null
+          }
         />
       )}
     </View>

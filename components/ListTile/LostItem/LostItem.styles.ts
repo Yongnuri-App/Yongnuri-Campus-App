@@ -1,5 +1,8 @@
 import { StyleSheet } from 'react-native';
 
+const THUMB = 121;
+const GAP = 16;
+
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
@@ -12,18 +15,19 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 1,
     marginBottom: 12,
+    position: 'relative', // ✅ bottomTag용 기준
   },
   thumbnail: {
-    width: 121,
+    width: THUMB,
     height: 121,
     borderRadius: 6,
     backgroundColor: '#D9D9D9',
   },
   info: {
     flex: 1,
-    marginLeft: 16,
+    marginLeft: GAP,
     justifyContent: 'center',
-    marginBottom: 70,
+    marginBottom: 60,
   },
   title: {
     fontFamily: 'Inter',
@@ -32,7 +36,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     color: '#212124',
-    marginLeft: 6, // 뱃지와 텍스트 사이 여백
+    marginLeft: 6, // 뱃지와 텍스트 사이
   },
   subtitle: {
     fontFamily: 'Inter',
@@ -43,7 +47,8 @@ const styles = StyleSheet.create({
     color: '#979797',
     marginTop: 4,
   },
-  // ✅ 공통 뱃지 스타일
+
+  // ✅ 분실/습득 배지
   badge: {
     width: 32,
     height: 20,
@@ -65,6 +70,44 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: '#FFFFFF',
     textAlign: 'center',
+  },
+
+  // ✅ 좋아요 영역 (원래대로 오른쪽 끝에 위치)
+  likeWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
+    marginTop: 90,
+  },
+  likeIcon: {
+    width: 16,
+    height: 16,
+    marginRight: 4,
+    resizeMode: 'contain',
+  },
+  likeCount: {
+    fontFamily: 'Inter',
+    fontStyle: 'normal',
+    fontWeight: '500',
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#979797',
+  },
+
+  // ✅ 카드 내부 하단 배지 (절대 배치)
+  bottomTagBox: {
+    position: 'absolute',
+    left: THUMB + GAP,
+    bottom: 8,
+    paddingHorizontal: 10,
+    height: 28,
+    backgroundColor: '#F2F3F6',
+    justifyContent: 'center',
+  },
+  bottomTagText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
   },
 });
 

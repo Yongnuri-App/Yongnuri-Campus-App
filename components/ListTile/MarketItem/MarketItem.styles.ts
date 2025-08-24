@@ -1,3 +1,4 @@
+// components/ListTile/MarketItem/MarketItem.styles.ts
 import { StyleSheet } from 'react-native';
 
 export default StyleSheet.create({
@@ -13,6 +14,8 @@ export default StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
     marginBottom: 12,
+    // ✅ 하단 배지/하트를 카드 내부에 고정하기 위한 기준
+    position: 'relative',
   },
   thumbnail: {
     width: 121,
@@ -24,7 +27,7 @@ export default StyleSheet.create({
     flex: 1,
     marginLeft: 16,
     justifyContent: 'center',
-    marginBottom: 40,
+    marginBottom: 40, // (유지)
   },
   title: {
     width: 216,        // Figma 기준
@@ -58,11 +61,14 @@ export default StyleSheet.create({
     lineHeight: 20,
     color: '#000000',
   },
+
+  // ✅ 하트 영역: 카드 **오른쪽 하단** 고정
   likeWrap: {
+    position: 'absolute',
+    right: 12,
+    bottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 10,
-    marginTop: 80,
   },
   likeIcon: {
     width: 14,
@@ -74,5 +80,22 @@ export default StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     color: '#BBBBBB',
+  },
+
+  // ✅ 하단 배지: 카드 **왼쪽 하단**(텍스트 시작선) 고정
+  // 썸네일(121) + 간격(16) = 137 지점에 붙임
+  bottomTagBox: {
+    position: 'absolute',
+    left: 137,
+    bottom: 8,
+    paddingHorizontal: 10,
+    height: 28,
+    backgroundColor: '#F2F3F6',
+    justifyContent: 'center',
+  },
+  bottomTagText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
   },
 });

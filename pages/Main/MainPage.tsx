@@ -10,12 +10,14 @@ import FloatingWriteButton from '../../components/FloatingButton/FloatingWriteBu
 import MainHeader from '../../components/Header/MainHeader';
 import LostItem from '../../components/ListTile/LostItem/LostItem';
 import MarketItem from '../../components/ListTile/MarketItem/MarketItem';
+import GroupItem from '../../components/ListTile/GroupItem/GroupItem';
 import styles from './MainPage.styles';
 
 // 로컬 저장 키
 const POSTS_KEY_MAP = {
   market: 'market_posts_v1',
   lost: 'lost_found_posts_v1',
+  group: 'groupbuy_posts_v1',
 } as const;
 
 type MarketListItem = {
@@ -41,6 +43,20 @@ type LostListItem = {
   createdAt: string;      // ISO
 };
 
+type GroupListItem = {
+  id: string;
+  title: string;
+  description?: string;
+  recruit: {
+    mode: 'unlimited' | 'limited' | null;
+    count: number | null;
+  };
+  applyLink: string;
+  images: string[];
+  likeCount: number;
+  createdAt: string;      // ISO
+};
+
 /** 장소 → 카테고리 id 매핑 */
 function getCategoryIdFromLocation(location: string): string {
   const hit = DEFAULT_CATEGORIES.find(c => c.label === location);
@@ -59,12 +75,19 @@ function timeAgo(iso: string) {
   return `${d}일 전`;
 }
 
-export default function MainPage({ navigation }: any) {
+export default function MainPage({ navigation, route }: any) {
   const [category, setCategory] = useState<string>('all');
   const [tab, setTab] = useState<TabKey>('market');
   const [marketItems, setMarketItems] = useState<MarketListItem[]>([]);
   const [lostItems, setLostItems] = useState<LostListItem[]>([]);
+  const [groupItems, setGroupItems] = useState<GroupListItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+
+  // ✅ 외부에서 initialTab 전달되면 그 탭으로 시작 (예: 공동구매 작성 후 'group')
+  React.useEffect(() => {
+    const initialTab = route?.params?.initialTab as TabKey | undefined;
+    if (initialTab) setTab(initialTab);
+  }, [route?.params?.initialTab]);
 
   const handleTabChange = (next: TabKey) => {
     setTab(next);
@@ -77,7 +100,7 @@ export default function MainPage({ navigation }: any) {
   /** 탭에 맞는 키로 로드하여 최신순 정렬 */
   const loadPosts = useCallback(async (which: TabKey) => {
     const key = POSTS_KEY_MAP[which as keyof typeof POSTS_KEY_MAP];
-    if (!key) return;
+    if (!key) return; // 정의된 탭만 로딩
 
     try {
       const raw = await AsyncStorage.getItem(key);
@@ -90,10 +113,12 @@ export default function MainPage({ navigation }: any) {
 
       if (which === 'market') setMarketItems(list as MarketListItem[]);
       if (which === 'lost') setLostItems(list as LostListItem[]);
+      if (which === 'group') setGroupItems(list as GroupListItem[]);
     } catch (e) {
       console.log('load posts error', e);
       if (which === 'market') setMarketItems([]);
       if (which === 'lost') setLostItems([]);
+      if (which === 'group') setGroupItems([]);
     }
   }, []);
 
@@ -124,9 +149,11 @@ export default function MainPage({ navigation }: any) {
     return lostItems.filter(it => getCategoryIdFromLocation(it.location) === category);
   }, [lostItems, category]);
 
-  /** ✅ 타일 클릭 → 상세 페이지로 이동 */
+  // 그룹은 현재 카테고리 기준 없음 → 전체 반환
+  const filteredGroup = useMemo(() => groupItems, [groupItems]);
+
+  /** ✅ 타일 클릭 → 상세 페이지로 이동 (구현되면 라우팅 연결) */
   const handlePressMarketItem = useCallback((id: string) => {
-    // types/navigation.ts의 RootStackParamList에 MarketDetail: { id: string } 등록되어 있어야 함
     navigation.navigate('MarketDetail', { id });
   }, [navigation]);
 
@@ -135,12 +162,14 @@ export default function MainPage({ navigation }: any) {
       <MainHeader />
 
       {/* 카테고리 칩 */}
-      <CategoryChips
-        value={category}
-        onChange={setCategory}
-        items={DEFAULT_CATEGORIES}
-        containerStyle={{ marginTop: 12, marginBottom: 8 }}
-      />
+      {tab !== 'group' && tab !== 'notice' && (
+        <CategoryChips
+          value={category}
+          onChange={setCategory}
+          items={DEFAULT_CATEGORIES}
+          containerStyle={{ marginTop: 12, marginBottom: 8 }}
+        />
+      )}
 
       <View style={styles.content}>
         {/* 중고거래 탭 */}
@@ -159,8 +188,6 @@ export default function MainPage({ navigation }: any) {
                     : `${item.price.toLocaleString('ko-KR')}원`
                 }
                 likeCount={item.likeCount ?? 0}
-                // image={item.images?.[0] ?? ''}
-                /** ✅ 이미지 안전 전달 (없으면 undefined) */
                 image={item.images && item.images.length > 0 ? item.images[0] : undefined}
                 onPress={handlePressMarketItem}
               />
@@ -194,7 +221,7 @@ export default function MainPage({ navigation }: any) {
                 subtitle={`${item.location} · ${timeAgo(item.createdAt)}`}
                 typeLabel={item.type === 'found' ? '습득' : '분실'}
                 likeCount={item.likeCount ?? 0}
-                image={item.images?.[0] ?? ''}
+                image={item.images && item.images.length > 0 ? item.images[0] : undefined}
                 onPress={() => navigation.navigate('LostDetail', { id: item.id })}
               />
             )}
@@ -215,10 +242,53 @@ export default function MainPage({ navigation }: any) {
             }
           />
         )}
+
+        {/* 공동구매 탭 */}
+        {tab === 'group' && (
+          <FlatList
+            data={filteredGroup}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <GroupItem
+                title={item.title}
+                timeText={timeAgo(item.createdAt)}
+                recruitMode={item.recruit?.mode === 'limited' ? 'limited' : 'unlimited'}
+                recruitCount={item.recruit?.count ?? null}
+                image={item.images && item.images.length > 0 ? item.images[0] : undefined}
+                onPress={() => navigation.navigate('GroupDetail', { id: item.id })}
+              />
+            )}
+            ListEmptyComponent={
+              <Text style={{ color: '#979797', marginTop: 24, textAlign: 'center' }}>
+                공동구매 모집글이 없어요. 오른쪽 아래 버튼으로 첫 글을 올려보세요!
+              </Text>
+            }
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 100 }}
+            initialNumToRender={6}
+            windowSize={10}
+            removeClippedSubviews
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+          />
+        )}
+
+        {/* (미구현) 다른 탭들은 필요 시 분기 추가 */}
+        {tab !== 'market' && tab !== 'lost' && tab !== 'group' && (
+          <View>
+            <Text style={{ color: '#979797', textAlign: 'center', marginTop: 24 }}>
+              해당 탭의 리스트는 준비 중입니다.
+            </Text>
+          </View>
+        )}
       </View>
 
       <BottomTabBar value={tab} onChange={handleTabChange} />
-      <FloatingWriteButton activeTab={tab} />
+
+      {tab !== 'notice' && (
+        <FloatingWriteButton activeTab={tab} />
+      )}
     </View>
   );
 }

@@ -1,6 +1,6 @@
 // pages/Market/SellItemPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -16,7 +16,7 @@ import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import styles from './SellItemPage.styles';
 
 // 커스텀 훅
-import useImagePicker from '../../hooks/useImagePicker';
+import { useImagePicker } from '../../hooks/useImagePicker';
 
 // 판매/나눔 모드 타입
 type SaleMode = 'sell' | 'donate' | null;
@@ -25,9 +25,10 @@ interface Props {
   navigation?: any;
 }
 
-const DRAFT_KEY = 'sell_item_draft_v1';
 const POSTS_KEY = 'market_posts_v1';
 const MAX_IMAGES = 10;
+const TITLE_MAX = 50;
+const DESC_MAX = 1000;
 
 /** 숫자만 받은 뒤 "₩ 12,345" 형태로 보여주기 */
 const formatKRW = (digits: string) => {
@@ -47,10 +48,6 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
   const [priceRaw, setPriceRaw] = useState<string>(''); // 숫자만
   const [location, setLocation] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
-
-  // '나가기' 시 자동저장 스킵을 위한 플래그/타이머
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const skipSaveRef = useRef(false);
 
   const isDonation = useMemo(() => mode === 'donate', [mode]);
   const isSell = useMemo(() => mode === 'sell', [mode]);
@@ -90,43 +87,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
     if (next === 'donate') setPriceRaw(''); // 나눔 전환 시 가격 초기화
   };
 
-  /** ⬇️⬇️ 초안 복원: 훅의 setImages 사용 ⬇️⬇️ */
-  useEffect(() => {
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(DRAFT_KEY);
-        if (!raw) return;
-        const d = JSON.parse(raw);
-        if (Array.isArray(d?.images)) setImages(d.images);
-        if (typeof d?.title === 'string') setTitle(d.title);
-        if (typeof d?.desc === 'string') setDesc(d.desc);
-        if (d?.mode === 'sell' || d?.mode === 'donate') setMode(d.mode);
-        if (typeof d?.priceRaw === 'string') setPriceRaw(d.priceRaw);
-        if (typeof d?.location === 'string') setLocation(d.location);
-      } catch (e) {
-        console.log('draft load fail', e);
-      }
-    })();
-  }, [setImages]);
-
-  /** 초안 저장(디바운스 300ms) */
-  useEffect(() => {
-    if (skipSaveRef.current) return; // '나가기' 선택 이후 저장 스킵
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        const draft = { images, title, desc, mode, priceRaw, location };
-        await AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-      } catch (e) {
-        console.log('draft save fail', e);
-      }
-    }, 300);
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    };
-  }, [images, title, desc, mode, priceRaw, location]);
-
-  /** 이탈 방지 + '나가기' 시 드래프트 삭제/리셋 */
+  /** 이탈 방지: 임시저장 제거 버전(그냥 경고만 띄우고 리셋) */
   useEffect(() => {
     const sub = navigation?.addListener?.('beforeRemove', (e: any) => {
       if (!isDirty || submitting) return;
@@ -136,23 +97,16 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
         {
           text: '나가기',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              // 이후 자동 저장 막기
-              skipSaveRef.current = true;
-              if (saveTimer.current) clearTimeout(saveTimer.current);
-              // 드래프트 삭제
-              await AsyncStorage.removeItem(DRAFT_KEY);
-              // 메모리 상태도 즉시 리셋
-              setImages([]);
-              setTitle('');
-              setDesc('');
-              setMode(null);
-              setPriceRaw('');
-              setLocation('');
-            } finally {
-              navigation.dispatch(e.data.action); // 실제 화면 이탈
-            }
+          onPress: () => {
+            // 폼 상태 리셋
+            setImages([]);
+            setTitle('');
+            setDesc('');
+            setMode(null);
+            setPriceRaw('');
+            setLocation('');
+            // 실제 화면 이탈
+            navigation.dispatch(e.data.action);
           },
         },
       ]);
@@ -194,11 +148,9 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
       list.unshift(newItem);
       await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(list));
 
-      // 2) 드래프트 삭제 및 알림
-      await AsyncStorage.removeItem(DRAFT_KEY);
       Alert.alert('완료', '게시글이 작성되었습니다.');
 
-      // 3) 폼/상태 리셋
+      // 폼/상태 리셋
       setImages([]);
       setTitle('');
       setDesc('');
@@ -206,7 +158,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
       setPriceRaw('');
       setLocation('');
 
-      // 4) 뒤로가기
+      // 뒤로가기
       navigation?.goBack?.();
     } catch (e: any) {
       Alert.alert('오류', e?.message || '작성에 실패했어요. 잠시 후 다시 시도해주세요.');
@@ -245,7 +197,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
         <View style={styles.field}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <Text style={styles.label}>제목</Text>
-            <Text style={{ color: '#979797' }}>{title.length}/60</Text>
+            <Text style={{ color: '#979797' }}>{title.length}/{TITLE_MAX}</Text>
           </View>
           <TextInput
             style={styles.input}
@@ -253,7 +205,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
             placeholderTextColor="#979797"
             value={title}
             onChangeText={setTitle}
-            maxLength={60}
+            maxLength={TITLE_MAX}
           />
         </View>
 
@@ -261,7 +213,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
         <View style={styles.field}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <Text style={styles.label}>설명</Text>
-            <Text style={{ color: '#979797' }}>{desc.length}</Text>
+            <Text style={{ color: '#979797' }}>{desc.length}/{DESC_MAX}</Text>
           </View>
           <TextInput
             style={[styles.input, styles.textarea]}
@@ -271,6 +223,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
             onChangeText={setDesc}
             multiline
             textAlignVertical="top"
+            maxLength={DESC_MAX}
           />
         </View>
 

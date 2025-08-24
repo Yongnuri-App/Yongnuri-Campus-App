@@ -1,6 +1,6 @@
 // pages/LostAndFound/LostPostCreatePage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import {
   Alert,
   Image,
@@ -15,8 +15,8 @@ import LocationPicker from '../../components/LocationPicker/LocationPicker';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import styles from './LostPostPage.styles';
 
-// ✅ 추가: 이미지 선택/권한/액션시트 로직을 캡슐화한 훅
-import useImagePicker from '../../hooks/useImagePicker';
+// 이미지 선택/권한/액션시트 로직 훅
+import { useImagePicker } from '../../hooks/useImagePicker';
 
 type Purpose = 'lost' | 'found';
 
@@ -24,26 +24,21 @@ interface Props {
   navigation?: any; // TODO: React Navigation 타입으로 교체
 }
 
-const DRAFT_KEY = 'lost_post_draft_v1';
 const POSTS_KEY = 'lost_found_posts_v1';
 const MAX_PHOTOS = 10;
+const TITLE_MAX = 50;
+const DESC_MAX = 1000;
 
 const LostPostPage: React.FC<Props> = ({ navigation }) => {
-  /** ----------------------------------------------------------
-   *  이미지 선택은 훅이 관리 (images/setImages/openAdd/removeAt)
-   * ---------------------------------------------------------- */
+  // 이미지: 훅에서 관리(임시저장 제거)
   const { images, setImages, openAdd, removeAt } = useImagePicker({ max: MAX_PHOTOS });
 
-  // 나머지 폼 상태
+  // 폼 상태
   const [purpose, setPurpose] = useState<Purpose | null>(null);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [place, setPlace] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
-
-  // draft 저장 제어
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const skipSaveRef = useRef(false);
 
   // 유효성
   const canSubmit = useMemo(
@@ -62,54 +57,13 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
     [images, purpose, title, desc, place]
   );
 
-  // 뒤로가기
+  // 뒤로가기 버튼
   const handleGoBack = useCallback(() => {
     if (navigation?.goBack) return navigation.goBack();
     Alert.alert('뒤로가기', '네비게이션이 연결되어 있지 않습니다.');
   }, [navigation]);
 
-  /** =======================
-   *  초안 복원
-   *  ======================= */
-  useEffect(() => {
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(DRAFT_KEY);
-        if (!raw) return;
-        const d = JSON.parse(raw);
-        if (Array.isArray(d?.images)) setImages(d.images);
-        if (d?.purpose === 'lost' || d?.purpose === 'found') setPurpose(d.purpose);
-        if (typeof d?.title === 'string') setTitle(d.title);
-        if (typeof d?.desc === 'string') setDesc(d.desc);
-        if (typeof d?.place === 'string') setPlace(d.place);
-      } catch (e) {
-        console.log('draft load fail', e);
-      }
-    })();
-  }, [setImages]);
-
-  /** =======================
-   *  초안 저장(디바운스)
-   *  ======================= */
-  useEffect(() => {
-    if (skipSaveRef.current) return; // '나가기' 이후 저장 스킵
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        const draft = { images, purpose, title, desc, place };
-        await AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-      } catch (e) {
-        console.log('draft save fail', e);
-      }
-    }, 300);
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    };
-  }, [images, purpose, title, desc, place]);
-
-  /** =======================
-   *  이탈 방지 (나가기시 드래프트 스킵 & 리셋)
-   *  ======================= */
+  // 임시저장 제거 버전의 beforeRemove: 확인만 띄우고 리셋 후 이탈
   useEffect(() => {
     const sub = navigation?.addListener?.('beforeRemove', (e: any) => {
       if (!isDirty || submitting) return;
@@ -119,20 +73,15 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
         {
           text: '나가기',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              skipSaveRef.current = true;
-              if (saveTimer.current) clearTimeout(saveTimer.current);
-              await AsyncStorage.removeItem(DRAFT_KEY);
-              // 메모리 리셋
-              setImages([]);
-              setPurpose(null);
-              setTitle('');
-              setDesc('');
-              setPlace('');
-            } finally {
-              navigation.dispatch(e.data.action);
-            }
+          onPress: () => {
+            // 폼 리셋
+            setImages([]);
+            setPurpose(null);
+            setTitle('');
+            setDesc('');
+            setPlace('');
+            // 실제 화면 이탈
+            navigation.dispatch(e.data.action);
           },
         },
       ]);
@@ -142,28 +91,18 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
     };
   }, [isDirty, submitting, navigation, setImages]);
 
-  /** =======================
-   *  제출: 로컬 피드에 저장(최신순)
-   *  ======================= */
+  /** 제출: 로컬 피드에 저장(최신순) */
   const handleSubmit = useCallback(async () => {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
     try {
-      const payload = {
-        type: purpose as Purpose,
+      const newItem = {
+        id: String(Date.now()),
+        type: purpose as Purpose, // 'lost' | 'found'
         title: title.trim(),
         content: desc.trim(),
         location: place.trim(),
-        photos: images, // TODO: 실제 업로드 후 URL 사용
-      };
-
-      const newItem = {
-        id: String(Date.now()),
-        type: payload.type, // 'lost' | 'found'
-        title: payload.title,
-        content: payload.content,
-        location: payload.location,
-        images: payload.photos,
+        images, // TODO: 실제 업로드 후 URL 사용
         likeCount: 0,
         createdAt: new Date().toISOString(),
       };
@@ -173,7 +112,6 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
       list.unshift(newItem);
       await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(list));
 
-      await AsyncStorage.removeItem(DRAFT_KEY);
       Alert.alert('등록 완료', '분실물 게시글이 작성되었습니다.');
 
       // 폼 리셋
@@ -194,7 +132,7 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      {/* inner: 화면 공통 여백/레이아웃을 한 곳에서 관리 */}
+      {/* inner: 화면 공통 여백/레이아웃 */}
       <View style={styles.inner}>
         {/* ===== 헤더 ===== */}
         <View style={styles.header}>
@@ -222,7 +160,7 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* 사진 영역: UI는 PhotoPicker, 동작은 훅 */}
+          {/* 사진 영역: PhotoPicker(동작은 훅) */}
           <PhotoPicker
             images={images}
             max={MAX_PHOTOS}
@@ -280,7 +218,10 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
 
           {/* 제목 */}
           <View style={styles.block}>
-            <Text style={styles.label}>제목</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={styles.label}>제목</Text>
+              <Text style={{ color: '#979797' }}>{title.length}/{TITLE_MAX}</Text>
+            </View>
             <View style={styles.inputBox}>
               <TextInput
                 value={title}
@@ -288,7 +229,7 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
                 placeholder="글 제목"
                 placeholderTextColor="#979797"
                 style={styles.input}
-                maxLength={50}
+                maxLength={TITLE_MAX}
                 returnKeyType="next"
               />
             </View>
@@ -296,7 +237,10 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
 
           {/* 설명 */}
           <View style={styles.block}>
-            <Text style={styles.label}>설명</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={styles.label}>설명</Text>
+              <Text style={{ color: '#979797' }}>{desc.length}/{DESC_MAX}</Text>
+            </View>
             <View style={styles.textareaBox}>
               <TextInput
                 value={desc}
@@ -308,7 +252,7 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
                 style={styles.textarea}
                 multiline
                 textAlignVertical="top"
-                maxLength={1000}
+                maxLength={DESC_MAX}
               />
             </View>
           </View>
