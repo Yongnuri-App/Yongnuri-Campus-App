@@ -85,8 +85,8 @@ export default StyleSheet.create({
   /* 제목/가격/시간 */
   titleBlock: { gap: 8 },
   title: { fontSize: 20, fontWeight: '700', color: '#000000' },
-  price: { fontSize: 18, fontWeight: '600', color: '#000000' },
-  time: { fontSize: 12, fontWeight: '500', color: '#979797' },
+  price: { marginLeft: 2, fontSize: 18, fontWeight: '600', color: '#000000' },
+  time: { marginLeft: 2, fontSize: 12, fontWeight: '500', color: '#979797' },
 
   /* 설명 */
   desc: {

@@ -20,6 +20,8 @@ import NotificationPage from './pages/Notification/NotificationPage';
 import PasswordResetPage from './pages/PasswordReset/PasswordResetPage';
 import SearchPage from './pages/Search/SearchPage';
 import SignUpPage from './pages/SignUp/SignUpPage';
+// ✅ 신고하기 페이지 추가
+import ReportPage from './pages/Report/ReportPage';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -44,7 +46,8 @@ export default function App() {
         <Stack.Screen name="LostPost" component={LostPostPage} />
         <Stack.Screen name="MarketDetail" component={MarketDetailPage} />
         <Stack.Screen name="LostDetail" component={LostDetailPage} />
-        {/* 추가적인 페이지가 필요하면 여기에 계속 추가 */}
+        {/* ✅ 신고하기 스크린 등록 */}
+        <Stack.Screen name="Report" component={ReportPage} />
       </Stack.Navigator>
     </NavigationContainer>
   );

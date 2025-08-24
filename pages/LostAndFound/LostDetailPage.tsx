@@ -82,6 +82,10 @@ export default function LostDetailPage({
   const [initialLiked, setInitialLiked] = useState(false); // ✅ 로컬 저장된 좋아요 여부
   const hScrollRef = useRef<ScrollView | null>(null);
 
+  // ★ 화면에 보이는 프로필(임시 하드코딩 — 추후 API 연동 시 교체)
+  const profileName = '채히';
+  const profileDept = 'AI학부';
+
   // 3) 상세 로드
   useEffect(() => {
     let mounted = true;
@@ -128,12 +132,10 @@ export default function LostDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  // 6) 신고
+  // 6) 신고 → 신고 페이지로 이동 (대상: 화면의 프로필 라벨)
   const onPressReport = () => {
-    Alert.alert('신고하기', '이 게시글을 신고하시겠어요?', [
-      { text: '취소', style: 'cancel' },
-      { text: '신고', style: 'destructive', onPress: () => Alert.alert('접수 완료', '검토 후 조치하겠습니다.') },
-    ]);
+    const targetLabel = `${profileDept} - ${profileName}`;
+    navigation.navigate('Report', { targetLabel });
   };
 
   if (!item) {
@@ -187,7 +189,7 @@ export default function LostDetailPage({
             <Image source={require('../../assets/images/back_white.png')} style={styles.icon} />
           </TouchableOpacity>
 
-          {/* 우상단: 신고하기 */}
+          {/* 우상단: 신고하기 → 신고 페이지로 이동 */}
           <TouchableOpacity
             style={[styles.iconBtn, styles.iconRightTop]}
             onPress={onPressReport}
@@ -212,8 +214,8 @@ export default function LostDetailPage({
           <View style={styles.profileRow}>
             <View style={styles.avatar} />
             <View style={styles.profileTextCol}>
-              <Text style={styles.profileName}>채히</Text>
-              <Text style={styles.profileDept}>AI학부</Text>
+              <Text style={styles.profileName}>{profileName}</Text>
+              <Text style={styles.profileDept}>{profileDept}</Text>
             </View>
           </View>
 

@@ -2,15 +2,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Alert,
-    Dimensions,
-    Image,
-    NativeScrollEvent,
-    NativeSyntheticEvent,
-    ScrollView,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Dimensions,
+  Image,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 import type { RootStackScreenProps } from '../../types/navigation';
@@ -79,6 +79,10 @@ export default function MarketDetailPage({
   const [initialLiked, setInitialLiked] = useState(false); // ✅ 로컬 저장된 좋아요 여부
   const hScrollRef = useRef<ScrollView | null>(null);
 
+  // ✅ 화면에 보이는 프로필 라벨 (현재 임시 하드코딩)
+  const profileName = '채히';
+  const profileDept = 'AI학부';
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -124,11 +128,10 @@ export default function MarketDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
+  // ✅ 신고 페이지로 이동 (프로필 라벨 전달)
   const onPressReport = () => {
-    Alert.alert('신고하기', '이 게시글을 신고하시겠어요?', [
-      { text: '취소', style: 'cancel' },
-      { text: '신고', style: 'destructive', onPress: () => Alert.alert('접수 완료', '검토 후 조치하겠습니다.') },
-    ]);
+    const targetLabel = `${profileDept} - ${profileName}`;
+    navigation.navigate('Report', { targetLabel });
   };
 
   if (!item) {
@@ -205,8 +208,8 @@ export default function MarketDetailPage({
           <View style={styles.profileRow}>
             <View style={styles.avatar} />
             <View style={styles.profileTextCol}>
-              <Text style={styles.profileName}>채히</Text>
-              <Text style={styles.profileDept}>AI학부</Text>
+              <Text style={styles.profileName}>{profileName}</Text>
+              <Text style={styles.profileDept}>{profileDept}</Text>
             </View>
           </View>
 

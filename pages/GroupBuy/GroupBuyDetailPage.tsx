@@ -35,6 +35,10 @@ type GroupBuyPost = {
   images: string[];
   likeCount: number;
   createdAt: string; // ISO
+
+  // ✅ 작성자 정보(선택): 있으면 사용, 없으면 화면에 임시 텍스트
+  authorName?: string;
+  authorDept?: string;
 };
 
 function timeAgo(iso: string) {
@@ -119,6 +123,10 @@ export default function GroupBuyDetailPage({
 
   const timeText = useMemo(() => (item ? timeAgo(item.createdAt) : ''), [item]);
 
+  // ✅ 화면에 표시할 프로필 텍스트 (데이터 없으면 임시값)
+  const profileName = item?.authorName ?? '채히';
+  const profileDept = item?.authorDept ?? 'AI학부';
+
   // 괄호에는 모집 한도(제한 없음 / n명) 표시
   const recruitLabel =
     item?.recruit?.mode === 'unlimited'
@@ -133,11 +141,10 @@ export default function GroupBuyDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
+  // ✅ 신고 페이지로 이동: 상세에 표시 중인 이름/학부로 라벨 생성
   const onPressReport = () => {
-    Alert.alert('신고하기', '이 게시글을 신고하시겠어요?', [
-      { text: '취소', style: 'cancel' },
-      { text: '신고', style: 'destructive', onPress: () => Alert.alert('접수 완료', '검토 후 조치하겠습니다.') },
-    ]);
+    const targetLabel = `${profileDept} - ${profileName}`;
+    navigation.navigate('Report', { targetLabel });
   };
 
   const onPressApply = () => {
@@ -220,18 +227,18 @@ export default function GroupBuyDetailPage({
 
         {/* ===== 본문 ===== */}
         <View style={styles.body}>
-          {/* 프로필 (임시) */}
+          {/* 프로필 */}
           <View style={styles.profileRow}>
             <View style={styles.avatar} />
             <View style={styles.profileTextCol}>
-              <Text style={styles.profileName}>채히</Text>
-              <Text style={styles.profileDept}>AI학부</Text>
+              <Text style={styles.profileName}>{profileName}</Text>
+              <Text style={styles.profileDept}>{profileDept}</Text>
             </View>
           </View>
 
           <View style={styles.divider} />
 
-          {/* 제목 + 신청 버튼 (신청 동작은 기존 그대로) */}
+          {/* 제목 + 신청 버튼 */}
           <View style={styles.titleRow}>
             <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
 
@@ -271,16 +278,14 @@ export default function GroupBuyDetailPage({
         </View>
       </ScrollView>
 
-      {/* ===== 하단 고정 바: 하트(좋아요)만 추가/유지 ===== */}
+      {/* ===== 하단 고정 바: 좋아요 유지 ===== */}
       <DetailBottomBar
         initialLiked={initialLiked}
         onToggleLike={async (liked) => {
-          // per-post 좋아요 로컬 저장
           const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
           likedMap[id] = liked;
           await saveJson(LIKED_MAP_KEY, likedMap);
 
-          // likeCount 즉시 반영 + 목록 동기화
           setItem(prev => {
             if (!prev) return prev;
             const nextCount = Math.max(0, (prev.likeCount ?? 0) + (liked ? 1 : -1));

@@ -1,3 +1,4 @@
+// components/PhotoPicker.styles.ts
 import { StyleSheet } from 'react-native';
 
 export default StyleSheet.create({
@@ -49,10 +50,12 @@ export default StyleSheet.create({
     borderColor: '#E5E5E5',
     backgroundColor: '#FFF',
   },
+
+  /* ✅ X 버튼을 썸네일 안쪽으로 완전히 배치 */
   removeBtn: {
     position: 'absolute',
-    top: -6,
-    right: -6,
+    top: 4,     // <- 기존 -6 에서 안쪽으로 이동
+    right: 4,   // <- 기존 -6 에서 안쪽으로 이동
     width: 20,
     height: 20,
     borderRadius: 10,
