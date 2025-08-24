@@ -12,6 +12,7 @@ import LoadingScreen from './pages/Loading/LoadingScreen';
 import LoginPage from './pages/Login/LoginPage';
 import LostDetailPage from './pages/LostAndFound/LostDetailPage';
 import LostPostPage from './pages/LostAndFound/LostPostPage';
+import GroupBuyDetailPage from './pages/GroupBuy/GroupBuyDetailPage';
 import MainPage from './pages/Main/MainPage';
 import MarketDetailPage from './pages/Market/MarketDetailPage';
 import SellItemPage from './pages/Market/SellItemPage';
@@ -37,7 +38,7 @@ export default function App() {
         <Stack.Screen name="Search" component={SearchPage} />
         <Stack.Screen name="Notification" component={NotificationPage} />
         <Stack.Screen name="SellItem" component={SellItemPage} />
-        {/* <Stack.Screen name="LostItem" component={LostPostPage} /> */}
+        <Stack.Screen name="GroupBuyDetail" component={GroupBuyDetailPage} />
         <Stack.Screen name="ChatList" component={ChatListPage} />
         <Stack.Screen name="GroupBuyRecruit" component={GroupBuyRecruitPage} />
         <Stack.Screen name="LostPost" component={LostPostPage} />

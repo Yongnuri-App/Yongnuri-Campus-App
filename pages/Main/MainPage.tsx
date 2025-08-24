@@ -255,7 +255,8 @@ export default function MainPage({ navigation, route }: any) {
                 recruitMode={item.recruit?.mode === 'limited' ? 'limited' : 'unlimited'}
                 recruitCount={item.recruit?.count ?? null}
                 image={item.images && item.images.length > 0 ? item.images[0] : undefined}
-                onPress={() => navigation.navigate('GroupDetail', { id: item.id })}
+                likeCount={item.likeCount ?? 0} 
+                onPress={() => navigation.navigate('GroupBuyDetail', { id: item.id })}
               />
             )}
             ListEmptyComponent={

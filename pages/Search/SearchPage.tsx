@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native'; // ✅ 추가
 import styles from './SearchPage.styles';
 
 import MarketItem from '../../components/ListTile/MarketItem/MarketItem';
@@ -40,6 +41,7 @@ export default function SearchPage({ navigation }: Props) {
   const [loadingResults, setLoadingResults] = useState(false);
 
   const inputRef = useRef<TextInput>(null);
+  const lastQueryRef = useRef<string>(''); // ✅ 마지막 검색어 기억
 
   useEffect(() => {
     (async () => {
@@ -79,10 +81,59 @@ export default function SearchPage({ navigation }: Props) {
     return `${d}일 전`;
   };
 
+  // ✅ 화면 복귀 시 현재 lastQuery로 최신 스토리지 기준 재검색(최근검색어는 건드리지 않음)
+  const refreshResults = useCallback(async () => {
+    const q = normalize(lastQueryRef.current);
+    if (!q) return;
+    try {
+      const [mRaw, lRaw, gRaw] = await Promise.all([
+        AsyncStorage.getItem(MARKET_KEY),
+        AsyncStorage.getItem(LOST_KEY),
+        AsyncStorage.getItem(GROUP_KEY),
+      ]);
+
+      const markets = (mRaw ? JSON.parse(mRaw) : []) as any[];
+      const losts = (lRaw ? JSON.parse(lRaw) : []) as any[];
+      const groups = (gRaw ? JSON.parse(gRaw) : []) as any[];
+
+      const qLower = q.toLowerCase();
+
+      const hitMarket: Unified[] = markets
+        .filter((it) => (`${it.title ?? ''} ${it.description ?? ''}`).toLowerCase().includes(qLower))
+        .map((it) => ({ kind: 'market', id: it.id, data: it }));
+
+      const hitLost: Unified[] = losts
+        .filter((it) => (`${it.title ?? ''} ${it.content ?? ''}`).toLowerCase().includes(qLower))
+        .map((it) => ({ kind: 'lost', id: it.id, data: it }));
+
+      const hitGroup: Unified[] = groups
+        .filter((it) => (`${it.title ?? ''} ${it.description ?? ''}`).toLowerCase().includes(qLower))
+        .map((it) => ({ kind: 'group', id: it.id, data: it }));
+
+      const merged = [...hitMarket, ...hitLost, ...hitGroup].sort((a, b) => {
+        const ta = new Date(a.data.createdAt ?? 0).getTime();
+        const tb = new Date(b.data.createdAt ?? 0).getTime();
+        return tb - ta;
+      });
+
+      setResults(merged);
+    } catch (e) {
+      console.log('검색 새로고침 실패:', e);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      // 상세에서 돌아왔을 때 카운트/상태가 바뀌었으면 반영
+      refreshResults();
+    }, [refreshResults])
+  );
+
   const runSearch = useCallback(async (raw: string) => {
     const q = normalize(raw);
     if (!q) return;
     Keyboard.dismiss();
+    lastQueryRef.current = q; // ✅ 마지막 검색어 저장
 
     const next = [q, ...recent.filter(r => r.toLowerCase() !== q.toLowerCase())].slice(
       0,
@@ -159,7 +210,7 @@ export default function SearchPage({ navigation }: Props) {
           likeCount={it.likeCount ?? 0}
           image={it.images && it.images.length > 0 ? it.images[0] : undefined}
           onPress={(id) => navigation.navigate('MarketDetail', { id })}
-          bottomTag="중고거래"  // ✅ 카드 내부 배지
+          bottomTag="중고거래"
         />
       );
     }
@@ -174,7 +225,7 @@ export default function SearchPage({ navigation }: Props) {
           likeCount={it.likeCount ?? 0}
           image={it.images && it.images.length > 0 ? it.images[0] : undefined}
           onPress={() => navigation.navigate('LostDetail', { id: it.id })}
-          bottomTag="분실물"    // ✅ 카드 내부 배지
+          bottomTag="분실물"
         />
       );
     }
@@ -188,10 +239,9 @@ export default function SearchPage({ navigation }: Props) {
         recruitCount={it.recruit?.count ?? null}
         image={it.images && it.images.length > 0 ? it.images[0] : undefined}
         isClosed={!!it.isClosed}
-        onPress={() => {
-          // TODO: navigation.navigate('GroupDetail', { id: it.id })
-        }}
-        bottomTag="공동구매"    // ✅ 카드 내부 배지
+        onPress={() => navigation.navigate('GroupBuyDetail', { id: it.id })}
+        bottomTag="공동구매"
+        likeCount={it.likeCount ?? 0}
       />
     );
   };

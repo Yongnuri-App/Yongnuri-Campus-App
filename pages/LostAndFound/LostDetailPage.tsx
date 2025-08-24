@@ -17,6 +17,7 @@ import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './LostDetailPage.styles';
 
 const POSTS_KEY = 'lost_found_posts_v1';
+const LIKED_MAP_KEY = 'lost_found_liked_map_v1'; // ✅ 게시글별 좋아요 여부 저장 키
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 // 저장 스키마 기준 타입
@@ -43,6 +44,31 @@ function timeAgo(iso: string) {
   return `${d}일 전`;
 }
 
+// ✅ 간단 JSON 로더/세이버
+async function loadJson<T>(key: string, fallback: T): Promise<T> {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+async function saveJson<T>(key: string, value: T) {
+  try {
+    await AsyncStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+
+// ✅ 목록의 likeCount까지 동기화
+async function updatePostLikeCountInList(postId: string, nextCount: number) {
+  const list = await loadJson<LostPost[]>(POSTS_KEY, []);
+  const idx = list.findIndex(p => p.id === postId);
+  if (idx >= 0) {
+    list[idx] = { ...list[idx], likeCount: nextCount };
+    await saveJson(POSTS_KEY, list);
+  }
+}
+
 export default function LostDetailPage({
   route,
   navigation,
@@ -53,6 +79,7 @@ export default function LostDetailPage({
   // 2) 상태
   const [item, setItem] = useState<LostPost | null>(null);
   const [index, setIndex] = useState(0);
+  const [initialLiked, setInitialLiked] = useState(false); // ✅ 로컬 저장된 좋아요 여부
   const hScrollRef = useRef<ScrollView | null>(null);
 
   // 3) 상세 로드
@@ -69,7 +96,12 @@ export default function LostDetailPage({
           Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
             { text: '확인', onPress: () => navigation.goBack() },
           ]);
+          return;
         }
+
+        // ✅ 저장된 좋아요 여부 로드
+        const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
+        setInitialLiked(!!likedMap[id]);
       } catch (e) {
         if (!mounted) return;
         console.log('lost detail load error', e);
@@ -214,9 +246,20 @@ export default function LostDetailPage({
 
       {/* ===== 하단 고정 바 (좋아요/메시지) ===== */}
       <DetailBottomBar
-        initialLiked={false}
-        onToggleLike={(liked: boolean) => {
-          // TODO: per-post 좋아요 저장/통계 연동
+        initialLiked={initialLiked} // ✅ 로컬 저장값으로 초기화
+        onToggleLike={async (liked: boolean) => {
+          // ✅ 로컬 liked 맵 갱신
+          const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
+          likedMap[id] = liked;
+          await saveJson(LIKED_MAP_KEY, likedMap);
+
+          // ✅ likeCount 증감 (UI 즉시 반영) + 목록 동기화
+          setItem(prev => {
+            if (!prev) return prev;
+            const nextCount = Math.max(0, (prev.likeCount ?? 0) + (liked ? 1 : -1));
+            updatePostLikeCountInList(prev.id, nextCount);
+            return { ...prev, likeCount: nextCount };
+          });
         }}
         onPressSend={(msg: string) => {
           // TODO: 채팅 화면으로 이동 등

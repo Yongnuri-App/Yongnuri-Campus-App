@@ -1,17 +1,15 @@
-// pages/Market/MarketDetailPage.styles.ts
 import { Dimensions, StyleSheet } from 'react-native';
 const { width } = Dimensions.get('window');
 
 export default StyleSheet.create({
+  /* ===== 공통 컨테이너 ===== */
   container: { flex: 1, backgroundColor: '#FFFFFF' },
-  
-  /* ✅ 전체 ScrollView의 content 컨테이너 (하단 여백만) */
   contentContainer: { paddingBottom: 16 },
 
   /* ===== 이미지 상단 영역 ===== */
   imageArea: {
     width: '100%',
-    height: 390, // 피그마 스펙
+    height: 390,             // 피그마 스펙과 동일
     backgroundColor: '#D9D9D9',
   },
   mainImage: {
@@ -20,19 +18,12 @@ export default StyleSheet.create({
     resizeMode: 'cover',
     backgroundColor: '#D9D9D9',
   },
-  imagePlaceholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  imagePlaceholder: { alignItems: 'center', justifyContent: 'center' },
   imagePlaceholderText: { color: '#979797' },
 
-  /* 오버레이 아이콘 공통 */
+  /* 오버레이 아이콘 (뒤로가기/신고) */
   iconBtn: {
     position: 'absolute',
-    // width: 32,
-    // height: 32,
-    // borderRadius: 16,
-    // backgroundColor: 'rgba(255,255,255,0.8)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -55,10 +46,8 @@ export default StyleSheet.create({
   counterText: { color: '#FFFFFF', fontSize: 11, fontWeight: '500' },
 
   /* ===== 본문 ===== */
-  content: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 16 },
-
   body: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 16 },
-  
+
   /* 프로필 */
   profileRow: {
     flexDirection: 'row',
@@ -69,7 +58,7 @@ export default StyleSheet.create({
     width: 53,
     height: 53,
     borderRadius: 26.5,
-    backgroundColor: '#D9D9D9', // 임시
+    backgroundColor: '#D9D9D9',
   },
   profileTextCol: { marginLeft: 9, justifyContent: 'center' },
   profileName: { fontSize: 16, fontWeight: '700', color: '#1E1E1E', lineHeight: 23 },
@@ -82,29 +71,67 @@ export default StyleSheet.create({
     marginBottom: 12,
   },
 
-  /* 제목/가격/시간 */
-  titleBlock: { gap: 8 },
-  title: { fontSize: 20, fontWeight: '700', color: '#000000' },
-  price: { fontSize: 18, fontWeight: '600', color: '#000000' },
-  time: { fontSize: 12, fontWeight: '500', color: '#979797' },
+  /* ===== 제목 + 신청 버튼 라인 ===== */
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 5,
+    marginBottom: 4,
+  },
+  title: {
+    flex: 1,
+    paddingRight: 12, // 버튼과 간격
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  applyBtn: {
+    minWidth: 56,
+    height: 30,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    backgroundColor: '#979797',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  applyBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
 
-  /* 설명 */
-  desc: {
-    marginTop: 24,
+  /* ===== 모집 정보/시간 ===== */
+  recruitLine: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#979797',
+    marginBottom: 6,
+  },
+  time: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#979797',
+    marginBottom: 8,
+  },
+
+  /* ===== 설명 카드 ===== */
+  descCard: {
+    marginTop: 15,
+    borderRadius: 8,
+  },
+  descText: {
     fontSize: 15,
     lineHeight: 20,
     color: '#212124',
   },
 
-  /* 거래 희망 장소 */
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 30,
-    gap: 16,
+  /* ===== 신청 링크 섹션 ===== */
+  sectionLabel: { fontSize: 16, fontWeight: '700', color: '#000000', marginBottom: 6, marginTop: 10 },
+  linkText: {
+    fontSize: 14,
+    color: '#2563EB',
+    textDecorationLine: 'underline',
   },
-  locationLabel: { fontSize: 16, fontWeight: '700', color: '#000000' },
-  locationValue: { fontSize: 16, fontWeight: '400', color: '#000000' },
 
   /* 로딩/플레이스홀더 */
   fallback: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },

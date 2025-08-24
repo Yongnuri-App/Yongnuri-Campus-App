@@ -16,8 +16,9 @@ export type RootStackParamList = {
   GroupBuyRecruit: undefined; // 공동구매 모집글 작성 페이지
   LostPost: undefined;
   ChatList: undefined; // 채팅 목록 페이지
-  MarketDetail: { id: string }; // 마켓 상세 페이지 (id 필요)
+  MarketDetail: { id: string; isOwner?: boolean };
   LostDetail: { id: string };
+  GroupBuyDetail: { id: string };
 };
 
 /** 화면 컴포넌트에서 사용할 공용 Props 타입 */

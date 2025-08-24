@@ -1,32 +1,37 @@
-// pages/Market/MarketDetailPage.tsx
+// pages/GroupBuy/GroupBuyDetailPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Alert,
-    Dimensions,
-    Image,
-    NativeScrollEvent,
-    NativeSyntheticEvent,
-    ScrollView,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Dimensions,
+  Image,
+  Linking,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 import type { RootStackScreenProps } from '../../types/navigation';
-import styles from './MarketDetailPage.styles';
+import styles from './GroupBuyDetailPage.styles';
 
-const POSTS_KEY = 'market_posts_v1';
-const LIKED_MAP_KEY = 'market_liked_map_v1'; // ✅ 게시글별 좋아요 여부 저장 키
+const POSTS_KEY = 'groupbuy_posts_v1';
+const LIKED_MAP_KEY = 'groupbuy_liked_map_v1';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
-type MarketPost = {
+type RecruitMode = 'unlimited' | 'limited' | null;
+
+type GroupBuyPost = {
   id: string;
   title: string;
   description: string;
-  mode: 'sell' | 'donate';
-  price: number;
-  location: string;
+  recruit: {
+    mode: RecruitMode;
+    count: number | null;
+  };
+  applyLink: string;
   images: string[];
   likeCount: number;
   createdAt: string; // ISO
@@ -43,7 +48,6 @@ function timeAgo(iso: string) {
   return `${d}일 전`;
 }
 
-// ✅ 간단 JSON 로더/세이버
 async function loadJson<T>(key: string, fallback: T): Promise<T> {
   try {
     const raw = await AsyncStorage.getItem(key);
@@ -58,25 +62,26 @@ async function saveJson<T>(key: string, value: T) {
   } catch {}
 }
 
-// ✅ 목록의 likeCount까지 동기화
 async function updatePostLikeCountInList(postId: string, nextCount: number) {
-  const list = await loadJson<MarketPost[]>(POSTS_KEY, []);
+  const raw = await AsyncStorage.getItem(POSTS_KEY);
+  const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
   const idx = list.findIndex(p => p.id === postId);
   if (idx >= 0) {
     list[idx] = { ...list[idx], likeCount: nextCount };
-    await saveJson(POSTS_KEY, list);
+    await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(list));
   }
 }
 
-export default function MarketDetailPage({
+export default function GroupBuyDetailPage({
   route,
   navigation,
-}: RootStackScreenProps<'MarketDetail'>) {
+}: RootStackScreenProps<'GroupBuyDetail'>) {
   const { id } = route.params;
 
-  const [item, setItem] = useState<MarketPost | null>(null);
+  const [item, setItem] = useState<GroupBuyPost | null>(null);
   const [index, setIndex] = useState(0);
-  const [initialLiked, setInitialLiked] = useState(false); // ✅ 로컬 저장된 좋아요 여부
+  const [initialLiked, setInitialLiked] = useState(false);
+
   const hScrollRef = useRef<ScrollView | null>(null);
 
   useEffect(() => {
@@ -84,7 +89,7 @@ export default function MarketDetailPage({
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(POSTS_KEY);
-        const list: MarketPost[] = raw ? JSON.parse(raw) : [];
+        const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
         const found = list.find(p => p.id === id) ?? null;
         if (!mounted) return;
         setItem(found);
@@ -96,12 +101,12 @@ export default function MarketDetailPage({
           return;
         }
 
-        // ✅ 저장된 좋아요 여부 로드
+        // ✅ 좋아요(하트) 상태 로드
         const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
         setInitialLiked(!!likedMap[id]);
       } catch (e) {
         if (!mounted) return;
-        console.log('detail load error', e);
+        console.log('groupbuy detail load error', e);
         Alert.alert('오류', '게시글을 불러오지 못했어요.', [
           { text: '확인', onPress: () => navigation.goBack() },
         ]);
@@ -112,12 +117,16 @@ export default function MarketDetailPage({
     };
   }, [id, navigation]);
 
-  const priceDisplay = useMemo(() => {
-    if (!item) return '';
-    return item.mode === 'donate'
-      ? '나눔'
-      : `₩ ${Number(item.price ?? 0).toLocaleString('ko-KR')}`;
-  }, [item]);
+  const timeText = useMemo(() => (item ? timeAgo(item.createdAt) : ''), [item]);
+
+  // 괄호에는 모집 한도(제한 없음 / n명) 표시
+  const recruitLabel =
+    item?.recruit?.mode === 'unlimited'
+      ? '제한 없음'
+      : `${item?.recruit?.count ?? 0}명`;
+
+  // 현재 인원은 아직 미연동 → 0 고정
+  const currentCount = 0;
 
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
@@ -129,6 +138,15 @@ export default function MarketDetailPage({
       { text: '취소', style: 'cancel' },
       { text: '신고', style: 'destructive', onPress: () => Alert.alert('접수 완료', '검토 후 조치하겠습니다.') },
     ]);
+  };
+
+  const onPressApply = () => {
+    if (!item?.applyLink) {
+      Alert.alert('안내', '신청 링크가 없습니다.');
+      return;
+    }
+    const url = /^https?:\/\//i.test(item.applyLink) ? item.applyLink : `https://${item.applyLink}`;
+    Linking.openURL(url).catch(() => Alert.alert('오류', '링크를 열 수 없습니다.'));
   };
 
   if (!item) {
@@ -147,8 +165,9 @@ export default function MarketDetailPage({
         style={{ flex: 1 }}
         contentContainerStyle={[styles.contentContainer, { paddingBottom: 140 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {/* ===== 상단 이미지 영역 (스크롤 상단) ===== */}
+        {/* ===== 상단 이미지 ===== */}
         <View style={styles.imageArea}>
           {images.length > 0 ? (
             <ScrollView
@@ -191,7 +210,7 @@ export default function MarketDetailPage({
             <Image source={require('../../assets/images/alert_white.png')} style={styles.icon} />
           </TouchableOpacity>
 
-          {/* 우하단: 인디케이터 "1 / N" */}
+          {/* 우하단: 인디케이터 */}
           <View style={styles.counterPill}>
             <Text style={styles.counterText}>
               {images.length > 0 ? `${index + 1} / ${images.length}` : '0 / 0'}
@@ -212,35 +231,56 @@ export default function MarketDetailPage({
 
           <View style={styles.divider} />
 
-          {/* 제목/가격/시간 */}
-          <View style={styles.titleBlock}>
-            <Text style={styles.title}>{item.title}</Text>
-            <Text style={styles.price}>{priceDisplay}</Text>
-            <Text style={styles.time}>{timeAgo(item.createdAt)}</Text>
+          {/* 제목 + 신청 버튼 (신청 동작은 기존 그대로) */}
+          <View style={styles.titleRow}>
+            <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
+
+            <TouchableOpacity
+              style={styles.applyBtn}
+              activeOpacity={0.9}
+              onPress={onPressApply}
+            >
+              <Text style={styles.applyBtnText}>신청</Text>
+            </TouchableOpacity>
           </View>
 
-          {/* 설명 */}
-          <Text style={styles.desc}>{item.description}</Text>
+          {/* 모집 인원 라인 */}
+          <Text style={styles.recruitLine}>
+            현재 모집 인원 {currentCount}명 ({recruitLabel})
+          </Text>
 
-          {/* 거래 희망 장소 */}
-          <View style={styles.locationRow}>
-            <Text style={styles.locationLabel}>거래 희망 장소</Text>
-            <Text style={styles.locationValue}>{item.location}</Text>
+          {/* 시간 */}
+          <Text style={styles.time}>{timeText}</Text>
+
+          {/* 설명 카드 */}
+          <View style={styles.descCard}>
+            <Text style={styles.descText}>{item.description}</Text>
+          </View>
+
+          {/* 신청 링크 */}
+          <View style={{ marginTop: 16 }}>
+            <Text style={styles.sectionLabel}>신청 링크</Text>
+            <TouchableOpacity onPress={onPressApply} activeOpacity={0.8}>
+              <Text style={styles.linkText} numberOfLines={2}>
+                {item.applyLink}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <View style={{ height: 24 }} />
         </View>
       </ScrollView>
-      {/* 하단 고정 바 */}
+
+      {/* ===== 하단 고정 바: 하트(좋아요)만 추가/유지 ===== */}
       <DetailBottomBar
-        initialLiked={initialLiked} // ✅ 로컬 저장값으로 초기화
+        initialLiked={initialLiked}
         onToggleLike={async (liked) => {
-          // ✅ 로컬 liked 맵 갱신
+          // per-post 좋아요 로컬 저장
           const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
           likedMap[id] = liked;
           await saveJson(LIKED_MAP_KEY, likedMap);
 
-          // ✅ likeCount 증감 (UI 즉시 반영) + 목록 동기화
+          // likeCount 즉시 반영 + 목록 동기화
           setItem(prev => {
             if (!prev) return prev;
             const nextCount = Math.max(0, (prev.likeCount ?? 0) + (liked ? 1 : -1));
@@ -249,7 +289,6 @@ export default function MarketDetailPage({
           });
         }}
         onPressSend={(msg) => {
-          // TODO: 추후 채팅화면으로 navigate
           Alert.alert('전송', `메시지: ${msg}`);
         }}
       />

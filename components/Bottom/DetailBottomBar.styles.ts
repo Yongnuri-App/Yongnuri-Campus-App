@@ -17,9 +17,9 @@ export default StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   wrap: {
-    height: 100,
+    height: 80,
     paddingHorizontal: 10,
-    paddingBottom: 20,
+    paddingBottom: 10,
     backgroundColor: '#FFFFFF',
     // 상단 그림자 (iOS/안드)
     shadowColor: '#000',
