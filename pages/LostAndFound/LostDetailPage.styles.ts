@@ -27,7 +27,7 @@ export default StyleSheet.create({
     // width: 32,
     // height: 32,
     // borderRadius: 16,
-    // backgroundColor: 'rgba(255,255,255,0.8)', // 밝은 아이콘/어두운 배경 모두 대비 확보
+    // backgroundColor: 'rgba(255,255,255,0.8)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -71,7 +71,7 @@ export default StyleSheet.create({
     justifyContent: 'center',
   },
   badgeLost: { backgroundColor: '#F070C8' },
-  badgeFound: { backgroundColor: '#419EBD' }, 
+  badgeFound: { backgroundColor: '#419EBD' },
   badgeText: { fontSize: 12, fontWeight: '600', color: '#FFFFFF' },
 
   title: { fontSize: 20, fontWeight: '700', color: '#000000', flexShrink: 1 },
