@@ -240,7 +240,8 @@ export default function MarketDetailPage({
         - 전송 버튼을 누르면 채팅방으로 이동 + 필요한 파라미터 전달
       */}
       <DetailBottomBar
-        initialLiked={initialLiked} // ✅ 로컬 저장값으로 초기화
+        variant="detail"
+        initialLiked={initialLiked}
         onToggleLike={async (liked) => {
           // ✅ 로컬 liked 맵 갱신
           const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
@@ -248,26 +249,22 @@ export default function MarketDetailPage({
           await saveJson(LIKED_MAP_KEY, likedMap);
 
           // ✅ likeCount 증감 (UI 즉시 반영) + 목록 동기화
-          setItem(prev => {
+          setItem((prev) => {
             if (!prev) return prev;
-            const nextCount = Math.max(0, (prev.likeCount ?? 0) + (liked ? 1 : -1));
+            const nextCount = Math.max(
+              0,
+              (prev.likeCount ?? 0) + (liked ? 1 : -1)
+            );
             updatePostLikeCountInList(prev.id, nextCount);
             return { ...prev, likeCount: nextCount };
           });
-        }}
-        onPressSend={(msg) => {
-          // ✅ (1) 필요 시 여기서 "첫 메시지 생성" API 호출 후 성공 시 이동
-          // TODO: 서버에 메시지 전송 로직 연결
-
-          // ✅ (2) 채팅방으로 이동 (게시글 요약 정보 전달)
-          navigation.navigate('ChatRoom', {
-            postId: item.id,
-            sellerNickname: profileName,      // 헤더에 표시할 닉네임
-            productTitle: item.title,         // 상품 제목
-            productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0), // 나눔이면 0 전달
-            productImageUri: images[0],       // 대표 이미지(첫 번째)
-            initialMessage: msg,             // 최초 메시지
-          });
+        }}  // ← 중요: 콜백 블록과 prop 둘 다 여기서 '}}'로 닫혀야 함!!
+        chatAutoNavigateParams={{
+          postId: item.id,
+          sellerNickname: profileName,
+          productTitle: item.title,
+          productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0),
+          productImageUri: images[0],
         }}
       />
     </View>

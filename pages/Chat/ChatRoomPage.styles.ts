@@ -216,4 +216,75 @@ export default StyleSheet.create({
     height: 1,
     backgroundColor: '#EEE',
   },
+
+  // 첨부 썸네일 바
+  attachBar: {
+    // borderTopWidth: 1,
+    // borderTopColor: '#EEE',
+    // backgroundColor: '#FFF',
+    zIndex: 2,       // 입력바 그림자에 가려지는 걸 방지
+    elevation: 2,    // (Android)
+    marginBottom: 80,
+  },
+  attachScroll: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  thumbWrapAttach: {
+    width: 64,
+    height: 64,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginRight: 8,
+    position: 'relative',
+    backgroundColor: '#EDEDED',
+  },
+  thumbAttach: {
+    width: '100%',
+    height: '100%',
+  },
+  removeBtn: {
+    position: 'absolute',
+    right: 4,
+    top: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removeX: {
+    color: '#FFF',
+    fontSize: 14,
+    lineHeight: 14,
+    fontWeight: '700',
+  },
+
+  // 이미지 메시지
+  msgImageMine: {
+    width: 180,
+    height: 180,
+    borderRadius: 8,
+    backgroundColor: '#F0F0F0',
+  },
+  msgImageOthers: {
+    width: 180,
+    height: 180,
+    borderRadius: 8,
+    backgroundColor: '#F2F3F6',
+    marginLeft: 10, // 아바타와 간격
+  },
+  imageBubbleMine: {
+    maxWidth: '70%',
+    // backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    padding: 2,
+  },
+  imageBubbleOthers: {
+    maxWidth: '70%',
+    // backgroundColor: COLORS.bar,
+    borderRadius: 8,
+    padding: 2,
+  },
 });
