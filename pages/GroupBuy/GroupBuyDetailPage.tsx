@@ -16,11 +16,13 @@ import {
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './GroupBuyDetailPage.styles';
-import { useLike } from '../../hooks/useLike'; // 공통 좋아요 훅
-import ProfileRow from '../../components/Profile/ProfileRow'; // 분리한 프로필 컴포넌트
+import { useLike } from '../../hooks/useLike';
+import ProfileRow from '../../components/Profile/ProfileRow';
+import { useDeletePost } from '../../hooks/useDeletePost';
 
 const POSTS_KEY = 'groupbuy_posts_v1';
 const LIKED_MAP_KEY = 'groupbuy_liked_map_v1';
+const AUTH_USER_ID_KEY = 'auth_user_id';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 type RecruitMode = 'unlimited' | 'limited' | null;
@@ -37,6 +39,7 @@ type GroupBuyPost = {
   images: string[];
   likeCount: number;
   createdAt: string; // ISO
+  authorId?: string;
   authorName?: string;
   authorDept?: string;
 };
@@ -60,9 +63,10 @@ export default function GroupBuyDetailPage({
 
   const [item, setItem] = useState<GroupBuyPost | null>(null);
   const [index, setIndex] = useState(0);
+  const [ownerMenuVisible, setOwnerMenuVisible] = useState(false);
+  const [myId, setMyId] = useState<string | null>(null);
   const hScrollRef = useRef<ScrollView | null>(null);
 
-  // 공통 좋아요 훅 (목록 동기화까지 내부에서 처리)
   const { liked, syncCount, setLikedPersisted } = useLike({
     itemId: id,
     likedMapKey: LIKED_MAP_KEY,
@@ -70,13 +74,39 @@ export default function GroupBuyDetailPage({
     initialCount: 0,
   });
 
+  const { confirmAndDelete } = useDeletePost({
+    postId: id,
+    postsKey: POSTS_KEY,
+    likedMapKey: LIKED_MAP_KEY,
+    navigation,
+    confirmTitle: '삭제',
+    confirmMessage: '정말로 이 게시글을 삭제할까요?',
+    confirmOkText: '삭제',
+    confirmCancelText: '취소',
+  });
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(AUTH_USER_ID_KEY);
+        if (mounted) setMyId(stored);
+      } catch (e) {
+        console.log('load my id error', e);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(POSTS_KEY);
         const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
-        const found = list.find(p => p.id === id) ?? null;
+        const found = list.find((p) => p.id === id) ?? null;
         if (!mounted) return;
         setItem(found);
 
@@ -86,8 +116,6 @@ export default function GroupBuyDetailPage({
           ]);
           return;
         }
-
-        // 상세의 likeCount를 훅과 동기화
         syncCount(found.likeCount ?? 0);
       } catch (e) {
         if (!mounted) return;
@@ -102,19 +130,23 @@ export default function GroupBuyDetailPage({
     };
   }, [id, navigation, syncCount]);
 
+  const isOwner = useMemo(() => {
+    const p = (route.params as any)?.isOwner;
+    if (typeof p === 'boolean') return p;
+    if (typeof p === 'string') return p === 'true' || p === '1';
+    if (typeof p === 'number') return p === 1;
+    if (item?.authorId && myId) return item.authorId === myId;
+    return false;
+  }, [route.params, item?.authorId, myId]);
+
   const timeText = useMemo(() => (item ? timeAgo(item.createdAt) : ''), [item]);
 
-  // 화면 표기용 프로필(데이터 없으면 임시값)
   const profileName = item?.authorName ?? '채히';
   const profileDept = item?.authorDept ?? 'AI학부';
 
-  // 표시용 모집 한도
   const recruitLabel =
-    item?.recruit?.mode === 'unlimited'
-      ? '제한 없음'
-      : `${item?.recruit?.count ?? 0}명`;
+    item?.recruit?.mode === 'unlimited' ? '제한 없음' : `${item?.recruit?.count ?? 0}명`;
 
-  // 현재 인원(미연동)
   const currentCount = 0;
 
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -122,7 +154,6 @@ export default function GroupBuyDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  // 신고 페이지 이동 (상세에 보이는 프로필 라벨 전달)
   const onPressReport = () => {
     const targetLabel = `${profileDept} - ${profileName}`;
     navigation.navigate('Report', { targetLabel });
@@ -136,9 +167,7 @@ export default function GroupBuyDetailPage({
     const url = /^https?:\/\//i.test(item.applyLink)
       ? item.applyLink
       : `https://${item.applyLink}`;
-    Linking.openURL(url).catch(() =>
-      Alert.alert('오류', '링크를 열 수 없습니다.')
-    );
+    Linking.openURL(url).catch(() => Alert.alert('오류', '링크를 열 수 없습니다.'));
   };
 
   if (!item) {
@@ -150,6 +179,17 @@ export default function GroupBuyDetailPage({
   }
 
   const images = Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
+
+  const openOwnerMenu = () => setOwnerMenuVisible(true);
+  const closeOwnerMenu = () => setOwnerMenuVisible(false);
+  const onOwnerEdit = () => {
+    closeOwnerMenu();
+    Alert.alert('알림', '수정 화면은 추후 연결 예정입니다.');
+  };
+  const onOwnerDelete = async () => {
+    closeOwnerMenu();
+    await confirmAndDelete();
+  };
 
   return (
     <View style={styles.container}>
@@ -191,16 +231,28 @@ export default function GroupBuyDetailPage({
             <Image source={require('../../assets/images/back_white.png')} style={styles.icon} />
           </TouchableOpacity>
 
-          {/* 우상단: 신고하기 */}
-          <TouchableOpacity
-            style={[styles.iconBtn, styles.iconRightTop]}
-            onPress={onPressReport}
-            accessibilityRole="button"
-            accessibilityLabel="신고하기"
-            activeOpacity={0.9}
-          >
-            <Image source={require('../../assets/images/alert_white.png')} style={styles.icon} />
-          </TouchableOpacity>
+          {/* 우상단: 신고 or 소유자 메뉴 버튼 */}
+          {!isOwner ? (
+            <TouchableOpacity
+              style={[styles.iconBtn, styles.iconRightTop]}
+              onPress={onPressReport}
+              accessibilityRole="button"
+              accessibilityLabel="신고하기"
+              activeOpacity={0.9}
+            >
+              <Image source={require('../../assets/images/alert_white.png')} style={styles.icon} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.iconBtn, styles.iconRightTop]}
+              onPress={openOwnerMenu}
+              accessibilityRole="button"
+              accessibilityLabel="게시글 옵션"
+              activeOpacity={0.9}
+            >
+              <Image source={require('../../assets/images/tab.png')} style={styles.icon} />
+            </TouchableOpacity>
+          )}
 
           {/* 우하단: 인디케이터 */}
           <View style={styles.counterPill}>
@@ -208,16 +260,58 @@ export default function GroupBuyDetailPage({
               {images.length > 0 ? `${index + 1} / ${images.length}` : '0 / 0'}
             </Text>
           </View>
+
+          {/* 소유자 옵션 모달 */}
+          {isOwner && ownerMenuVisible && (
+            <>
+              <TouchableOpacity
+                style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }}
+                activeOpacity={1}
+                onPress={closeOwnerMenu}
+              />
+              <View
+                style={{
+                  position: 'absolute',
+                  right: 12,
+                  top: 55 + 28,
+                  backgroundColor: '#FFFFFF',
+                  borderWidth: 1,
+                  borderColor: '#E5E7EB',
+                  borderRadius: 8,
+                  paddingVertical: 6,
+                  shadowColor: '#000',
+                  shadowOpacity: 0.08,
+                  shadowRadius: 6,
+                  shadowOffset: { width: 0, height: 4 },
+                  elevation: 2,
+                  zIndex: 20,
+                }}
+              >
+                <TouchableOpacity
+                  onPress={onOwnerEdit}
+                  style={{ paddingVertical: 10, paddingHorizontal: 12 }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ fontSize: 14, color: '#1E1E1E' }}>수정</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={onOwnerDelete}
+                  style={{ paddingVertical: 10, paddingHorizontal: 12 }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ fontSize: 14, color: '#D32F2F', fontWeight: '700' }}>삭제</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
         </View>
 
         {/* ===== 본문 ===== */}
         <View style={styles.body}>
-          {/* 프로필 컴포넌트 */}
           <ProfileRow name={profileName} dept={profileDept} />
 
           <View style={styles.divider} />
 
-          {/* 제목 + 신청 버튼 */}
           <View style={styles.titleRow}>
             <Text style={styles.title} numberOfLines={2}>
               {item.title}
@@ -228,20 +322,16 @@ export default function GroupBuyDetailPage({
             </TouchableOpacity>
           </View>
 
-          {/* 모집 인원 라인 */}
           <Text style={styles.recruitLine}>
             현재 모집 인원 {currentCount}명 ({recruitLabel})
           </Text>
 
-          {/* 시간 */}
           <Text style={styles.time}>{timeText}</Text>
 
-          {/* 설명 카드 */}
           <View style={styles.descCard}>
             <Text style={styles.descText}>{item.description}</Text>
           </View>
 
-          {/* 신청 링크 */}
           <View style={{ marginTop: 16 }}>
             <Text style={styles.sectionLabel}>신청 링크</Text>
             <TouchableOpacity onPress={onPressApply} activeOpacity={0.8}>
@@ -255,15 +345,11 @@ export default function GroupBuyDetailPage({
         </View>
       </ScrollView>
 
-      {/* ===== 하단 고정 바 ===== */}
       <DetailBottomBar
         initialLiked={liked}
         onToggleLike={async (nextLiked) => {
-          // 훅이 저장/목록 동기화 처리
           await setLikedPersisted(nextLiked);
-
-          // 상세 UI 즉시 반영
-          setItem(prev => {
+          setItem((prev) => {
             if (!prev) return prev;
             const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));
             return { ...prev, likeCount: nextCount };

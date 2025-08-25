@@ -10,12 +10,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { CommonActions } from '@react-navigation/native';
 
 import LocationPicker from '../../components/LocationPicker/LocationPicker';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import styles from './LostPostPage.styles';
-
-// 이미지 선택/권한/액션시트 로직 훅
 import { useImagePicker } from '../../hooks/useImagePicker';
 
 type Purpose = 'lost' | 'found';
@@ -25,28 +24,38 @@ interface Props {
 }
 
 const POSTS_KEY = 'lost_found_posts_v1';
+const AUTH_USER_ID_KEY = 'auth_user_id';
+const AUTH_USER_EMAIL_KEY = 'auth_user_email';
+
 const MAX_PHOTOS = 10;
 const TITLE_MAX = 50;
 const DESC_MAX = 1000;
 
+// 로그인 전에도 쓰는 로컬 사용자 ID 보장
+async function ensureLocalIdentity() {
+  let userId = await AsyncStorage.getItem(AUTH_USER_ID_KEY);
+  if (!userId) {
+    userId = `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    await AsyncStorage.setItem(AUTH_USER_ID_KEY, userId);
+  }
+  const userEmail = (await AsyncStorage.getItem(AUTH_USER_EMAIL_KEY)) ?? null;
+  return { userId, userEmail };
+}
+
 const LostPostPage: React.FC<Props> = ({ navigation }) => {
-  // 이미지: 훅에서 관리(임시저장 제거)
   const { images, setImages, openAdd, removeAt } = useImagePicker({ max: MAX_PHOTOS });
 
-  // 폼 상태
   const [purpose, setPurpose] = useState<Purpose | null>(null);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [place, setPlace] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
 
-  // 유효성
   const canSubmit = useMemo(
     () => Boolean(purpose && title.trim() && desc.trim() && place.trim()),
     [purpose, title, desc, place]
   );
 
-  // 작성 중 판단(이탈 방지)
   const isDirty = useMemo(
     () =>
       images.length > 0 ||
@@ -57,13 +66,11 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
     [images, purpose, title, desc, place]
   );
 
-  // 뒤로가기 버튼
   const handleGoBack = useCallback(() => {
     if (navigation?.goBack) return navigation.goBack();
     Alert.alert('뒤로가기', '네비게이션이 연결되어 있지 않습니다.');
   }, [navigation]);
 
-  // 임시저장 제거 버전의 beforeRemove: 확인만 띄우고 리셋 후 이탈
   useEffect(() => {
     const sub = navigation?.addListener?.('beforeRemove', (e: any) => {
       if (!isDirty || submitting) return;
@@ -74,21 +81,17 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
           text: '나가기',
           style: 'destructive',
           onPress: () => {
-            // 폼 리셋
             setImages([]);
             setPurpose(null);
             setTitle('');
             setDesc('');
             setPlace('');
-            // 실제 화면 이탈
             navigation.dispatch(e.data.action);
           },
         },
       ]);
     });
-    return () => {
-      if (sub) sub();
-    };
+    return () => { if (sub) sub(); };
   }, [isDirty, submitting, navigation, setImages]);
 
   /** 제출: 로컬 피드에 저장(최신순) */
@@ -96,6 +99,9 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
     try {
+      // ✅ 로컬 사용자 식별자 보장
+      const { userId, userEmail } = await ensureLocalIdentity();
+
       const newItem = {
         id: String(Date.now()),
         type: purpose as Purpose, // 'lost' | 'found'
@@ -105,6 +111,12 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
         images, // TODO: 실제 업로드 후 URL 사용
         likeCount: 0,
         createdAt: new Date().toISOString(),
+
+        // ⭐️ 오너 판별용 필드
+        authorId: userId,
+        authorEmail: userEmail,
+        authorName: '채희',   // 임시 표시용(선택)
+        authorDept: 'AI학부', // 임시 표시용(선택)
       };
 
       const raw = await AsyncStorage.getItem(POSTS_KEY);
@@ -121,7 +133,16 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
       setDesc('');
       setPlace('');
 
-      navigation?.goBack?.();
+      // ✅ 스택 재구성: Main(목록-분실물) + LostDetail(방금 글)
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 1,
+          routes: [
+            { name: 'Main', params: { initialTab: 'lost' } },
+            { name: 'LostDetail', params: { id: newItem.id, isOwner: true } },
+          ],
+        })
+      );
     } catch (e: any) {
       Alert.alert('오류', e?.message || '작성에 실패했어요. 잠시 후 다시 시도해주세요.');
       console.log(e);
@@ -132,7 +153,6 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      {/* inner: 화면 공통 여백/레이아웃 */}
       <View style={styles.inner}>
         {/* ===== 헤더 ===== */}
         <View style={styles.header}>
@@ -160,7 +180,7 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* 사진 영역: PhotoPicker(동작은 훅) */}
+          {/* 사진 */}
           <PhotoPicker
             images={images}
             max={MAX_PHOTOS}
@@ -168,7 +188,7 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
             onRemoveAt={removeAt}
           />
 
-          {/* 작성 목적 (분실/습득) */}
+          {/* 작성 목적 */}
           <View style={styles.block}>
             <Text style={styles.label}>작성 목적</Text>
             <Text style={styles.helper}>
@@ -267,7 +287,6 @@ const LostPostPage: React.FC<Props> = ({ navigation }) => {
             />
           </View>
 
-          {/* 스크롤 하단 여백 확보 (버튼 공간만큼) */}
           <View style={styles.submitSpacer} />
         </ScrollView>
 

@@ -1,7 +1,7 @@
 // pages/Main/MainPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { FlatList, RefreshControl, Text, View } from 'react-native';
 
 import BottomTabBar, { TabKey } from '../../components/Bottom/BottomTabBar';
@@ -12,6 +12,9 @@ import LostItem from '../../components/ListTile/LostItem/LostItem';
 import MarketItem from '../../components/ListTile/MarketItem/MarketItem';
 import GroupItem from '../../components/ListTile/GroupItem/GroupItem';
 import styles from './MainPage.styles';
+
+// ✅ 타입 추가: Main 라우트의 params( initialTab )를 안전하게 받기 위함
+import type { RootStackScreenProps } from '../../types/navigation';
 
 // 로컬 저장 키
 const POSTS_KEY_MAP = {
@@ -25,11 +28,11 @@ type MarketListItem = {
   title: string;
   description?: string;
   mode: 'sell' | 'donate';
-  price: number;          // number로 저장
-  location: string;       // 칩 라벨과 동일 추천
+  price: number;
+  location: string;
   images: string[];
   likeCount: number;
-  createdAt: string;      // ISO
+  createdAt: string;
 };
 
 type LostListItem = {
@@ -40,7 +43,7 @@ type LostListItem = {
   location: string;
   images: string[];
   likeCount: number;
-  createdAt: string;      // ISO
+  createdAt: string;
 };
 
 type GroupListItem = {
@@ -54,7 +57,7 @@ type GroupListItem = {
   applyLink: string;
   images: string[];
   likeCount: number;
-  createdAt: string;      // ISO
+  createdAt: string;
 };
 
 /** 장소 → 카테고리 id 매핑 */
@@ -75,18 +78,23 @@ function timeAgo(iso: string) {
   return `${d}일 전`;
 }
 
-export default function MainPage({ navigation, route }: any) {
+export default function MainPage({ navigation, route }: RootStackScreenProps<'Main'>) {
   const [category, setCategory] = useState<string>('all');
-  const [tab, setTab] = useState<TabKey>('market');
+
+  // ✅ 초기 탭을 route.params.initialTab에서 즉시 세팅 (없으면 'market')
+  const initialTabFromParam = (route?.params?.initialTab as TabKey | undefined) ?? 'market';
+  const [tab, setTab] = useState<TabKey>(initialTabFromParam);
+
   const [marketItems, setMarketItems] = useState<MarketListItem[]>([]);
   const [lostItems, setLostItems] = useState<LostListItem[]>([]);
   const [groupItems, setGroupItems] = useState<GroupListItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
-  // ✅ 외부에서 initialTab 전달되면 그 탭으로 시작 (예: 공동구매 작성 후 'group')
-  React.useEffect(() => {
-    const initialTab = route?.params?.initialTab as TabKey | undefined;
-    if (initialTab) setTab(initialTab);
+  // ✅ 외부에서 initialTab이 변경되어 들어오면 동기화 (reset 등)
+  useEffect(() => {
+    const next = route?.params?.initialTab as TabKey | undefined;
+    if (next && next !== tab) setTab(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.params?.initialTab]);
 
   const handleTabChange = (next: TabKey) => {
@@ -152,7 +160,7 @@ export default function MainPage({ navigation, route }: any) {
   // 그룹은 현재 카테고리 기준 없음 → 전체 반환
   const filteredGroup = useMemo(() => groupItems, [groupItems]);
 
-  /** ✅ 타일 클릭 → 상세 페이지로 이동 (구현되면 라우팅 연결) */
+  /** 타일 클릭 → 상세 페이지로 이동 */
   const handlePressMarketItem = useCallback((id: string) => {
     navigation.navigate('MarketDetail', { id });
   }, [navigation]);
@@ -255,7 +263,7 @@ export default function MainPage({ navigation, route }: any) {
                 recruitMode={item.recruit?.mode === 'limited' ? 'limited' : 'unlimited'}
                 recruitCount={item.recruit?.count ?? null}
                 image={item.images && item.images.length > 0 ? item.images[0] : undefined}
-                likeCount={item.likeCount ?? 0} 
+                likeCount={item.likeCount ?? 0}
                 onPress={() => navigation.navigate('GroupBuyDetail', { id: item.id })}
               />
             )}

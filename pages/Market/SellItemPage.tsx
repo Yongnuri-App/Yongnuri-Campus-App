@@ -10,15 +10,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { CommonActions } from '@react-navigation/native';
 
 import LocationPicker from '../../components/LocationPicker/LocationPicker';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import styles from './SellItemPage.styles';
-
-// 커스텀 훅
 import { useImagePicker } from '../../hooks/useImagePicker';
 
-// 판매/나눔 모드 타입
 type SaleMode = 'sell' | 'donate' | null;
 
 interface Props {
@@ -26,6 +24,9 @@ interface Props {
 }
 
 const POSTS_KEY = 'market_posts_v1';
+const AUTH_USER_ID_KEY = 'auth_user_id';
+const AUTH_USER_EMAIL_KEY = 'auth_user_email';
+
 const MAX_IMAGES = 10;
 const TITLE_MAX = 50;
 const DESC_MAX = 1000;
@@ -38,8 +39,19 @@ const formatKRW = (digits: string) => {
   return `₩ ${n.toLocaleString('ko-KR')}`;
 };
 
+// 로그인 없어도 기기별 고정 로컬 사용자 ID 보장
+async function ensureLocalIdentity() {
+  let userId = await AsyncStorage.getItem(AUTH_USER_ID_KEY);
+  if (!userId) {
+    userId = `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    await AsyncStorage.setItem(AUTH_USER_ID_KEY, userId);
+  }
+  const userEmail = (await AsyncStorage.getItem(AUTH_USER_EMAIL_KEY)) ?? null;
+  return { userId, userEmail };
+}
+
 const SellItemPage: React.FC<Props> = ({ navigation }) => {
-  // ✅ 사진은 훅이 관리 (UI는 PhotoPicker)
+  // 사진은 훅이 관리 (UI는 PhotoPicker)
   const { images, setImages, openAdd, removeAt } = useImagePicker({ max: MAX_IMAGES });
 
   const [title, setTitle] = useState('');
@@ -87,7 +99,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
     if (next === 'donate') setPriceRaw(''); // 나눔 전환 시 가격 초기화
   };
 
-  /** 이탈 방지: 임시저장 제거 버전(그냥 경고만 띄우고 리셋) */
+  /** 이탈 방지: 경고 후 리셋 */
   useEffect(() => {
     const sub = navigation?.addListener?.('beforeRemove', (e: any) => {
       if (!isDirty || submitting) return;
@@ -98,14 +110,12 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
           text: '나가기',
           style: 'destructive',
           onPress: () => {
-            // 폼 상태 리셋
             setImages([]);
             setTitle('');
             setDesc('');
             setMode(null);
             setPriceRaw('');
             setLocation('');
-            // 실제 화면 이탈
             navigation.dispatch(e.data.action);
           },
         },
@@ -121,6 +131,9 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
     try {
+      // ✅ 내 로컬 사용자 식별자 확보
+      const { userId, userEmail } = await ensureLocalIdentity();
+
       const payload = {
         title: title.trim(),
         description: desc.trim(),
@@ -130,7 +143,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
         images, // string[]
       };
 
-      // 1) 로컬 '게시글 목록'에 append (최신이 위로)
+      // 로컬 '게시글 목록'에 prepend (최신이 위)
       const newItem = {
         id: String(Date.now()),
         title: payload.title,
@@ -141,6 +154,12 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
         images: payload.images,
         likeCount: 0,
         createdAt: new Date().toISOString(),
+
+        // ⭐️ 오너 판별용 필드
+        authorId: userId,
+        authorEmail: userEmail,
+        authorName: '채희',   // 임시 표시용(선택)
+        authorDept: 'AI학부', // 임시 표시용(선택)
       };
 
       const raw = await AsyncStorage.getItem(POSTS_KEY);
@@ -158,8 +177,16 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
       setPriceRaw('');
       setLocation('');
 
-      // 뒤로가기
-      navigation?.goBack?.();
+      // ✅ 스택 재구성: Main(목록-중고거래) + MarketDetail(방금 글)
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 1,
+          routes: [
+            { name: 'Main', params: { initialTab: 'market' } },
+            { name: 'MarketDetail', params: { id: newItem.id, isOwner: true } },
+          ],
+        })
+      );
     } catch (e: any) {
       Alert.alert('오류', e?.message || '작성에 실패했어요. 잠시 후 다시 시도해주세요.');
       console.log(e);
@@ -185,7 +212,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
 
-        {/* 사진 영역 (UI만, 동작은 훅) */}
+        {/* 사진 영역 */}
         <PhotoPicker
           images={images}
           max={MAX_IMAGES}

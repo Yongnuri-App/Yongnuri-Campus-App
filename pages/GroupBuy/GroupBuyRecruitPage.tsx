@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CommonActions } from '@react-navigation/native';
 
 import styles, { COLORS } from './GroupBuyRecruitPage.styles';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
@@ -24,16 +25,27 @@ interface Props {
 }
 
 const POSTS_KEY = 'groupbuy_posts_v1';
+const AUTH_USER_ID_KEY = 'auth_user_id';
+const AUTH_USER_EMAIL_KEY = 'auth_user_email';
 
 // 글자수 제한
 const TITLE_MAX = 50;
 const DESC_MAX = 1000;
 
+// 로그인 전에 쓰는 로컬 사용자 ID 생성/보장
+async function ensureLocalIdentity() {
+  let userId = await AsyncStorage.getItem(AUTH_USER_ID_KEY);
+  if (!userId) {
+    userId = `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    await AsyncStorage.setItem(AUTH_USER_ID_KEY, userId);
+  }
+  let userEmail = await AsyncStorage.getItem(AUTH_USER_EMAIL_KEY);
+  return { userId, userEmail: userEmail ?? null };
+}
+
 const GroupBuyRecruitPage: React.FC<Props> = ({ navigation }) => {
-  // 사진 선택 (공통 훅)
   const { images, openAdd, removeAt, max } = useImagePicker({ max: 10 });
 
-  // 폼 상태
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [recruitMode, setRecruitMode] = useState<RecruitMode>(null);
@@ -72,6 +84,8 @@ const GroupBuyRecruitPage: React.FC<Props> = ({ navigation }) => {
 
     setSubmitting(true);
     try {
+      const { userId, userEmail } = await ensureLocalIdentity();
+
       const newItem = {
         id: `${Date.now()}`,
         title: title.trim(),
@@ -84,6 +98,11 @@ const GroupBuyRecruitPage: React.FC<Props> = ({ navigation }) => {
         images,
         likeCount: 0,
         createdAt: new Date().toISOString(),
+        // 오너 판별용
+        authorId: userId,
+        authorEmail: userEmail,
+        authorName: '채희',
+        authorDept: 'AI학부',
       };
 
       const raw = await AsyncStorage.getItem(POSTS_KEY);
@@ -98,11 +117,16 @@ const GroupBuyRecruitPage: React.FC<Props> = ({ navigation }) => {
       setRecruitCount('');
       setApplyLink('');
 
-      // 공동구매 탭으로 이동
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Main', params: { initialTab: 'group' } }],
-      });
+      // ✅ 스택 재구성: Main(공동구매 탭) + 방금 작성한 상세
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 1,
+          routes: [
+            { name: 'Main', params: { initialTab: 'group' } },
+            { name: 'GroupBuyDetail', params: { id: newItem.id, isOwner: true } },
+          ],
+        })
+      );
     } catch (e: any) {
       console.log(e);
       Alert.alert('오류', e?.message || '등록에 실패했어요. 잠시 후 다시 시도해주세요.');
@@ -117,7 +141,7 @@ const GroupBuyRecruitPage: React.FC<Props> = ({ navigation }) => {
     >
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.inner, { paddingBottom: 70 }]} // 하단 버튼 여유
+        contentContainerStyle={[styles.inner, { paddingBottom: 70 }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -136,7 +160,7 @@ const GroupBuyRecruitPage: React.FC<Props> = ({ navigation }) => {
         </View>
 
         {/* 사진 */}
-        <View style={styles.section}>
+        <View className="section" style={styles.section as any}>
           <Text style={styles.label}>사진</Text>
           <PhotoPicker images={images} max={max} onAddPress={openAdd} onRemoveAt={removeAt} />
         </View>
@@ -241,7 +265,7 @@ const GroupBuyRecruitPage: React.FC<Props> = ({ navigation }) => {
         </View>
       </ScrollView>
 
-      {/* 하단 고정 버튼 (다른 작성 페이지와 동일 스타일) */}
+      {/* 하단 고정 버튼 */}
       <View style={styles.submitWrap}>
         <TouchableOpacity
           style={[styles.submitButton, { opacity: canSubmit && !submitting ? 1 : 0.6 }]}
