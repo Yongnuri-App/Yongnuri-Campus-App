@@ -38,7 +38,7 @@ export default StyleSheet.create({
     marginLeft: 1,
     marginRight: 8,
   },
-  heartIcon: { width: 24, height: 24 },
+  heartIcon: { width: 28, height: 28 },
 
   inputBox: {
     flex: 1,

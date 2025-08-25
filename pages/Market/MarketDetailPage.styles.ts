@@ -3,12 +3,11 @@ import { Dimensions, StyleSheet } from 'react-native';
 const { width } = Dimensions.get('window');
 
 export default StyleSheet.create({
+  /* ===== 컨테이너 / 스크롤 ===== */
   container: { flex: 1, backgroundColor: '#FFFFFF' },
-  
-  /* ✅ 전체 ScrollView의 content 컨테이너 (하단 여백만) */
   contentContainer: { paddingBottom: 16 },
 
-  /* ===== 이미지 상단 영역 ===== */
+  /* ===== 상단 이미지 ===== */
   imageArea: {
     width: '100%',
     height: 390, // 피그마 스펙
@@ -26,13 +25,9 @@ export default StyleSheet.create({
   },
   imagePlaceholderText: { color: '#979797' },
 
-  /* 오버레이 아이콘 공통 */
+  /* ===== 오버레이 아이콘 / 인디케이터 ===== */
   iconBtn: {
     position: 'absolute',
-    // width: 32,
-    // height: 32,
-    // borderRadius: 16,
-    // backgroundColor: 'rgba(255,255,255,0.8)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -40,7 +35,6 @@ export default StyleSheet.create({
   iconLeftTop: { top: 55, left: 16 },
   iconRightTop: { top: 55, right: 16 },
 
-  /* 우하단 이미지 카운터 */
   counterPill: {
     position: 'absolute',
     right: 12,
@@ -55,22 +49,11 @@ export default StyleSheet.create({
   counterText: { color: '#FFFFFF', fontSize: 11, fontWeight: '500' },
 
   /* ===== 본문 ===== */
-  content: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 16 },
-
   body: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 16 },
-  
+
   /* 프로필 */
-  profileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 53,
-  },
-  avatar: {
-    width: 53,
-    height: 53,
-    borderRadius: 26.5,
-    backgroundColor: '#D9D9D9', // 임시
-  },
+  profileRow: { flexDirection: 'row', alignItems: 'center', height: 53 },
+  avatar: { width: 53, height: 53, borderRadius: 26.5, backgroundColor: '#D9D9D9' },
   profileTextCol: { marginLeft: 9, justifyContent: 'center' },
   profileName: { fontSize: 16, fontWeight: '700', color: '#1E1E1E', lineHeight: 23 },
   profileDept: { fontSize: 12, fontWeight: '400', color: '#979797', lineHeight: 17 },
@@ -106,7 +89,7 @@ export default StyleSheet.create({
   locationLabel: { fontSize: 16, fontWeight: '700', color: '#000000' },
   locationValue: { fontSize: 16, fontWeight: '400', color: '#000000' },
 
-  /* 로딩/플레이스홀더 */
+  /* 로딩 */
   fallback: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },
   fallbackText: { color: '#797979' },
 });

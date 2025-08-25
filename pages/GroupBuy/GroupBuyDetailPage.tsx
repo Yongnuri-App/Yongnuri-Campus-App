@@ -16,6 +16,8 @@ import {
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './GroupBuyDetailPage.styles';
+import { useLike } from '../../hooks/useLike'; // 공통 좋아요 훅
+import ProfileRow from '../../components/Profile/ProfileRow'; // 분리한 프로필 컴포넌트
 
 const POSTS_KEY = 'groupbuy_posts_v1';
 const LIKED_MAP_KEY = 'groupbuy_liked_map_v1';
@@ -35,8 +37,6 @@ type GroupBuyPost = {
   images: string[];
   likeCount: number;
   createdAt: string; // ISO
-
-  // ✅ 작성자 정보(선택): 있으면 사용, 없으면 화면에 임시 텍스트
   authorName?: string;
   authorDept?: string;
 };
@@ -52,30 +52,6 @@ function timeAgo(iso: string) {
   return `${d}일 전`;
 }
 
-async function loadJson<T>(key: string, fallback: T): Promise<T> {
-  try {
-    const raw = await AsyncStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-async function saveJson<T>(key: string, value: T) {
-  try {
-    await AsyncStorage.setItem(key, JSON.stringify(value));
-  } catch {}
-}
-
-async function updatePostLikeCountInList(postId: string, nextCount: number) {
-  const raw = await AsyncStorage.getItem(POSTS_KEY);
-  const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
-  const idx = list.findIndex(p => p.id === postId);
-  if (idx >= 0) {
-    list[idx] = { ...list[idx], likeCount: nextCount };
-    await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(list));
-  }
-}
-
 export default function GroupBuyDetailPage({
   route,
   navigation,
@@ -84,9 +60,15 @@ export default function GroupBuyDetailPage({
 
   const [item, setItem] = useState<GroupBuyPost | null>(null);
   const [index, setIndex] = useState(0);
-  const [initialLiked, setInitialLiked] = useState(false);
-
   const hScrollRef = useRef<ScrollView | null>(null);
+
+  // 공통 좋아요 훅 (목록 동기화까지 내부에서 처리)
+  const { liked, syncCount, setLikedPersisted } = useLike({
+    itemId: id,
+    likedMapKey: LIKED_MAP_KEY,
+    postsKey: POSTS_KEY,
+    initialCount: 0,
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -105,9 +87,8 @@ export default function GroupBuyDetailPage({
           return;
         }
 
-        // ✅ 좋아요(하트) 상태 로드
-        const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
-        setInitialLiked(!!likedMap[id]);
+        // 상세의 likeCount를 훅과 동기화
+        syncCount(found.likeCount ?? 0);
       } catch (e) {
         if (!mounted) return;
         console.log('groupbuy detail load error', e);
@@ -119,21 +100,21 @@ export default function GroupBuyDetailPage({
     return () => {
       mounted = false;
     };
-  }, [id, navigation]);
+  }, [id, navigation, syncCount]);
 
   const timeText = useMemo(() => (item ? timeAgo(item.createdAt) : ''), [item]);
 
-  // ✅ 화면에 표시할 프로필 텍스트 (데이터 없으면 임시값)
+  // 화면 표기용 프로필(데이터 없으면 임시값)
   const profileName = item?.authorName ?? '채히';
   const profileDept = item?.authorDept ?? 'AI학부';
 
-  // 괄호에는 모집 한도(제한 없음 / n명) 표시
+  // 표시용 모집 한도
   const recruitLabel =
     item?.recruit?.mode === 'unlimited'
       ? '제한 없음'
       : `${item?.recruit?.count ?? 0}명`;
 
-  // 현재 인원은 아직 미연동 → 0 고정
+  // 현재 인원(미연동)
   const currentCount = 0;
 
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -141,7 +122,7 @@ export default function GroupBuyDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  // ✅ 신고 페이지로 이동: 상세에 표시 중인 이름/학부로 라벨 생성
+  // 신고 페이지 이동 (상세에 보이는 프로필 라벨 전달)
   const onPressReport = () => {
     const targetLabel = `${profileDept} - ${profileName}`;
     navigation.navigate('Report', { targetLabel });
@@ -152,8 +133,12 @@ export default function GroupBuyDetailPage({
       Alert.alert('안내', '신청 링크가 없습니다.');
       return;
     }
-    const url = /^https?:\/\//i.test(item.applyLink) ? item.applyLink : `https://${item.applyLink}`;
-    Linking.openURL(url).catch(() => Alert.alert('오류', '링크를 열 수 없습니다.'));
+    const url = /^https?:\/\//i.test(item.applyLink)
+      ? item.applyLink
+      : `https://${item.applyLink}`;
+    Linking.openURL(url).catch(() =>
+      Alert.alert('오류', '링크를 열 수 없습니다.')
+    );
   };
 
   if (!item) {
@@ -227,26 +212,18 @@ export default function GroupBuyDetailPage({
 
         {/* ===== 본문 ===== */}
         <View style={styles.body}>
-          {/* 프로필 */}
-          <View style={styles.profileRow}>
-            <View style={styles.avatar} />
-            <View style={styles.profileTextCol}>
-              <Text style={styles.profileName}>{profileName}</Text>
-              <Text style={styles.profileDept}>{profileDept}</Text>
-            </View>
-          </View>
+          {/* 프로필 컴포넌트 */}
+          <ProfileRow name={profileName} dept={profileDept} />
 
           <View style={styles.divider} />
 
           {/* 제목 + 신청 버튼 */}
           <View style={styles.titleRow}>
-            <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
+            <Text style={styles.title} numberOfLines={2}>
+              {item.title}
+            </Text>
 
-            <TouchableOpacity
-              style={styles.applyBtn}
-              activeOpacity={0.9}
-              onPress={onPressApply}
-            >
+            <TouchableOpacity style={styles.applyBtn} activeOpacity={0.9} onPress={onPressApply}>
               <Text style={styles.applyBtnText}>신청</Text>
             </TouchableOpacity>
           </View>
@@ -278,18 +255,17 @@ export default function GroupBuyDetailPage({
         </View>
       </ScrollView>
 
-      {/* ===== 하단 고정 바: 좋아요 유지 ===== */}
+      {/* ===== 하단 고정 바 ===== */}
       <DetailBottomBar
-        initialLiked={initialLiked}
-        onToggleLike={async (liked) => {
-          const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
-          likedMap[id] = liked;
-          await saveJson(LIKED_MAP_KEY, likedMap);
+        initialLiked={liked}
+        onToggleLike={async (nextLiked) => {
+          // 훅이 저장/목록 동기화 처리
+          await setLikedPersisted(nextLiked);
 
+          // 상세 UI 즉시 반영
           setItem(prev => {
             if (!prev) return prev;
-            const nextCount = Math.max(0, (prev.likeCount ?? 0) + (liked ? 1 : -1));
-            updatePostLikeCountInList(prev.id, nextCount);
+            const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));
             return { ...prev, likeCount: nextCount };
           });
         }}

@@ -1,3 +1,4 @@
+// pages/GroupBuy/GroupBuyDetailPage.styles.ts
 import { Dimensions, StyleSheet } from 'react-native';
 const { width } = Dimensions.get('window');
 
@@ -9,7 +10,7 @@ export default StyleSheet.create({
   /* ===== 이미지 상단 영역 ===== */
   imageArea: {
     width: '100%',
-    height: 390,             // 피그마 스펙과 동일
+    height: 390, // 피그마 스펙
     backgroundColor: '#D9D9D9',
   },
   mainImage: {
@@ -21,7 +22,7 @@ export default StyleSheet.create({
   imagePlaceholder: { alignItems: 'center', justifyContent: 'center' },
   imagePlaceholderText: { color: '#979797' },
 
-  /* 오버레이 아이콘 (뒤로가기/신고) */
+  /* ===== 오버레이 아이콘 ===== */
   iconBtn: {
     position: 'absolute',
     alignItems: 'center',
@@ -31,7 +32,7 @@ export default StyleSheet.create({
   iconLeftTop: { top: 55, left: 16 },
   iconRightTop: { top: 55, right: 16 },
 
-  /* 우하단 이미지 카운터 */
+  /* ===== 하단 인디케이터 ===== */
   counterPill: {
     position: 'absolute',
     right: 12,
@@ -49,17 +50,8 @@ export default StyleSheet.create({
   body: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 16 },
 
   /* 프로필 */
-  profileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 53,
-  },
-  avatar: {
-    width: 53,
-    height: 53,
-    borderRadius: 26.5,
-    backgroundColor: '#D9D9D9',
-  },
+  profileRow: { flexDirection: 'row', alignItems: 'center', height: 53 },
+  avatar: { width: 53, height: 53, borderRadius: 26.5, backgroundColor: '#D9D9D9' },
   profileTextCol: { marginLeft: 9, justifyContent: 'center' },
   profileName: { fontSize: 16, fontWeight: '700', color: '#1E1E1E', lineHeight: 23 },
   profileDept: { fontSize: 12, fontWeight: '400', color: '#979797', lineHeight: 17 },
@@ -71,7 +63,7 @@ export default StyleSheet.create({
     marginBottom: 12,
   },
 
-  /* ===== 제목 + 신청 버튼 라인 ===== */
+  /* 제목 + 신청 버튼 라인 */
   titleRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -80,7 +72,7 @@ export default StyleSheet.create({
   },
   title: {
     flex: 1,
-    paddingRight: 12, // 버튼과 간격
+    paddingRight: 12,
     fontSize: 20,
     fontWeight: '700',
     color: '#000000',
@@ -97,10 +89,10 @@ export default StyleSheet.create({
   applyBtnText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#ffffff',
+    color: '#FFFFFF',
   },
 
-  /* ===== 모집 정보/시간 ===== */
+  /* 모집 정보 / 시간 */
   recruitLine: {
     fontSize: 14,
     fontWeight: '600',
@@ -114,7 +106,7 @@ export default StyleSheet.create({
     marginBottom: 8,
   },
 
-  /* ===== 설명 카드 ===== */
+  /* 설명 카드 */
   descCard: {
     marginTop: 15,
     borderRadius: 8,
@@ -125,7 +117,7 @@ export default StyleSheet.create({
     color: '#212124',
   },
 
-  /* ===== 신청 링크 섹션 ===== */
+  /* 신청 링크 섹션 */
   sectionLabel: { fontSize: 16, fontWeight: '700', color: '#000000', marginBottom: 6, marginTop: 10 },
   linkText: {
     fontSize: 14,
@@ -133,7 +125,7 @@ export default StyleSheet.create({
     textDecorationLine: 'underline',
   },
 
-  /* 로딩/플레이스홀더 */
+  /* 로딩 */
   fallback: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },
   fallbackText: { color: '#797979' },
 });

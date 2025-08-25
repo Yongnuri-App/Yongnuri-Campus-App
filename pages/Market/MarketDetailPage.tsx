@@ -13,11 +13,15 @@ import {
   View,
 } from 'react-native';
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
+import ProfileRow from '../../components/Profile/ProfileRow'; // 분리한 프로필 컴포넌트
+import { useLike } from '../../hooks/useLike'; // 공통 좋아요 훅
+import { updatePostLikeCountInList } from '../../repositories/marketRepo';
 import type { RootStackScreenProps } from '../../types/navigation';
+import { loadJson, saveJson } from '../../utils/storage';
 import styles from './MarketDetailPage.styles';
 
 const POSTS_KEY = 'market_posts_v1';
-const LIKED_MAP_KEY = 'market_liked_map_v1'; // ✅ 게시글별 좋아요 여부 저장 키
+const LIKED_MAP_KEY = 'market_liked_map_v1';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 type MarketPost = {
@@ -43,31 +47,6 @@ function timeAgo(iso: string) {
   return `${d}일 전`;
 }
 
-// ✅ 간단 JSON 로더/세이버
-async function loadJson<T>(key: string, fallback: T): Promise<T> {
-  try {
-    const raw = await AsyncStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-async function saveJson<T>(key: string, value: T) {
-  try {
-    await AsyncStorage.setItem(key, JSON.stringify(value));
-  } catch {}
-}
-
-// ✅ 목록의 likeCount까지 동기화
-async function updatePostLikeCountInList(postId: string, nextCount: number) {
-  const list = await loadJson<MarketPost[]>(POSTS_KEY, []);
-  const idx = list.findIndex(p => p.id === postId);
-  if (idx >= 0) {
-    list[idx] = { ...list[idx], likeCount: nextCount };
-    await saveJson(POSTS_KEY, list);
-  }
-}
-
 export default function MarketDetailPage({
   route,
   navigation,
@@ -76,12 +55,19 @@ export default function MarketDetailPage({
 
   const [item, setItem] = useState<MarketPost | null>(null);
   const [index, setIndex] = useState(0);
-  const [initialLiked, setInitialLiked] = useState(false); // ✅ 로컬 저장된 좋아요 여부
   const hScrollRef = useRef<ScrollView | null>(null);
 
-  // ✅ 화면에 보이는 프로필 라벨 (현재 임시 하드코딩)
+  // 임시 프로필 라벨 (추후 API 연동 시 교체)
   const profileName = '채히';
   const profileDept = 'AI학부';
+
+  // 공통 좋아요 훅 (리스트 동기화는 훅이 담당)
+  const { liked, syncCount, setLikedPersisted } = useLike({
+    itemId: id,
+    likedMapKey: LIKED_MAP_KEY,
+    postsKey: POSTS_KEY,
+    initialCount: 0, // 상세 로드 후 syncCount로 주입
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -100,9 +86,8 @@ export default function MarketDetailPage({
           return;
         }
 
-        // ✅ 저장된 좋아요 여부 로드
-        const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
-        setInitialLiked(!!likedMap[id]);
+        // 상세의 likeCount를 훅과 동기화
+        syncCount(found.likeCount ?? 0);
       } catch (e) {
         if (!mounted) return;
         console.log('detail load error', e);
@@ -114,7 +99,7 @@ export default function MarketDetailPage({
     return () => {
       mounted = false;
     };
-  }, [id, navigation]);
+  }, [id, navigation, syncCount]);
 
   const priceDisplay = useMemo(() => {
     if (!item) return '';
@@ -128,7 +113,7 @@ export default function MarketDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  // ✅ 신고 페이지로 이동 (프로필 라벨 전달)
+  // 신고 페이지로 이동
   const onPressReport = () => {
     const targetLabel = `${profileDept} - ${profileName}`;
     navigation.navigate('Report', { targetLabel });
@@ -142,7 +127,8 @@ export default function MarketDetailPage({
     );
   }
 
-  const images = Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
+  const images =
+    Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
 
   return (
     <View style={styles.container}>
@@ -151,7 +137,7 @@ export default function MarketDetailPage({
         contentContainerStyle={[styles.contentContainer, { paddingBottom: 140 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===== 상단 이미지 영역 (스크롤 상단) ===== */}
+        {/* ===== 상단 이미지 영역 ===== */}
         <View style={styles.imageArea}>
           {images.length > 0 ? (
             <ScrollView
@@ -194,7 +180,7 @@ export default function MarketDetailPage({
             <Image source={require('../../assets/images/alert_white.png')} style={styles.icon} />
           </TouchableOpacity>
 
-          {/* 우하단: 인디케이터 "1 / N" */}
+          {/* 우하단: 인디케이터 */}
           <View style={styles.counterPill}>
             <Text style={styles.counterText}>
               {images.length > 0 ? `${index + 1} / ${images.length}` : '0 / 0'}
@@ -204,14 +190,7 @@ export default function MarketDetailPage({
 
         {/* ===== 본문 ===== */}
         <View style={styles.body}>
-          {/* 프로필 (임시) */}
-          <View style={styles.profileRow}>
-            <View style={styles.avatar} />
-            <View style={styles.profileTextCol}>
-              <Text style={styles.profileName}>{profileName}</Text>
-              <Text style={styles.profileDept}>{profileDept}</Text>
-            </View>
-          </View>
+          <ProfileRow name={profileName} dept={profileDept} />
 
           <View style={styles.divider} />
 
@@ -241,7 +220,7 @@ export default function MarketDetailPage({
       */}
       <DetailBottomBar
         variant="detail"
-        initialLiked={initialLiked}
+        initialLiked={liked}
         onToggleLike={async (liked) => {
           // ✅ 로컬 liked 맵 갱신
           const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
@@ -255,7 +234,7 @@ export default function MarketDetailPage({
               0,
               (prev.likeCount ?? 0) + (liked ? 1 : -1)
             );
-            updatePostLikeCountInList(prev.id, nextCount);
+            updatePostLikeCountInList(POSTS_KEY, prev.id, nextCount);
             return { ...prev, likeCount: nextCount };
           });
         }}  // ← 중요: 콜백 블록과 prop 둘 다 여기서 '}}'로 닫혀야 함!!
