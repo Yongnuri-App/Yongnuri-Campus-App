@@ -1,4 +1,3 @@
-// pages/GroupBuy/GroupBuyDetailPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -13,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native'; // ✅ 복귀 시 리로드
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './GroupBuyDetailPage.styles';
@@ -85,6 +85,7 @@ export default function GroupBuyDetailPage({
     confirmCancelText: '취소',
   });
 
+  // 내 ID 로드
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -100,6 +101,7 @@ export default function GroupBuyDetailPage({
     };
   }, []);
 
+  // 최초 진입 시 게시글 로드
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -129,6 +131,29 @@ export default function GroupBuyDetailPage({
       mounted = false;
     };
   }, [id, navigation, syncCount]);
+
+  // ✅ 수정 후 돌아오면 최신 내용으로 다시 로드
+  useFocusEffect(
+    React.useCallback(() => {
+      let mounted = true;
+      (async () => {
+        try {
+          const raw = await AsyncStorage.getItem(POSTS_KEY);
+          const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
+          const found = list.find((p) => p.id === id) ?? null;
+          if (!mounted) return;
+          setItem(found);
+          if (found) syncCount(found.likeCount ?? 0);
+        } catch (e) {
+          if (!mounted) return;
+          console.log('groupbuy detail reload error', e);
+        }
+      })();
+      return () => {
+        mounted = false;
+      };
+    }, [id, syncCount])
+  );
 
   const isOwner = useMemo(() => {
     const p = (route.params as any)?.isOwner;
@@ -182,10 +207,13 @@ export default function GroupBuyDetailPage({
 
   const openOwnerMenu = () => setOwnerMenuVisible(true);
   const closeOwnerMenu = () => setOwnerMenuVisible(false);
+
+  // ✅ 수정 버튼: Recruit 페이지를 edit 모드로 재활용
   const onOwnerEdit = () => {
     closeOwnerMenu();
-    Alert.alert('알림', '수정 화면은 추후 연결 예정입니다.');
+    navigation.navigate('GroupBuyRecruit', { mode: 'edit', id });
   };
+
   const onOwnerDelete = async () => {
     closeOwnerMenu();
     await confirmAndDelete();
@@ -261,45 +289,28 @@ export default function GroupBuyDetailPage({
             </Text>
           </View>
 
-          {/* 소유자 옵션 모달 */}
+          {/* 소유자 옵션 모달 (스타일 분리) */}
           {isOwner && ownerMenuVisible && (
             <>
               <TouchableOpacity
-                style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }}
+                style={styles.ownerDim}
                 activeOpacity={1}
                 onPress={closeOwnerMenu}
               />
-              <View
-                style={{
-                  position: 'absolute',
-                  right: 12,
-                  top: 55 + 28,
-                  backgroundColor: '#FFFFFF',
-                  borderWidth: 1,
-                  borderColor: '#E5E7EB',
-                  borderRadius: 8,
-                  paddingVertical: 6,
-                  shadowColor: '#000',
-                  shadowOpacity: 0.08,
-                  shadowRadius: 6,
-                  shadowOffset: { width: 0, height: 4 },
-                  elevation: 2,
-                  zIndex: 20,
-                }}
-              >
+              <View style={styles.ownerMenuCard}>
                 <TouchableOpacity
                   onPress={onOwnerEdit}
-                  style={{ paddingVertical: 10, paddingHorizontal: 12 }}
+                  style={styles.ownerMenuItem}
                   activeOpacity={0.8}
                 >
-                  <Text style={{ fontSize: 14, color: '#1E1E1E' }}>수정</Text>
+                  <Text style={styles.ownerMenuText}>수정</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={onOwnerDelete}
-                  style={{ paddingVertical: 10, paddingHorizontal: 12 }}
+                  style={styles.ownerMenuItem}
                   activeOpacity={0.8}
                 >
-                  <Text style={{ fontSize: 14, color: '#D32F2F', fontWeight: '700' }}>삭제</Text>
+                  <Text style={styles.ownerMenuTextDanger}>삭제</Text>
                 </TouchableOpacity>
               </View>
             </>

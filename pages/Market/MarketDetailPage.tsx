@@ -1,6 +1,6 @@
 // pages/Market/MarketDetailPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -13,12 +13,12 @@ import {
   View,
 } from 'react-native';
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
-import ProfileRow from '../../components/Profile/ProfileRow'; // 분리한 프로필 컴포넌트
-import { useLike } from '../../hooks/useLike';                 // 공통 좋아요 훅
+import ProfileRow from '../../components/Profile/ProfileRow';
+import { useLike } from '../../hooks/useLike';
 import { updatePostLikeCountInList } from '../../repositories/marketRepo';
 import type { RootStackScreenProps } from '../../types/navigation';
 import { loadJson, saveJson } from '../../utils/storage';
-import { useDeletePost } from '../../hooks/useDeletePost';     // 삭제 훅
+import { useDeletePost } from '../../hooks/useDeletePost';
 import styles from './MarketDetailPage.styles';
 
 const POSTS_KEY = 'market_posts_v1';
@@ -37,8 +37,6 @@ type MarketPost = {
   images: string[];
   likeCount: number;
   createdAt: string; // ISO
-
-  // 오너 판별용
   authorId?: string | number;
   authorEmail?: string | null;
   authorName?: string;
@@ -95,7 +93,7 @@ export default function MarketDetailPage({
     itemId: id,
     likedMapKey: LIKED_MAP_KEY,
     postsKey: POSTS_KEY,
-    initialCount: 0, // 상세 로드 후 syncCount로 주입
+    initialCount: 0,
   });
 
   // 삭제 훅
@@ -123,38 +121,49 @@ export default function MarketDetailPage({
     })();
   }, []);
 
-  // 게시글 로드
+  /** 게시글 로드 함수 (최초 + 포커스 복귀 시 공용) */
+  const loadItem = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(POSTS_KEY);
+      const list: MarketPost[] = raw ? JSON.parse(raw) : [];
+      const found = list.find(p => String(p.id) === String(id)) ?? null;
+      setItem(found);
+
+      if (!found) {
+        Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
+          { text: '확인', onPress: () => navigation.goBack() },
+        ]);
+        return;
+      }
+      // 상세의 likeCount를 훅과 동기화
+      syncCount(found.likeCount ?? 0);
+    } catch (e) {
+      console.log('detail load error', e);
+      Alert.alert('오류', '게시글을 불러오지 못했어요.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    }
+  }, [id, navigation, syncCount]);
+
+  // 최초 로드
   useEffect(() => {
     let mounted = true;
     (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(POSTS_KEY);
-        const list: MarketPost[] = raw ? JSON.parse(raw) : [];
-        const found = list.find(p => String(p.id) === String(id)) ?? null;
-        if (!mounted) return;
-        setItem(found);
-
-        if (!found) {
-          Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
-            { text: '확인', onPress: () => navigation.goBack() },
-          ]);
-          return;
-        }
-
-        // 상세의 likeCount를 훅과 동기화
-        syncCount(found.likeCount ?? 0);
-      } catch (e) {
-        if (!mounted) return;
-        console.log('detail load error', e);
-        Alert.alert('오류', '게시글을 불러오지 못했어요.', [
-          { text: '확인', onPress: () => navigation.goBack() },
-        ]);
-      }
+      if (!mounted) return;
+      await loadItem();
     })();
     return () => {
       mounted = false;
     };
-  }, [id, navigation, syncCount]);
+  }, [loadItem]);
+
+  // ✅ 편집 후 돌아오면 즉시 리로드 (목록 갔다 올 필요 없음)
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', () => {
+      loadItem();
+    });
+    return unsub;
+  }, [navigation, loadItem]);
 
   // ✅ 오너 판별: 파라미터 or ID/이메일 비교
   const isOwner = useMemo(() => {
@@ -165,7 +174,7 @@ export default function MarketDetailPage({
     return false;
   }, [route.params, item?.authorId, item?.authorEmail, myId, myEmail]);
 
-  // (필요 시) 디버그
+  // 디버그
   useEffect(() => {
     console.log('🔎 [MARKET OWNER DEBUG]', {
       param_isOwner: (route.params as any)?.isOwner,
@@ -198,11 +207,13 @@ export default function MarketDetailPage({
   // 오너 메뉴 핸들러
   const openOwnerMenu = () => setOwnerMenuVisible(true);
   const closeOwnerMenu = () => setOwnerMenuVisible(false);
+
+  // ✅ 알림 제거하고 바로 편집 화면으로 이동
   const onOwnerEdit = () => {
     closeOwnerMenu();
-    Alert.alert('알림', '수정 화면은 추후 연결 예정입니다.');
-    // navigation.navigate('MarketEdit', { id }); // 추후 연결
+    navigation.navigate('SellItem', { mode: 'edit', id });
   };
+
   const onOwnerDelete = async () => {
     closeOwnerMenu();
     await confirmAndDelete();
@@ -216,8 +227,7 @@ export default function MarketDetailPage({
     );
   }
 
-  const images =
-    Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
+  const images = Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
 
   return (
     <View style={styles.container}>
@@ -254,6 +264,7 @@ export default function MarketDetailPage({
             accessibilityRole="button"
             accessibilityLabel="뒤로가기"
             activeOpacity={0.9}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Image source={require('../../assets/images/back_white.png')} style={styles.icon} />
           </TouchableOpacity>
@@ -266,6 +277,7 @@ export default function MarketDetailPage({
               accessibilityRole="button"
               accessibilityLabel="신고하기"
               activeOpacity={0.9}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Image source={require('../../assets/images/alert_white.png')} style={styles.icon} />
             </TouchableOpacity>
@@ -276,6 +288,7 @@ export default function MarketDetailPage({
               accessibilityRole="button"
               accessibilityLabel="게시글 옵션"
               activeOpacity={0.9}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Image source={require('../../assets/images/tab.png')} style={styles.icon} />
             </TouchableOpacity>
@@ -288,47 +301,30 @@ export default function MarketDetailPage({
             </Text>
           </View>
 
-          {/* ✅ 소유자 옵션 모달 */}
+          {/* ✅ 소유자 옵션 모달 (zIndex 강제, Dim 클릭 닫힘) */}
           {isOwner && ownerMenuVisible && (
             <>
               {/* Dim */}
               <TouchableOpacity
-                style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }}
+                style={styles.ownerDim}
                 activeOpacity={1}
                 onPress={closeOwnerMenu}
               />
               {/* 메뉴 카드 */}
-              <View
-                style={{
-                  position: 'absolute',
-                  right: 12,
-                  top: 55 + 28,
-                  backgroundColor: '#FFFFFF',
-                  borderWidth: 1,
-                  borderColor: '#E5E7EB',
-                  borderRadius: 8,
-                  paddingVertical: 6,
-                  shadowColor: '#000',
-                  shadowOpacity: 0.08,
-                  shadowRadius: 6,
-                  shadowOffset: { width: 0, height: 4 },
-                  elevation: 2,
-                  zIndex: 20,
-                }}
-              >
+              <View style={styles.ownerMenuCard}>
                 <TouchableOpacity
                   onPress={onOwnerEdit}
-                  style={{ paddingVertical: 10, paddingHorizontal: 12 }}
+                  style={styles.ownerMenuItem}
                   activeOpacity={0.8}
                 >
-                  <Text style={{ fontSize: 14, color: '#1E1E1E' }}>수정</Text>
+                  <Text style={styles.ownerMenuText}>수정</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={onOwnerDelete}
-                  style={{ paddingVertical: 10, paddingHorizontal: 12 }}
+                  style={styles.ownerMenuItem}
                   activeOpacity={0.8}
                 >
-                  <Text style={{ fontSize: 14, color: '#D32F2F', fontWeight: '700' }}>삭제</Text>
+                  <Text style={styles.ownerMenuTextDanger}>삭제</Text>
                 </TouchableOpacity>
               </View>
             </>
@@ -374,10 +370,7 @@ export default function MarketDetailPage({
           // likeCount 즉시 반영 + 목록 동기화
           setItem((prev) => {
             if (!prev) return prev;
-            const nextCount = Math.max(
-              0,
-              (prev.likeCount ?? 0) + (likedFlag ? 1 : -1)
-            );
+            const nextCount = Math.max(0, (prev.likeCount ?? 0) + (likedFlag ? 1 : -1));
             updatePostLikeCountInList(POSTS_KEY, prev.id, nextCount);
             return { ...prev, likeCount: nextCount };
           });

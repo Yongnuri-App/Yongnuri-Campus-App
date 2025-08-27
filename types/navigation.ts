@@ -12,9 +12,9 @@ export type RootStackParamList = {
   Main: { initialTab?: 'group' | 'market' | 'lost' } | undefined;            // 로그인 성공 후 메인 페이지
   Search: undefined;          // 검색 페이지
   Notification: undefined;    // 알림 페이지
-  SellItem: undefined;        // 판매 아이템 등록 페이지
-  GroupBuyRecruit: undefined; // 공동구매 모집글 작성 페이지
-  LostPost: undefined;
+  SellItem: { mode?: 'create' | 'edit'; id?: string };       // 판매 아이템 등록 페이지
+  GroupBuyRecruit: { mode?: 'create' | 'edit'; id?: string }; // 공동구매 모집글 작성 페이지
+  LostPost: { mode?: 'create' | 'edit'; id?: string };
   ChatList: undefined;        // 채팅 목록 페이지
 
   // 상세 페이지들

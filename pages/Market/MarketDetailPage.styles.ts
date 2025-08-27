@@ -1,5 +1,5 @@
 // pages/Market/MarketDetailPage.styles.ts
-import { Dimensions, StyleSheet } from 'react-native';
+import { Dimensions, StyleSheet, Platform } from 'react-native';
 const { width } = Dimensions.get('window');
 
 export default StyleSheet.create({
@@ -12,6 +12,7 @@ export default StyleSheet.create({
     width: '100%',
     height: 390, // 피그마 스펙
     backgroundColor: '#D9D9D9',
+    position: 'relative',               // ✅ 오버레이 레이어 정렬 안정화 (디자인 변화 없음)
   },
   mainImage: {
     width,
@@ -30,6 +31,7 @@ export default StyleSheet.create({
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 30,                         // ✅ 이미지 위로 보장 (디자인 변화 없음)
   },
   icon: { width: 23, height: 23, resizeMode: 'contain' },
   iconLeftTop: { top: 55, left: 16 },
@@ -45,6 +47,7 @@ export default StyleSheet.create({
     backgroundColor: 'rgba(57, 58, 64, 0.9)',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 20,                         // ✅ 인디케이터도 위 레이어로
   },
   counterText: { color: '#FFFFFF', fontSize: 11, fontWeight: '500' },
 
@@ -92,4 +95,47 @@ export default StyleSheet.create({
   /* 로딩 */
   fallback: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },
   fallbackText: { color: '#797979' },
+
+  /* ===== (추가) 오너 메뉴 오버레이 ===== */
+  ownerDim: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 40,                        // 아이콘(30) 위, 메뉴 카드(50) 아래
+  },
+  ownerMenuCard: {
+    position: 'absolute',
+    right: 16,
+    top: 55 + 28,                      // 아이콘 아래로 자연스럽게
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#EDEDED',
+    borderRadius: 10,
+    paddingVertical: 6,
+    minWidth: 120,
+    zIndex: 50,
+    ...(Platform.OS === 'ios'
+      ? {
+          shadowColor: '#000',
+          shadowOpacity: 0.12,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 4 },
+        }
+      : { elevation: 8 }),
+  },
+  ownerMenuItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  ownerMenuText: {
+    fontSize: 14,
+    color: '#1E1E1E',
+  },
+  ownerMenuTextDanger: {
+    fontSize: 14,
+    color: '#D32F2F',
+    fontWeight: '700',
+  },
 });

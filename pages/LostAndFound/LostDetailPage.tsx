@@ -1,6 +1,5 @@
-// pages/LostAndFound/LostDetailPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -34,8 +33,6 @@ type LostPost = {
   images: string[];
   likeCount: number;
   createdAt: string; // ISO
-
-  // ✅ 오너 판별용
   authorId?: string | number;
   authorEmail?: string | null;
   authorName?: string;
@@ -82,7 +79,6 @@ export default function LostDetailPage({
   const [myEmail, setMyEmail] = useState<string | null>(null);
   const hScrollRef = useRef<ScrollView | null>(null);
 
-  // 좋아요 훅
   const { liked, syncCount, setLikedPersisted } = useLike({
     itemId: id,
     likedMapKey: LIKED_MAP_KEY,
@@ -90,7 +86,6 @@ export default function LostDetailPage({
     initialCount: 0,
   });
 
-  // 삭제 훅
   const { confirmAndDelete } = useDeletePost({
     postId: id,
     postsKey: POSTS_KEY,
@@ -102,7 +97,7 @@ export default function LostDetailPage({
     confirmCancelText: '취소',
   });
 
-  // ✅ 내 식별자 로드(보장)
+  // 내 식별자 로드
   useEffect(() => {
     (async () => {
       try {
@@ -115,38 +110,42 @@ export default function LostDetailPage({
     })();
   }, []);
 
-  // 상세 로드
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(POSTS_KEY);
-        const list: LostPost[] = raw ? JSON.parse(raw) : [];
-        const found = list.find(p => String(p.id) === String(id)) ?? null;
-        if (!mounted) return;
-        setItem(found);
+  // ✅ 상세 로드 함수
+  const loadDetail = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(POSTS_KEY);
+      const list: LostPost[] = raw ? JSON.parse(raw) : [];
+      const found = list.find(p => String(p.id) === String(id)) ?? null;
+      setItem(found);
 
-        if (!found) {
-          Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
-            { text: '확인', onPress: () => navigation.goBack() },
-          ]);
-          return;
-        }
-        syncCount(found.likeCount ?? 0);
-      } catch (e) {
-        if (!mounted) return;
-        console.log('lost detail load error', e);
-        Alert.alert('오류', '게시글을 불러오지 못했어요.', [
+      if (!found) {
+        Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
           { text: '확인', onPress: () => navigation.goBack() },
         ]);
+        return;
       }
-    })();
-    return () => {
-      mounted = false;
-    };
+      syncCount(found.likeCount ?? 0);
+    } catch (e) {
+      console.log('lost detail load error', e);
+      Alert.alert('오류', '게시글을 불러오지 못했어요.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    }
   }, [id, navigation, syncCount]);
 
-  // ✅ 오너 판별: (선택) 파라미터 + ID/이메일 비교
+  // 최초 로드
+  useEffect(() => {
+    loadDetail();
+  }, [loadDetail]);
+
+  // ✅ 포커스마다 리프레시
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', () => {
+      loadDetail();
+    });
+    return unsub;
+  }, [navigation, loadDetail]);
+
   const isOwner = useMemo(() => {
     const p = (route.params as any)?.isOwner;
     if (coerceTrue(p)) return true;
@@ -155,18 +154,6 @@ export default function LostDetailPage({
     return false;
   }, [route.params, item?.authorId, item?.authorEmail, myId, myEmail]);
 
-  // 디버그(필요시 콘솔 확인)
-  useEffect(() => {
-    console.log('🔎 [LOST OWNER DEBUG]', {
-      param_isOwner: (route.params as any)?.isOwner,
-      myId, myEmail,
-      item_authorId: item?.authorId,
-      item_authorEmail: item?.authorEmail,
-      result_isOwner: isOwner,
-    });
-  }, [isOwner, myId, myEmail, item?.authorId, item?.authorEmail, route.params]);
-
-  // 뱃지 라벨
   const badgeLabel = useMemo(() => (item?.type === 'lost' ? '분실' : '습득'), [item]);
   const isLost = item?.type === 'lost';
 
@@ -175,7 +162,6 @@ export default function LostDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  // 신고 페이지 이동
   const onPressReport = () => {
     const targetLabel = `${item?.authorDept ?? 'AI학부'} - ${item?.authorName ?? '채히'}`;
     navigation.navigate('Report', { targetLabel });
@@ -191,13 +177,15 @@ export default function LostDetailPage({
 
   const images = Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
 
-  // 오너 메뉴
   const openOwnerMenu = () => setOwnerMenuVisible(true);
   const closeOwnerMenu = () => setOwnerMenuVisible(false);
+
+  // ✅ 수정: 알림 없이 바로 이동
   const onOwnerEdit = () => {
     closeOwnerMenu();
-    Alert.alert('알림', '수정 화면은 추후 연결 예정입니다.');
+    navigation.navigate('LostPost', { mode: 'edit', id: String(item.id) });
   };
+
   const onOwnerDelete = async () => {
     closeOwnerMenu();
     await confirmAndDelete();
@@ -272,45 +260,28 @@ export default function LostDetailPage({
             </Text>
           </View>
 
-          {/* ✅ 소유자 옵션 모달 */}
+          {/* 소유자 옵션 모달 (스타일 파일로 분리) */}
           {isOwner && ownerMenuVisible && (
             <>
               <TouchableOpacity
-                style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }}
+                style={styles.ownerDim}
                 activeOpacity={1}
                 onPress={closeOwnerMenu}
               />
-              <View
-                style={{
-                  position: 'absolute',
-                  right: 12,
-                  top: 55 + 28,
-                  backgroundColor: '#FFFFFF',
-                  borderWidth: 1,
-                  borderColor: '#E5E7EB',
-                  borderRadius: 8,
-                  paddingVertical: 6,
-                  shadowColor: '#000',
-                  shadowOpacity: 0.08,
-                  shadowRadius: 6,
-                  shadowOffset: { width: 0, height: 4 },
-                  elevation: 2,
-                  zIndex: 20,
-                }}
-              >
+              <View style={styles.ownerMenuCard}>
                 <TouchableOpacity
                   onPress={onOwnerEdit}
-                  style={{ paddingVertical: 10, paddingHorizontal: 12 }}
+                  style={styles.ownerMenuItem}
                   activeOpacity={0.8}
                 >
-                  <Text style={{ fontSize: 14, color: '#1E1E1E' }}>수정</Text>
+                  <Text style={styles.ownerMenuText}>수정</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={onOwnerDelete}
-                  style={{ paddingVertical: 10, paddingHorizontal: 12 }}
+                  style={styles.ownerMenuItem}
                   activeOpacity={0.8}
                 >
-                  <Text style={{ fontSize: 14, color: '#D32F2F', fontWeight: '700' }}>삭제</Text>
+                  <Text style={styles.ownerMenuTextDanger}>삭제</Text>
                 </TouchableOpacity>
               </View>
             </>
@@ -347,7 +318,7 @@ export default function LostDetailPage({
         </View>
       </ScrollView>
 
-      {/* ===== 하단 고정 바 (좋아요/메시지) ===== */}
+      {/* 하단 고정 바 */}
       <DetailBottomBar
         initialLiked={liked}
         onToggleLike={async (nextLiked: boolean) => {
