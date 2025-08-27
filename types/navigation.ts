@@ -3,6 +3,28 @@ import type {
   NativeStackScreenProps,
 } from '@react-navigation/native-stack';
 
+/** ✅ 공용 채팅 파라미터: 중고거래(market) | 분실물(lost) */
+export type ChatRoomParams =
+  | {
+      source: 'market';               // 중고거래에서 진입
+      postId: string;
+      sellerNickname: string;
+      productTitle: string;
+      productPrice: number;           // 0 = 나눔
+      productImageUri?: string;
+      initialMessage?: string;
+    }
+  | {
+      source: 'lost';                 // 분실물에서 진입
+      postId: string;
+      posterNickname: string;         // 게시자 닉네임
+      postTitle: string;              // 글 제목
+      place: string;                  // 분실/습득 장소
+      purpose: 'lost' | 'found';      // 분실/습득 구분
+      postImageUri?: string;
+      initialMessage?: string;
+    };
+    
 // 네비게이션 타입 정의
 export type RootStackParamList = {
   Loading: undefined;
@@ -32,14 +54,8 @@ export type RootStackParamList = {
   // ✅ 신고하기 페이지 (타겟 라벨은 선택)
   Report: { targetLabel?: string };
 
-  ChatRoom: {
-    postId: string;
-    sellerNickname: string;
-    productTitle: string;
-    productPrice: number;   // 숫자(KRW)
-    productImageUri?: string; // 썸네일 URL(없어도 OK)
-    initialMessage?: string; // 채팅방 진입 시 최초 메시지(없어도 OK)
-  };
+  // ✅ 공용 채팅방: 중고/분실 모두 이 타입으로 진입
+  ChatRoom: ChatRoomParams;
 };
 
 /** 화면 컴포넌트에서 사용할 공용 Props 타입 */

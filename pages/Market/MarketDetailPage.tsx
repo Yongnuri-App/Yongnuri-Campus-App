@@ -14,11 +14,11 @@ import {
 } from 'react-native';
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 import ProfileRow from '../../components/Profile/ProfileRow';
+import { useDeletePost } from '../../hooks/useDeletePost';
 import { useLike } from '../../hooks/useLike';
 import { updatePostLikeCountInList } from '../../repositories/marketRepo';
 import type { RootStackScreenProps } from '../../types/navigation';
 import { loadJson, saveJson } from '../../utils/storage';
-import { useDeletePost } from '../../hooks/useDeletePost';
 import styles from './MarketDetailPage.styles';
 
 const POSTS_KEY = 'market_posts_v1';
@@ -376,11 +376,20 @@ export default function MarketDetailPage({
           });
         }}
         chatAutoNavigateParams={{
-          postId: item.id,
-          sellerNickname: profileName,
+          // ✅ 중고거래 진입 플래그
+          source: 'market',
+
+          postId: String(item.id),
+          // 판매자 닉네임(프로필명 우선, 없으면 item 쪽, 그래도 없으면 기본값)
+          sellerNickname: (profileName as string) ?? (item as any)?.sellerNickname ?? '판매자',
+
           productTitle: item.title,
+          // 판매/나눔 가격 처리: 나눔이면 0, 아니면 숫자 변환
           productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0),
-          productImageUri: images[0],
+
+          // 대표 이미지(없으면 undefined)
+          productImageUri:
+            Array.isArray(images) && images.length > 0 ? images[0] : undefined,
         }}
       />
     </View>

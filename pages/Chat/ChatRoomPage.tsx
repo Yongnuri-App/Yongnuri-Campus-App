@@ -2,13 +2,7 @@
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-    Alert,
-    Image,
-    Text,
-    TouchableOpacity,
-    View
-} from 'react-native';
+import { Alert, Image, Text, TouchableOpacity, View } from 'react-native';
 import type { RootStackParamList } from '../../types/navigation';
 import styles from './ChatRoomPage.styles';
 
@@ -42,30 +36,60 @@ const formatKoreanTime = (d: Date = new Date()): string => {
 type Nav = NativeStackNavigationProp<RootStackParamList, 'ChatRoom'>;
 
 /**
- * 채팅방 페이지
- * - 헤더/리스트/더보기 모달을 공통 컴포넌트로 분리해서 사용
- * - 상단 상품 요약 카드와 첨부 썸네일 바는 이 페이지에서 그대로 관리
+ * 채팅방 페이지 (중고거래/분실물 공용)
+ * - 상단 카드: 중고거래는 "가격", 분실물은 "장소 + 분실/습득 배지"
+ * - 헤더/리스트/더보기/첨부/약속 모달은 공통 컴포넌트 사용
  */
 export default function ChatRoomPage() {
   const navigation = useNavigation<Nav>();
-  const route = useRoute<any>(); // 필요 시 RootStackParamList['ChatRoom']로 지정
+  const route = useRoute<any>(); // NOTE: 팀 내 타입 변경 중이면 any 유지. union 타입 완료 시 제네릭 지정 권장.
 
   // ===== 약속 모달 상태 =====
   const [open, setOpen] = useState(false);
-
-  // 상세 → 채팅방으로 넘어온 파라미터
-  const {
-    sellerNickname,
-    productTitle,
-    productPrice,
-    productImageUri,
-    initialMessage,
-  } = route.params ?? {};
 
   // ===== 채팅/첨부/메뉴 상태 =====
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [menuVisible, setMenuVisible] = useState(false);
+
+  // ======== 공용 표시값 매핑 (중고거래/분실물 분기) ========
+  // 상세 → 채팅방으로 넘어온 파라미터(raw). 기존/신규(분실물) 모두 호환을 위해 any로 접근
+  const raw = (route.params ?? {}) as any;
+
+  // 1) 분기 플래그: source === 'lost' 면 분실물
+  const isLost = raw?.source === 'lost';
+
+  // 2) 헤더 타이틀
+  // - market: sellerNickname
+  // - lost  : posterNickname
+  const headerTitle: string =
+    isLost ? raw?.posterNickname ?? '닉네임' : raw?.sellerNickname ?? '닉네임';
+
+  // 3) 카드 타이틀
+  // - market: productTitle
+  // - lost  : postTitle
+  const cardTitle: string =
+    isLost ? raw?.postTitle ?? '게시글 제목' : raw?.productTitle ?? '게시글 제목';
+
+  // 4) 카드 썸네일
+  // - market: productImageUri
+  // - lost  : postImageUri
+  const cardImageUri: string | undefined = isLost ? raw?.postImageUri : raw?.productImageUri;
+
+  // 5) 보조 라인 (가격 ↔ 장소+배지)
+  const priceLabel = useMemo(() => {
+    if (isLost) return ''; // 분실물은 가격 표시 없음
+    const price = raw?.productPrice;
+    if (typeof price === 'number' && price > 0) return `₩ ${price.toLocaleString('ko-KR')}`;
+    if (price === 0) return '나눔';
+    return '';
+  }, [isLost, raw?.productPrice]);
+
+  const placeLabel: string = isLost ? raw?.place ?? '장소 정보 없음' : '';
+  const purposeBadge: string = isLost ? (raw?.purpose === 'lost' ? '분실' : '습득') : '';
+
+  // 6) 상세에서 보낸 첫 메시지
+  const initialMessage: string | undefined = raw?.initialMessage;
 
   // 입장 직후, 상세에서 보낸 첫 메시지 처리
   useEffect(() => {
@@ -81,15 +105,6 @@ export default function ChatRoomPage() {
     // MessageList가 onContentSizeChange로 자동 스크롤 처리
   }, [initialMessage]);
 
-  // 가격 표시
-  const priceLabel = useMemo(() => {
-    if (typeof productPrice === 'number' && productPrice > 0) {
-      return `₩ ${productPrice.toLocaleString('ko-KR')}`;
-    }
-    if (productPrice === 0) return '나눔';
-    return '';
-  }, [productPrice]);
-
   // ===== 더보기 메뉴 액션 =====
   const handleReport = () => {
     setMenuVisible(false);
@@ -98,6 +113,7 @@ export default function ChatRoomPage() {
       { text: '신고', style: 'destructive', onPress: () => { /* TODO: 신고 API */ } },
     ]);
   };
+
   const handleBlock = () => {
     setMenuVisible(false);
     Alert.alert('차단하기', '해당 사용자를 차단하시겠어요?', [
@@ -106,7 +122,7 @@ export default function ChatRoomPage() {
     ]);
   };
 
-  /** 약속잡기 버튼 → 모달 열기 */
+  /** 약속잡기 버튼 → 모달 열기 (분실물도 전달 약속 용도) */
   const handleOpenSchedule = () => setOpen(true);
 
   /** DetailBottomBar(+ 버튼) → 새로 선택된 이미지 URIs 수신 */
@@ -162,28 +178,48 @@ export default function ChatRoomPage() {
     <View style={styles.container}>
       {/* ===== 헤더: 뒤로가기 / 닉네임 / more ===== */}
       <ChatHeader
-        title={sellerNickname ?? '닉네임'}
+        title={headerTitle}
         onPressBack={() => navigation.goBack()}
         onPressMore={() => setMenuVisible(true)}
       />
 
-      {/* ===== 상품 요약 카드 ===== */}
+      {/* ===== 상단 요약 카드 (중고/분실 공용) ===== */}
       <View style={styles.productCardShadowWrap}>
         <View style={styles.productCard}>
           {/* 썸네일 */}
           <View style={styles.thumbWrap}>
-            {productImageUri ? (
-              <Image source={{ uri: productImageUri }} style={styles.thumb} />
+            {cardImageUri ? (
+              <Image source={{ uri: cardImageUri }} style={styles.thumb} />
             ) : (
               <View style={[styles.thumb, styles.thumbPlaceholder]} />
             )}
           </View>
-          {/* 제목/가격 */}
+
+          {/* 제목/보조 라인 (market=가격 / lost=장소+배지) */}
           <View style={styles.infoWrap}>
             <Text style={styles.title} numberOfLines={1}>
-              {productTitle ?? '게시글 제목'}
+              {cardTitle}
             </Text>
-            <Text style={styles.price}>{priceLabel || '₩ 0'}</Text>
+
+            {isLost ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View
+                  style={[
+                    styles.badgeBase,
+                    raw?.purpose === 'lost' ? styles.badgeLost : styles.badgeFound,
+                  ]}
+                >
+                  <Text style={styles.badgeText}>
+                    {purposeBadge /* '분실' | '습득' */}
+                  </Text>
+                </View>
+                <Text style={styles.placeText} numberOfLines={1}>
+                  {placeLabel}
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.price}>{priceLabel || '₩ 0'}</Text>
+            )}
           </View>
         </View>
 
@@ -194,13 +230,10 @@ export default function ChatRoomPage() {
         </TouchableOpacity>
       </View>
 
-      {/* ===== 채팅 리스트 (FlatList → MessageList로 교체) ===== */}
-      <MessageList
-        data={messages}
-        bottomInset={100 + extraBottomPad}
-      />
+      {/* ===== 채팅 리스트 ===== */}
+      <MessageList data={messages} bottomInset={100 + extraBottomPad} />
 
-      {/* ===== 첨부 썸네일 바 (입력창 위) ===== */}
+      {/* ===== 첨부 썸네일 바 ===== */}
       <AttachmentBar uris={attachments} onRemoveAt={removeAttachmentAt} />
 
       {/* ===== 하단 입력 바 ===== */}
@@ -226,7 +259,7 @@ export default function ChatRoomPage() {
       */}
       <AppointmentModal
         visible={open}
-        partnerNickname={sellerNickname ?? '닉네임'}
+        partnerNickname={headerTitle}
         onClose={() => setOpen(false)}
         onSubmit={({ date, time, place }) => {
           if (!date || !time || !place) {

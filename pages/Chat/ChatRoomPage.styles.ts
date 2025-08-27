@@ -287,4 +287,27 @@ export default StyleSheet.create({
     borderRadius: 8,
     padding: 2,
   },
+
+  badgeBase: {
+  paddingHorizontal: 7,
+  paddingVertical: 4,
+  borderRadius: 4,
+  marginRight: 6,
+},
+badgeLost: {
+  backgroundColor: '#F070C8', // 분실
+},
+badgeFound: {
+  backgroundColor: '#419EBD', // 습득
+},
+badgeText: {                  // 이미 있다면 유지
+  fontSize: 11,
+  fontWeight: '600',
+  color: '#FFFFFF',
+},
+placeText: {                  // 이미 있다면 유지
+  fontSize: 14,
+  fontWeight: '700',
+  color: '#393A40',
+},
 });

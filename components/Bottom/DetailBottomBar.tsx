@@ -19,14 +19,29 @@ import styles from './DetailBottomBar.styles';
 /** 어떤 화면에서 쓰는지 구분 */
 type Variant = 'detail' | 'chat';
 
-/** 상세 → ChatRoom으로 넘길 정보 */
-type ChatAutoNavigateParams = {
-  postId: string;
-  sellerNickname: string;
-  productTitle: string;
-  productPrice: number;
-  productImageUri?: string;
-};
+/** ✅ 상세 → ChatRoom으로 넘길 정보 (중고거래 | 분실물 대응) */
+type ChatAutoNavigateParams =
+  | {
+      /** 중고거래에서 진입 */
+      source: 'market';
+      postId: string;
+      sellerNickname: string;
+      productTitle: string;
+      productPrice: number;        // 숫자(KRW), 0=나눔
+      productImageUri?: string;    // 썸네일 URL(없어도 OK)
+      // TODO: chatRoomId?: string; // 서버 연동 시 채팅방 id 전달 고려
+    }
+  | {
+      /** 분실물에서 진입 */
+      source: 'lost';
+      postId: string;
+      posterNickname: string;      // 게시자 닉네임
+      postTitle: string;           // 글 제목
+      place: string;               // 분실/습득 장소
+      purpose: 'lost' | 'found';   // 분실/습득
+      postImageUri?: string;
+      // TODO: chatRoomId?: string;
+    };
 
 type Props = {
   /** 기본값은 'detail' (※ 채팅 화면에서는 반드시 variant="chat"으로 넘겨주세요) */
@@ -52,7 +67,7 @@ type Props = {
 
   bottomInset?: number;
 
-  // 상세 화면: 전송 시 자동 네비 파라미터
+  // ✅ 상세 화면: 전송 시 자동 네비 파라미터(중고/분실 공용)
   chatAutoNavigateParams?: ChatAutoNavigateParams;
 
   // 채팅 화면: 이미지 선택 옵션
@@ -133,15 +148,20 @@ const DetailBottomBar: React.FC<Props> = ({
     const msg = text.trim();
 
     if (variant === 'detail') {
+      // ✅ 상세 화면에서 전송 버튼 → 채팅방으로 이동
       if (!chatAutoNavigateParams) {
         Alert.alert('알림', '채팅방 이동 정보를 찾을 수 없어요.');
       } else {
+        // NOTE:
+        // - chatAutoNavigateParams는 market 또는 lost 형식을 그대로 유지
+        // - ChatRoomPage에서 source로 분기하여 상단 카드(가격/장소)와 제목/이미지 표시
         navigation.navigate('ChatRoom', {
           ...chatAutoNavigateParams,
-          initialMessage: msg,
-        });
+          initialMessage: msg, // 빈 문자열이면 ChatRoomPage에서 자동 무시
+        } as any);
       }
     } else {
+      // ✅ 채팅 화면에서는 상위에서 전달한 전송 핸들러 호출
       onPressSend
         ? onPressSend(msg)
         : Alert.alert('알림', '전송 핸들러가 연결되지 않았습니다.');
