@@ -16,6 +16,9 @@ import {
 import type { RootStackParamList } from '../../types/navigation';
 import styles from './ChatRoomPage.styles';
 
+// ✅ 약속잡기 모달 (이미 @/components/Modal/AppointmentModal 로 관리 중인 경로 유지)
+import AppointmentModal from '@/components/Modal/AppointmentModal';
+
 // 하단 입력 바 (스마트 컴포넌트)
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 
@@ -46,6 +49,9 @@ export default function ChatRoomPage() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<any>(); // 필요 시 RootStackParamList['ChatRoom']로 제네릭 지정
 
+  // ===== 약속 모달 상태 =====
+  const [open, setOpen] = useState(false); // 약속잡기 모달 표시/비표시
+
   const {
     sellerNickname,
     productTitle,
@@ -54,7 +60,7 @@ export default function ChatRoomPage() {
     initialMessage,
   } = route.params ?? {};
 
-  // ===== 상태 =====
+  // ===== 채팅 상태 =====
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [attachments, setAttachments] = useState<string[]>([]); // 전송 대기 첨부 이미지들
   const flatRef = useRef<FlatList<ChatMessage>>(null);
@@ -83,7 +89,7 @@ export default function ChatRoomPage() {
     return '';
   }, [productPrice]);
 
-  // ===== 액션들 =====
+  // ===== 더보기 메뉴 액션 =====
   const handleReport = () => {
     setMenuVisible(false);
     Alert.alert('신고하기', '해당 사용자를 신고하시겠어요?', [
@@ -98,8 +104,10 @@ export default function ChatRoomPage() {
       { text: '차단', style: 'destructive', onPress: () => {/* TODO: 차단 API */} },
     ]);
   };
+
+  /** 약속잡기 버튼 → 모달 열기 */
   const handleOpenSchedule = () => {
-    Alert.alert('약속잡기', '약속잡기 모달은 추후 제작 예정입니다.');
+    setOpen(true);
   };
 
   /** DetailBottomBar(+ 버튼) → 새로 선택된 이미지 URIs 수신 */
@@ -181,7 +189,6 @@ export default function ChatRoomPage() {
           <View style={styles.bubbleMine}>
             <Text style={styles.bubbleTextMine}>{item.text}</Text>
           </View>
-          
         </View>
       );
     }
@@ -282,7 +289,7 @@ export default function ChatRoomPage() {
         variant="chat"
         placeholder="메세지를 입력해주세요."
         onPressSend={handleSend}                 // 텍스트/첨부 전송
-        onAddImages={(uris) => setAttachments(prev => [...prev, ...uris])}            // + 버튼 선택 결과
+        onAddImages={(uris) => setAttachments(prev => [...prev, ...uris])} // + 버튼 선택 결과
         attachmentsCount={attachments.length}    // 텍스트 없어도 첨부 있으면 전송 활성화
       />
 
@@ -305,6 +312,49 @@ export default function ChatRoomPage() {
           </View>
         </Pressable>
       </Modal>
+
+      {/* ===== 약속잡기 모달 =====
+        - onSubmit 시 채팅에 시스템 메시지처럼 "📅 약속 제안"을 추가
+        - 닫기/완료 후 리스트 맨 아래로 스크롤
+      */}
+      <AppointmentModal
+        visible={open}
+        partnerNickname={sellerNickname ?? '닉네임'}
+        onClose={() => {
+          setOpen(false);
+          setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 0);
+        }}
+        onSubmit={({ date, time, place }) => {
+          // 유효성은 모달에서 버튼 비활성으로 1차 보장됨. 여기서는 방어코드만.
+          if (!date || !time || !place) {
+            setOpen(false);
+            return;
+          }
+
+          // 📌 채팅에 약속 제안 메시지로 추가
+          const now = formatKoreanTime();
+          const proposal = `📅 약속 제안\n- 날짜: ${date}\n- 시간: ${time}\n- 장소: ${place}`;
+          const msg: ChatMessage = {
+            id: `apt_${Date.now()}`,
+            type: 'text',
+            text: proposal,
+            time: now,
+            mine: true,
+          };
+          setMessages(prev => [...prev, msg]);
+
+          // TODO: 여기서 서버 API로 약속 생성/전송
+          // ex) POST /api/appointments { date, time, place, chatRoomId }
+          // 성공 시 상대에게도 "약속 제안" 시스템 메시지 전송 처리 필요
+
+          setOpen(false);
+          setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 0);
+        }}
+        // 필요하면 초기 플레이스홀더 값 지정 가능
+        initialDate={undefined}
+        initialTime={undefined}
+        initialPlace={undefined}
+      />
     </View>
   );
 }
