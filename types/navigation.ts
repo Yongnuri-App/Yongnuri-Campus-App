@@ -16,6 +16,13 @@ export type RootStackParamList = {
   GroupBuyRecruit: { mode?: 'create' | 'edit'; id?: string }; // 공동구매 모집글 작성 페이지
   LostPost: { mode?: 'create' | 'edit'; id?: string };
   ChatList: undefined;        // 채팅 목록 페이지
+  MyPage: undefined;
+  MyPersonalInfo: undefined;
+  MyFavorites: undefined;
+  MyBlockedUsers: undefined;
+  MyTradeHistory: undefined;
+  MyInquiry: undefined;
+  MyWithdraw: undefined;
 
   // 상세 페이지들
   MarketDetail: { id: string; isOwner?: boolean };

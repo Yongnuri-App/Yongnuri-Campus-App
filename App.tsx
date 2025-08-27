@@ -20,9 +20,15 @@ import NotificationPage from './pages/Notification/NotificationPage';
 import PasswordResetPage from './pages/PasswordReset/PasswordResetPage';
 import SearchPage from './pages/Search/SearchPage';
 import SignUpPage from './pages/SignUp/SignUpPage';
-// ✅ 신고하기 페이지 추가
 import ChatRoomPage from './pages/Chat/ChatRoomPage';
 import ReportPage from './pages/Report/ReportPage';
+import MyPagePage from './pages/My/MyPage/MyPage';
+import PersonalInfoPage from './pages/My/PersonalInfo/PersonalInfoPage';
+import FavoritesPage from './pages/My/Favorites/MyFavoritesPage';
+import BlockedUsersPage from './pages/My/BlockedUsers/BlockedUsersPage';
+import TradeHistoryPage from './pages/My/TradeHistory/TradeHistoryPage';
+import InquiryPage from './pages/My/Inquiry/InquiryPage';
+import WithdrawPage from './pages/My/Withdraw/WithdrawPage';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -47,9 +53,15 @@ export default function App() {
         <Stack.Screen name="LostPost" component={LostPostPage} />
         <Stack.Screen name="MarketDetail" component={MarketDetailPage} />
         <Stack.Screen name="LostDetail" component={LostDetailPage} />
-        {/* ✅ 신고하기 스크린 등록 */}
         <Stack.Screen name="Report" component={ReportPage} />
         <Stack.Screen name="ChatRoom" component={ChatRoomPage} />
+        <Stack.Screen name="MyPage" component={MyPagePage} />
+        <Stack.Screen name="MyPersonalInfo" component={PersonalInfoPage} />
+        <Stack.Screen name="MyFavorites" component={FavoritesPage} />
+        <Stack.Screen name="MyBlockedUsers" component={BlockedUsersPage} />
+        <Stack.Screen name="MyTradeHistory" component={TradeHistoryPage} />
+        <Stack.Screen name="MyInquiry" component={InquiryPage} />
+        <Stack.Screen name="MyWithdraw" component={WithdrawPage} /> 
       </Stack.Navigator>
     </NavigationContainer>
   );
