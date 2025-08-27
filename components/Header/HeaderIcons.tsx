@@ -6,24 +6,18 @@ import styles from './HeaderIcons.styles';
 
 export default function HeaderIcons() {
   const navigation = useNavigation<any>();
-  const [notificationCount, setNotificationCount] = useState(3);
+  const [notificationCount] = useState(3); // <- setter 제거
 
   return (
     <View style={styles.iconGroup}>
       {/* 검색 */}
       <TouchableOpacity onPress={() => navigation.navigate('Search')}>
-        <Image
-          source={require('../../assets/images/search.png')}
-          style={styles.icon}
-        />
+        <Image source={require('../../assets/images/search.png')} style={styles.icon} />
       </TouchableOpacity>
 
       {/* 알림 + 뱃지 */}
       <TouchableOpacity onPress={() => navigation.navigate('Notification')}>
-        <Image
-          source={require('../../assets/images/bell.png')}
-          style={styles.icon}
-        />
+        <Image source={require('../../assets/images/bell.png')} style={styles.icon} />
         {notificationCount > 0 && (
           <View style={styles.badge}>
             <Text style={styles.badgeText}>
@@ -34,11 +28,8 @@ export default function HeaderIcons() {
       </TouchableOpacity>
 
       {/* 마이페이지 */}
-      <TouchableOpacity onPress={() => console.log('마이페이지 이동 예정')}>
-        <Image
-          source={require('../../assets/images/person.png')}
-          style={styles.icon}
-        />
+      <TouchableOpacity onPress={() => navigation.navigate('MyPage')}>
+        <Image source={require('../../assets/images/person.png')} style={styles.icon} />
       </TouchableOpacity>
     </View>
   );
