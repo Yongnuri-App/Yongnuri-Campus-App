@@ -1,6 +1,5 @@
-// pages/LostAndFound/LostDetailPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -15,11 +14,14 @@ import {
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './LostDetailPage.styles';
-import { useLike } from '../../hooks/useLike';              // 공통 좋아요 훅
-import ProfileRow from '../../components/Profile/ProfileRow'; // 분리한 프로필 컴포넌트
+import { useLike } from '../../hooks/useLike';
+import ProfileRow from '../../components/Profile/ProfileRow';
+import { useDeletePost } from '../../hooks/useDeletePost';
 
 const POSTS_KEY = 'lost_found_posts_v1';
 const LIKED_MAP_KEY = 'lost_found_liked_map_v1';
+const AUTH_USER_ID_KEY = 'auth_user_id';
+const AUTH_USER_EMAIL_KEY = 'auth_user_email';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 type LostPost = {
@@ -31,6 +33,10 @@ type LostPost = {
   images: string[];
   likeCount: number;
   createdAt: string; // ISO
+  authorId?: string | number;
+  authorEmail?: string | null;
+  authorName?: string;
+  authorDept?: string;
 };
 
 function timeAgo(iso: string) {
@@ -44,6 +50,22 @@ function timeAgo(iso: string) {
   return `${d}일 전`;
 }
 
+const coerceTrue = (v: any) => v === true || v === 'true' || v === 1 || v === '1';
+const sameId = (a?: string | number | null, b?: string | number | null) =>
+  a != null && b != null && String(a) === String(b);
+const sameEmail = (a?: string | null, b?: string | null) =>
+  !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+async function ensureLocalIdentity() {
+  let userId = await AsyncStorage.getItem(AUTH_USER_ID_KEY);
+  if (!userId) {
+    userId = `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    await AsyncStorage.setItem(AUTH_USER_ID_KEY, userId);
+  }
+  const userEmail = (await AsyncStorage.getItem(AUTH_USER_EMAIL_KEY)) ?? null;
+  return { userId, userEmail };
+}
+
 export default function LostDetailPage({
   route,
   navigation,
@@ -52,13 +74,11 @@ export default function LostDetailPage({
 
   const [item, setItem] = useState<LostPost | null>(null);
   const [index, setIndex] = useState(0);
+  const [ownerMenuVisible, setOwnerMenuVisible] = useState(false);
+  const [myId, setMyId] = useState<string | null>(null);
+  const [myEmail, setMyEmail] = useState<string | null>(null);
   const hScrollRef = useRef<ScrollView | null>(null);
 
-  // 화면에 보이는 프로필(임시 — 추후 API 연동 시 교체)
-  const profileName = '채히';
-  const profileDept = 'AI학부';
-
-  // 공통 좋아요 훅 (리스트 동기화는 훅이 처리)
   const { liked, syncCount, setLikedPersisted } = useLike({
     itemId: id,
     likedMapKey: LIKED_MAP_KEY,
@@ -66,55 +86,84 @@ export default function LostDetailPage({
     initialCount: 0,
   });
 
-  // 상세 로드
+  const { confirmAndDelete } = useDeletePost({
+    postId: id,
+    postsKey: POSTS_KEY,
+    likedMapKey: LIKED_MAP_KEY,
+    navigation,
+    confirmTitle: '삭제',
+    confirmMessage: '정말로 이 게시글을 삭제할까요?',
+    confirmOkText: '삭제',
+    confirmCancelText: '취소',
+  });
+
+  // 내 식별자 로드
   useEffect(() => {
-    let mounted = true;
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(POSTS_KEY);
-        const list: LostPost[] = raw ? JSON.parse(raw) : [];
-        const found = list.find(p => p.id === id) ?? null;
-        if (!mounted) return;
-        setItem(found);
-
-        if (!found) {
-          Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
-            { text: '확인', onPress: () => navigation.goBack() },
-          ]);
-          return;
-        }
-
-        // 상세의 likeCount를 훅과 동기화
-        syncCount(found.likeCount ?? 0);
+        const { userId, userEmail } = await ensureLocalIdentity();
+        setMyId(userId);
+        setMyEmail(userEmail);
       } catch (e) {
-        if (!mounted) return;
-        console.log('lost detail load error', e);
-        Alert.alert('오류', '게시글을 불러오지 못했어요.', [
-          { text: '확인', onPress: () => navigation.goBack() },
-        ]);
+        console.log('lost: load identity error', e);
       }
     })();
-    return () => {
-      mounted = false;
-    };
+  }, []);
+
+  // ✅ 상세 로드 함수
+  const loadDetail = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(POSTS_KEY);
+      const list: LostPost[] = raw ? JSON.parse(raw) : [];
+      const found = list.find(p => String(p.id) === String(id)) ?? null;
+      setItem(found);
+
+      if (!found) {
+        Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
+          { text: '확인', onPress: () => navigation.goBack() },
+        ]);
+        return;
+      }
+      syncCount(found.likeCount ?? 0);
+    } catch (e) {
+      console.log('lost detail load error', e);
+      Alert.alert('오류', '게시글을 불러오지 못했어요.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    }
   }, [id, navigation, syncCount]);
 
-  // 뱃지 라벨
-  const badgeLabel = useMemo(
-    () => (item?.type === 'lost' ? '분실' : '습득'),
-    [item]
-  );
+  // 최초 로드
+  useEffect(() => {
+    loadDetail();
+  }, [loadDetail]);
+
+  // ✅ 포커스마다 리프레시
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', () => {
+      loadDetail();
+    });
+    return unsub;
+  }, [navigation, loadDetail]);
+
+  const isOwner = useMemo(() => {
+    const p = (route.params as any)?.isOwner;
+    if (coerceTrue(p)) return true;
+    if (sameId(item?.authorId, myId)) return true;
+    if (sameEmail(item?.authorEmail ?? null, myEmail)) return true;
+    return false;
+  }, [route.params, item?.authorId, item?.authorEmail, myId, myEmail]);
+
+  const badgeLabel = useMemo(() => (item?.type === 'lost' ? '분실' : '습득'), [item]);
   const isLost = item?.type === 'lost';
 
-  // 이미지 스와이프 인덱스
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  // 신고 → 신고 페이지로 이동
   const onPressReport = () => {
-    const targetLabel = `${profileDept} - ${profileName}`;
+    const targetLabel = `${item?.authorDept ?? 'AI학부'} - ${item?.authorName ?? '채히'}`;
     navigation.navigate('Report', { targetLabel });
   };
 
@@ -126,8 +175,21 @@ export default function LostDetailPage({
     );
   }
 
-  const images =
-    Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
+  const images = Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
+
+  const openOwnerMenu = () => setOwnerMenuVisible(true);
+  const closeOwnerMenu = () => setOwnerMenuVisible(false);
+
+  // ✅ 수정: 알림 없이 바로 이동
+  const onOwnerEdit = () => {
+    closeOwnerMenu();
+    navigation.navigate('LostPost', { mode: 'edit', id: String(item.id) });
+  };
+
+  const onOwnerDelete = async () => {
+    closeOwnerMenu();
+    await confirmAndDelete();
+  };
 
   return (
     <View style={styles.container}>
@@ -168,16 +230,28 @@ export default function LostDetailPage({
             <Image source={require('../../assets/images/back_white.png')} style={styles.icon} />
           </TouchableOpacity>
 
-          {/* 우상단: 신고하기 */}
-          <TouchableOpacity
-            style={[styles.iconBtn, styles.iconRightTop]}
-            onPress={onPressReport}
-            accessibilityRole="button"
-            accessibilityLabel="신고하기"
-            activeOpacity={0.9}
-          >
-            <Image source={require('../../assets/images/alert_white.png')} style={styles.icon} />
-          </TouchableOpacity>
+          {/* 우상단: 신고(비소유) / 탭 아이콘(소유) */}
+          {!isOwner ? (
+            <TouchableOpacity
+              style={[styles.iconBtn, styles.iconRightTop]}
+              onPress={onPressReport}
+              accessibilityRole="button"
+              accessibilityLabel="신고하기"
+              activeOpacity={0.9}
+            >
+              <Image source={require('../../assets/images/alert_white.png')} style={styles.icon} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.iconBtn, styles.iconRightTop]}
+              onPress={openOwnerMenu}
+              accessibilityRole="button"
+              accessibilityLabel="게시글 옵션"
+              activeOpacity={0.9}
+            >
+              <Image source={require('../../assets/images/tab.png')} style={styles.icon} />
+            </TouchableOpacity>
+          )}
 
           {/* 우하단: "1 / N" 인디케이터 */}
           <View style={styles.counterPill}>
@@ -185,11 +259,38 @@ export default function LostDetailPage({
               {images.length > 0 ? `${index + 1} / ${images.length}` : '0 / 0'}
             </Text>
           </View>
+
+          {/* 소유자 옵션 모달 (스타일 파일로 분리) */}
+          {isOwner && ownerMenuVisible && (
+            <>
+              <TouchableOpacity
+                style={styles.ownerDim}
+                activeOpacity={1}
+                onPress={closeOwnerMenu}
+              />
+              <View style={styles.ownerMenuCard}>
+                <TouchableOpacity
+                  onPress={onOwnerEdit}
+                  style={styles.ownerMenuItem}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.ownerMenuText}>수정</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={onOwnerDelete}
+                  style={styles.ownerMenuItem}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.ownerMenuTextDanger}>삭제</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
         </View>
 
         {/* ===== 본문 ===== */}
         <View style={styles.body}>
-          <ProfileRow name={profileName} dept={profileDept} />
+          <ProfileRow name={item?.authorName ?? '채히'} dept={item?.authorDept ?? 'AI학부'} />
 
           <View style={styles.divider} />
 
@@ -217,14 +318,11 @@ export default function LostDetailPage({
         </View>
       </ScrollView>
 
-      {/* ===== 하단 고정 바 (좋아요/메시지) ===== */}
+      {/* 하단 고정 바 */}
       <DetailBottomBar
         initialLiked={liked}
         onToggleLike={async (nextLiked: boolean) => {
-          // 훅이 저장/목록 동기화
           await setLikedPersisted(nextLiked);
-
-          // 상세 화면 로컬 상태 즉시 반영 (리스트는 훅에서 이미 처리함)
           setItem(prev => {
             if (!prev) return prev;
             const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));

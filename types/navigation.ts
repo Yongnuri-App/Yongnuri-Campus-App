@@ -9,18 +9,18 @@ export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;          // 회원가입 페이지
   PasswordReset: undefined;   // 비밀번호 재설정 페이지
-  Main: undefined;            // 로그인 성공 후 메인 페이지
+  Main: { initialTab?: 'group' | 'market' | 'lost' } | undefined;            // 로그인 성공 후 메인 페이지
   Search: undefined;          // 검색 페이지
   Notification: undefined;    // 알림 페이지
-  SellItem: undefined;        // 판매 아이템 등록 페이지
-  GroupBuyRecruit: undefined; // 공동구매 모집글 작성 페이지
-  LostPost: undefined;
+  SellItem: { mode?: 'create' | 'edit'; id?: string };       // 판매 아이템 등록 페이지
+  GroupBuyRecruit: { mode?: 'create' | 'edit'; id?: string }; // 공동구매 모집글 작성 페이지
+  LostPost: { mode?: 'create' | 'edit'; id?: string };
   ChatList: undefined;        // 채팅 목록 페이지
 
   // 상세 페이지들
   MarketDetail: { id: string; isOwner?: boolean };
-  LostDetail: { id: string };
-  GroupBuyDetail: { id: string };
+  LostDetail: { id: string; isOwner?: boolean };
+  GroupBuyDetail: { id: string; isOwner?: boolean };
 
   // ✅ 신고하기 페이지 (타겟 라벨은 선택)
   Report: { targetLabel?: string };

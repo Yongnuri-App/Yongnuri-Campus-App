@@ -1,6 +1,6 @@
 // pages/Market/MarketDetailPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -13,15 +13,18 @@ import {
   View,
 } from 'react-native';
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
-import ProfileRow from '../../components/Profile/ProfileRow'; // 분리한 프로필 컴포넌트
-import { useLike } from '../../hooks/useLike'; // 공통 좋아요 훅
+import ProfileRow from '../../components/Profile/ProfileRow';
+import { useLike } from '../../hooks/useLike';
 import { updatePostLikeCountInList } from '../../repositories/marketRepo';
 import type { RootStackScreenProps } from '../../types/navigation';
 import { loadJson, saveJson } from '../../utils/storage';
+import { useDeletePost } from '../../hooks/useDeletePost';
 import styles from './MarketDetailPage.styles';
 
 const POSTS_KEY = 'market_posts_v1';
 const LIKED_MAP_KEY = 'market_liked_map_v1';
+const AUTH_USER_ID_KEY = 'auth_user_id';
+const AUTH_USER_EMAIL_KEY = 'auth_user_email';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 type MarketPost = {
@@ -34,6 +37,10 @@ type MarketPost = {
   images: string[];
   likeCount: number;
   createdAt: string; // ISO
+  authorId?: string | number;
+  authorEmail?: string | null;
+  authorName?: string;
+  authorDept?: string;
 };
 
 function timeAgo(iso: string) {
@@ -47,6 +54,23 @@ function timeAgo(iso: string) {
   return `${d}일 전`;
 }
 
+const coerceTrue = (v: any) => v === true || v === 'true' || v === 1 || v === '1';
+const sameId = (a?: string | number | null, b?: string | number | null) =>
+  a != null && b != null && String(a) === String(b);
+const sameEmail = (a?: string | null, b?: string | null) =>
+  !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+// 로그인 없어도 내 로컬 식별자 보장
+async function ensureLocalIdentity() {
+  let userId = await AsyncStorage.getItem(AUTH_USER_ID_KEY);
+  if (!userId) {
+    userId = `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    await AsyncStorage.setItem(AUTH_USER_ID_KEY, userId);
+  }
+  const userEmail = (await AsyncStorage.getItem(AUTH_USER_EMAIL_KEY)) ?? null;
+  return { userId, userEmail };
+}
+
 export default function MarketDetailPage({
   route,
   navigation,
@@ -55,51 +79,112 @@ export default function MarketDetailPage({
 
   const [item, setItem] = useState<MarketPost | null>(null);
   const [index, setIndex] = useState(0);
+  const [ownerMenuVisible, setOwnerMenuVisible] = useState(false);
+  const [myId, setMyId] = useState<string | null>(null);
+  const [myEmail, setMyEmail] = useState<string | null>(null);
   const hScrollRef = useRef<ScrollView | null>(null);
 
-  // 임시 프로필 라벨 (추후 API 연동 시 교체)
-  const profileName = '채히';
-  const profileDept = 'AI학부';
+  // 작성자 표시 (없으면 임시)
+  const profileName = item?.authorName ?? '채희';
+  const profileDept = item?.authorDept ?? 'AI학부';
 
-  // 공통 좋아요 훅 (리스트 동기화는 훅이 담당)
-  const { liked, syncCount, setLikedPersisted } = useLike({
+  // 좋아요 훅
+  const { liked, syncCount } = useLike({
     itemId: id,
     likedMapKey: LIKED_MAP_KEY,
     postsKey: POSTS_KEY,
-    initialCount: 0, // 상세 로드 후 syncCount로 주입
+    initialCount: 0,
   });
 
+  // 삭제 훅
+  const { confirmAndDelete } = useDeletePost({
+    postId: id,
+    postsKey: POSTS_KEY,
+    likedMapKey: LIKED_MAP_KEY,
+    navigation,
+    confirmTitle: '삭제',
+    confirmMessage: '정말로 이 게시글을 삭제할까요?',
+    confirmOkText: '삭제',
+    confirmCancelText: '취소',
+  });
+
+  // ✅ 내 식별자 로드(보장)
+  useEffect(() => {
+    (async () => {
+      try {
+        const { userId, userEmail } = await ensureLocalIdentity();
+        setMyId(userId);
+        setMyEmail(userEmail);
+      } catch (e) {
+        console.log('load identity error', e);
+      }
+    })();
+  }, []);
+
+  /** 게시글 로드 함수 (최초 + 포커스 복귀 시 공용) */
+  const loadItem = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(POSTS_KEY);
+      const list: MarketPost[] = raw ? JSON.parse(raw) : [];
+      const found = list.find(p => String(p.id) === String(id)) ?? null;
+      setItem(found);
+
+      if (!found) {
+        Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
+          { text: '확인', onPress: () => navigation.goBack() },
+        ]);
+        return;
+      }
+      // 상세의 likeCount를 훅과 동기화
+      syncCount(found.likeCount ?? 0);
+    } catch (e) {
+      console.log('detail load error', e);
+      Alert.alert('오류', '게시글을 불러오지 못했어요.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    }
+  }, [id, navigation, syncCount]);
+
+  // 최초 로드
   useEffect(() => {
     let mounted = true;
     (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(POSTS_KEY);
-        const list: MarketPost[] = raw ? JSON.parse(raw) : [];
-        const found = list.find(p => p.id === id) ?? null;
-        if (!mounted) return;
-        setItem(found);
-
-        if (!found) {
-          Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
-            { text: '확인', onPress: () => navigation.goBack() },
-          ]);
-          return;
-        }
-
-        // 상세의 likeCount를 훅과 동기화
-        syncCount(found.likeCount ?? 0);
-      } catch (e) {
-        if (!mounted) return;
-        console.log('detail load error', e);
-        Alert.alert('오류', '게시글을 불러오지 못했어요.', [
-          { text: '확인', onPress: () => navigation.goBack() },
-        ]);
-      }
+      if (!mounted) return;
+      await loadItem();
     })();
     return () => {
       mounted = false;
     };
-  }, [id, navigation, syncCount]);
+  }, [loadItem]);
+
+  // ✅ 편집 후 돌아오면 즉시 리로드 (목록 갔다 올 필요 없음)
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', () => {
+      loadItem();
+    });
+    return unsub;
+  }, [navigation, loadItem]);
+
+  // ✅ 오너 판별: 파라미터 or ID/이메일 비교
+  const isOwner = useMemo(() => {
+    const p = (route.params as any)?.isOwner;
+    if (coerceTrue(p)) return true;
+    if (sameId(item?.authorId, myId)) return true;
+    if (sameEmail(item?.authorEmail ?? null, myEmail)) return true;
+    return false;
+  }, [route.params, item?.authorId, item?.authorEmail, myId, myEmail]);
+
+  // 디버그
+  useEffect(() => {
+    console.log('🔎 [MARKET OWNER DEBUG]', {
+      param_isOwner: (route.params as any)?.isOwner,
+      myId,
+      myEmail,
+      item_authorId: item?.authorId,
+      item_authorEmail: item?.authorEmail,
+      result_isOwner: isOwner,
+    });
+  }, [isOwner, myId, myEmail, item?.authorId, item?.authorEmail, route.params]);
 
   const priceDisplay = useMemo(() => {
     if (!item) return '';
@@ -113,10 +198,25 @@ export default function MarketDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  // 신고 페이지로 이동
+  // 신고 페이지로 이동 (탭)
   const onPressReport = () => {
     const targetLabel = `${profileDept} - ${profileName}`;
     navigation.navigate('Report', { targetLabel });
+  };
+
+  // 오너 메뉴 핸들러
+  const openOwnerMenu = () => setOwnerMenuVisible(true);
+  const closeOwnerMenu = () => setOwnerMenuVisible(false);
+
+  // ✅ 알림 제거하고 바로 편집 화면으로 이동
+  const onOwnerEdit = () => {
+    closeOwnerMenu();
+    navigation.navigate('SellItem', { mode: 'edit', id });
+  };
+
+  const onOwnerDelete = async () => {
+    closeOwnerMenu();
+    await confirmAndDelete();
   };
 
   if (!item) {
@@ -127,8 +227,7 @@ export default function MarketDetailPage({
     );
   }
 
-  const images =
-    Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
+  const images = Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
 
   return (
     <View style={styles.container}>
@@ -165,20 +264,35 @@ export default function MarketDetailPage({
             accessibilityRole="button"
             accessibilityLabel="뒤로가기"
             activeOpacity={0.9}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Image source={require('../../assets/images/back_white.png')} style={styles.icon} />
           </TouchableOpacity>
 
-          {/* 우상단: 신고하기 */}
-          <TouchableOpacity
-            style={[styles.iconBtn, styles.iconRightTop]}
-            onPress={onPressReport}
-            accessibilityRole="button"
-            accessibilityLabel="신고하기"
-            activeOpacity={0.9}
-          >
-            <Image source={require('../../assets/images/alert_white.png')} style={styles.icon} />
-          </TouchableOpacity>
+          {/* 우상단: 신고(비소유) / 탭 아이콘(소유) */}
+          {!isOwner ? (
+            <TouchableOpacity
+              style={[styles.iconBtn, styles.iconRightTop]}
+              onPress={onPressReport}
+              accessibilityRole="button"
+              accessibilityLabel="신고하기"
+              activeOpacity={0.9}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Image source={require('../../assets/images/alert_white.png')} style={styles.icon} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.iconBtn, styles.iconRightTop]}
+              onPress={openOwnerMenu}
+              accessibilityRole="button"
+              accessibilityLabel="게시글 옵션"
+              activeOpacity={0.9}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Image source={require('../../assets/images/tab.png')} style={styles.icon} />
+            </TouchableOpacity>
+          )}
 
           {/* 우하단: 인디케이터 */}
           <View style={styles.counterPill}>
@@ -186,6 +300,35 @@ export default function MarketDetailPage({
               {images.length > 0 ? `${index + 1} / ${images.length}` : '0 / 0'}
             </Text>
           </View>
+
+          {/* ✅ 소유자 옵션 모달 (zIndex 강제, Dim 클릭 닫힘) */}
+          {isOwner && ownerMenuVisible && (
+            <>
+              {/* Dim */}
+              <TouchableOpacity
+                style={styles.ownerDim}
+                activeOpacity={1}
+                onPress={closeOwnerMenu}
+              />
+              {/* 메뉴 카드 */}
+              <View style={styles.ownerMenuCard}>
+                <TouchableOpacity
+                  onPress={onOwnerEdit}
+                  style={styles.ownerMenuItem}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.ownerMenuText}>수정</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={onOwnerDelete}
+                  style={styles.ownerMenuItem}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.ownerMenuTextDanger}>삭제</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
         </View>
 
         {/* ===== 본문 ===== */}
@@ -214,30 +357,24 @@ export default function MarketDetailPage({
         </View>
       </ScrollView>
 
-      {/* ===== 하단 고정 바 =====
-        - 좋아요 토글은 기존 로직 유지
-        - 전송 버튼을 누르면 채팅방으로 이동 + 필요한 파라미터 전달
-      */}
+      {/* ===== 하단 고정 바 ===== */}
       <DetailBottomBar
         variant="detail"
         initialLiked={liked}
-        onToggleLike={async (liked) => {
-          // ✅ 로컬 liked 맵 갱신
+        onToggleLike={async (likedFlag) => {
+          // 로컬 liked 맵 갱신
           const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
-          likedMap[id] = liked;
+          likedMap[id] = likedFlag;
           await saveJson(LIKED_MAP_KEY, likedMap);
 
-          // ✅ likeCount 증감 (UI 즉시 반영) + 목록 동기화
+          // likeCount 즉시 반영 + 목록 동기화
           setItem((prev) => {
             if (!prev) return prev;
-            const nextCount = Math.max(
-              0,
-              (prev.likeCount ?? 0) + (liked ? 1 : -1)
-            );
+            const nextCount = Math.max(0, (prev.likeCount ?? 0) + (likedFlag ? 1 : -1));
             updatePostLikeCountInList(POSTS_KEY, prev.id, nextCount);
             return { ...prev, likeCount: nextCount };
           });
-        }}  // ← 중요: 콜백 블록과 prop 둘 다 여기서 '}}'로 닫혀야 함!!
+        }}
         chatAutoNavigateParams={{
           postId: item.id,
           sellerNickname: profileName,

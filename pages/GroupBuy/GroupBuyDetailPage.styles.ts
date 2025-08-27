@@ -1,4 +1,3 @@
-// pages/GroupBuy/GroupBuyDetailPage.styles.ts
 import { Dimensions, StyleSheet } from 'react-native';
 const { width } = Dimensions.get('window');
 
@@ -128,4 +127,42 @@ export default StyleSheet.create({
   /* 로딩 */
   fallback: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },
   fallbackText: { color: '#797979' },
+
+  /* ===== (추가) 오너 메뉴 오버레이 ===== */
+  ownerDim: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+  },
+  ownerMenuCard: {
+    position: 'absolute',
+    right: 12,
+    top: 55 + 28,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+    zIndex: 20,
+  },
+  ownerMenuItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  ownerMenuText: {
+    fontSize: 14,
+    color: '#1E1E1E',
+  },
+  ownerMenuTextDanger: {
+    fontSize: 14,
+    color: '#D32F2F',
+    fontWeight: '700',
+  },
 });
