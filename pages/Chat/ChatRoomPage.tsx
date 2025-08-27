@@ -36,13 +36,17 @@ const formatKoreanTime = (d: Date = new Date()): string => {
 type Nav = NativeStackNavigationProp<RootStackParamList, 'ChatRoom'>;
 
 /**
- * 채팅방 페이지 (중고거래/분실물 공용)
- * - 상단 카드: 중고거래는 "가격", 분실물은 "장소 + 분실/습득 배지"
+ * 채팅방 페이지 (중고거래/분실물/공동구매 공용)
+ * - 상단 카드:
+ *   · market   → "가격"
+ *   · lost     → "장소 + 분실/습득 배지"
+ *   · groupbuy → "모집 인원(recruitLabel)"
  * - 헤더/리스트/더보기/첨부/약속 모달은 공통 컴포넌트 사용
  */
 export default function ChatRoomPage() {
   const navigation = useNavigation<Nav>();
-  const route = useRoute<any>(); // NOTE: 팀 내 타입 변경 중이면 any 유지. union 타입 완료 시 제네릭 지정 권장.
+  // NOTE: 팀 내 union 타입 정착 전까지 any 유지. RootStackParamList['ChatRoom']로 좁히면 가장 좋음.
+  const route = useRoute<any>();
 
   // ===== 약속 모달 상태 =====
   const [open, setOpen] = useState(false);
@@ -52,43 +56,57 @@ export default function ChatRoomPage() {
   const [attachments, setAttachments] = useState<string[]>([]);
   const [menuVisible, setMenuVisible] = useState(false);
 
-  // ======== 공용 표시값 매핑 (중고거래/분실물 분기) ========
-  // 상세 → 채팅방으로 넘어온 파라미터(raw). 기존/신규(분실물) 모두 호환을 위해 any로 접근
+  // ======== 공용 표시값 매핑 (market | lost | groupbuy 분기) ========
   const raw = (route.params ?? {}) as any;
 
-  // 1) 분기 플래그: source === 'lost' 면 분실물
+  // 1) 분기 플래그
   const isLost = raw?.source === 'lost';
+  const isMarket = raw?.source === 'market';
+  const isGroupBuy = raw?.source === 'groupbuy';
 
-  // 2) 헤더 타이틀
-  // - market: sellerNickname
-  // - lost  : posterNickname
-  const headerTitle: string =
-    isLost ? raw?.posterNickname ?? '닉네임' : raw?.sellerNickname ?? '닉네임';
+  // 2) 헤더 타이틀(상대 닉네임)
+  // - market   : sellerNickname
+  // - lost     : posterNickname
+  // - groupbuy : authorNickname
+  const headerTitle: string = isMarket
+    ? raw?.sellerNickname ?? '닉네임'
+    : isLost
+    ? raw?.posterNickname ?? '닉네임'
+    : raw?.authorNickname ?? '닉네임'; // groupbuy
 
-  // 3) 카드 타이틀
-  // - market: productTitle
-  // - lost  : postTitle
-  const cardTitle: string =
-    isLost ? raw?.postTitle ?? '게시글 제목' : raw?.productTitle ?? '게시글 제목';
+  // 3) 카드 타이틀(게시글 제목)
+  // - market   : productTitle
+  // - lost     : postTitle
+  // - groupbuy : postTitle
+  const cardTitle: string = isMarket
+    ? raw?.productTitle ?? '게시글 제목'
+    : raw?.postTitle ?? '게시글 제목';
 
   // 4) 카드 썸네일
-  // - market: productImageUri
-  // - lost  : postImageUri
-  const cardImageUri: string | undefined = isLost ? raw?.postImageUri : raw?.productImageUri;
+  // - market   : productImageUri
+  // - lost     : postImageUri
+  // - groupbuy : postImageUri
+  const cardImageUri: string | undefined = isMarket
+    ? raw?.productImageUri
+    : raw?.postImageUri;
 
-  // 5) 보조 라인 (가격 ↔ 장소+배지)
+  // 5) 보조 라인(한 줄): market=가격 / lost=장소(+배지 별도) / groupbuy=모집 인원
   const priceLabel = useMemo(() => {
-    if (isLost) return ''; // 분실물은 가격 표시 없음
+    if (!isMarket) return '';
     const price = raw?.productPrice;
     if (typeof price === 'number' && price > 0) return `₩ ${price.toLocaleString('ko-KR')}`;
     if (price === 0) return '나눔';
     return '';
-  }, [isLost, raw?.productPrice]);
+  }, [isMarket, raw?.productPrice]);
 
   const placeLabel: string = isLost ? raw?.place ?? '장소 정보 없음' : '';
+
   const purposeBadge: string = isLost ? (raw?.purpose === 'lost' ? '분실' : '습득') : '';
 
-  // 6) 상세에서 보낸 첫 메시지
+  // ✅ 공동구매 보조 라벨 (가격/위치 슬롯 대체)
+  const recruitLabel: string = isGroupBuy ? raw?.recruitLabel ?? '' : '';
+
+  // 6) 상세에서 보낸 첫 메시지 (optional)
   const initialMessage: string | undefined = raw?.initialMessage;
 
   // 입장 직후, 상세에서 보낸 첫 메시지 처리
@@ -122,7 +140,7 @@ export default function ChatRoomPage() {
     ]);
   };
 
-  /** 약속잡기 버튼 → 모달 열기 (분실물도 전달 약속 용도) */
+  /** 약속잡기 버튼 → 모달 열기 */
   const handleOpenSchedule = () => setOpen(true);
 
   /** DetailBottomBar(+ 버튼) → 새로 선택된 이미지 URIs 수신 */
@@ -183,7 +201,7 @@ export default function ChatRoomPage() {
         onPressMore={() => setMenuVisible(true)}
       />
 
-      {/* ===== 상단 요약 카드 (중고/분실 공용) ===== */}
+      {/* ===== 상단 요약 카드 (market | lost | groupbuy 공용) ===== */}
       <View style={styles.productCardShadowWrap}>
         <View style={styles.productCard}>
           {/* 썸네일 */}
@@ -195,13 +213,18 @@ export default function ChatRoomPage() {
             )}
           </View>
 
-          {/* 제목/보조 라인 (market=가격 / lost=장소+배지) */}
+          {/* 제목/보조 라인 */}
           <View style={styles.infoWrap}>
             <Text style={styles.title} numberOfLines={1}>
               {cardTitle}
             </Text>
 
-            {isLost ? (
+            {/* 분기: 가격 / 장소+배지 / 모집 인원 */}
+            {isMarket && (
+              <Text style={styles.price}>{priceLabel || '₩ 0'}</Text>
+            )}
+
+            {isLost && (
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <View
                   style={[
@@ -217,8 +240,12 @@ export default function ChatRoomPage() {
                   {placeLabel}
                 </Text>
               </View>
-            ) : (
-              <Text style={styles.price}>{priceLabel || '₩ 0'}</Text>
+            )}
+
+            {isGroupBuy && (
+              <Text style={styles.groupBuyLabel} numberOfLines={1}>
+                {recruitLabel /* 예: "현재 모집 인원 0명 (제한 없음)" */}
+              </Text>
             )}
           </View>
         </View>
