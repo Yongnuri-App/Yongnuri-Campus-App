@@ -1,30 +1,31 @@
 // pages/Chat/ChatRoomPage.tsx
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     Alert,
-    FlatList,
     Image,
-    Modal,
-    Pressable,
-    ScrollView,
     Text,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import type { RootStackParamList } from '../../types/navigation';
 import styles from './ChatRoomPage.styles';
 
-// ✅ 약속잡기 모달 (이미 @/components/Modal/AppointmentModal 로 관리 중인 경로 유지)
+// ✅ 분리한 공통 컴포넌트/타입
+import AttachmentBar from '@/components/Chat/AttachmentBar/AttachmentBar';
+import ChatHeader from '@/components/Chat/ChatHeader/ChatHeader';
+import MessageList from '@/components/Chat/MessageList/MessageList';
+import MoreMenu from '@/components/Chat/MoreMenu/MoreMenu';
+import type { ChatMessage } from '@/types/chat';
+
+// ✅ 약속잡기 모달
 import AppointmentModal from '@/components/Modal/AppointmentModal';
 
-// 하단 입력 바 (스마트 컴포넌트)
+// 하단 입력 바
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 
-// 아이콘 (프로젝트 내 assets 경로에 맞춰 수정)
-const backIcon = require('../../assets/images/back.png');
-const moreIcon = require('../../assets/images/more.png');
+// 아이콘 (상단 카드에서만 필요)
 const calendarIcon = require('../../assets/images/calendar.png');
 
 /** 현재 시간을 "오전/오후 HH:MM" 포맷으로 반환 (12시간제) */
@@ -38,20 +39,21 @@ const formatKoreanTime = (d: Date = new Date()): string => {
   return `${ampm} ${hh}:${mm}`;
 };
 
-/** 채팅 메시지 타입: 텍스트 / 이미지 */
-type ChatMessage =
-  | { id: string; type: 'text'; text: string; time: string; mine?: boolean }
-  | { id: string; type: 'image'; uri: string; time: string; mine?: boolean };
-
 type Nav = NativeStackNavigationProp<RootStackParamList, 'ChatRoom'>;
 
+/**
+ * 채팅방 페이지
+ * - 헤더/리스트/더보기 모달을 공통 컴포넌트로 분리해서 사용
+ * - 상단 상품 요약 카드와 첨부 썸네일 바는 이 페이지에서 그대로 관리
+ */
 export default function ChatRoomPage() {
   const navigation = useNavigation<Nav>();
-  const route = useRoute<any>(); // 필요 시 RootStackParamList['ChatRoom']로 제네릭 지정
+  const route = useRoute<any>(); // 필요 시 RootStackParamList['ChatRoom']로 지정
 
   // ===== 약속 모달 상태 =====
-  const [open, setOpen] = useState(false); // 약속잡기 모달 표시/비표시
+  const [open, setOpen] = useState(false);
 
+  // 상세 → 채팅방으로 넘어온 파라미터
   const {
     sellerNickname,
     productTitle,
@@ -60,10 +62,9 @@ export default function ChatRoomPage() {
     initialMessage,
   } = route.params ?? {};
 
-  // ===== 채팅 상태 =====
+  // ===== 채팅/첨부/메뉴 상태 =====
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [attachments, setAttachments] = useState<string[]>([]); // 전송 대기 첨부 이미지들
-  const flatRef = useRef<FlatList<ChatMessage>>(null);
+  const [attachments, setAttachments] = useState<string[]>([]);
   const [menuVisible, setMenuVisible] = useState(false);
 
   // 입장 직후, 상세에서 보낸 첫 메시지 처리
@@ -77,7 +78,7 @@ export default function ChatRoomPage() {
       mine: true,
     };
     setMessages(prev => [...prev, firstMsg]);
-    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 0);
+    // MessageList가 onContentSizeChange로 자동 스크롤 처리
   }, [initialMessage]);
 
   // 가격 표시
@@ -94,21 +95,19 @@ export default function ChatRoomPage() {
     setMenuVisible(false);
     Alert.alert('신고하기', '해당 사용자를 신고하시겠어요?', [
       { text: '취소', style: 'cancel' },
-      { text: '신고', style: 'destructive', onPress: () => {/* TODO: 신고 API */} },
+      { text: '신고', style: 'destructive', onPress: () => { /* TODO: 신고 API */ } },
     ]);
   };
   const handleBlock = () => {
     setMenuVisible(false);
     Alert.alert('차단하기', '해당 사용자를 차단하시겠어요?', [
       { text: '취소', style: 'cancel' },
-      { text: '차단', style: 'destructive', onPress: () => {/* TODO: 차단 API */} },
+      { text: '차단', style: 'destructive', onPress: () => { /* TODO: 차단 API */ } },
     ]);
   };
 
   /** 약속잡기 버튼 → 모달 열기 */
-  const handleOpenSchedule = () => {
-    setOpen(true);
-  };
+  const handleOpenSchedule = () => setOpen(true);
 
   /** DetailBottomBar(+ 버튼) → 새로 선택된 이미지 URIs 수신 */
   const handleAddImages = (uris: string[]) => {
@@ -149,58 +148,11 @@ export default function ChatRoomPage() {
         mine: true,
       });
     }
-    if (newItems.length === 0) return; // 전송할 것이 없으면 무시
+    if (newItems.length === 0) return;
 
     setMessages(prev => [...prev, ...newItems]);
     setAttachments([]); // 전송 후 첨부 초기화
-    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 0);
-  };
-
-  /** 채팅 아이템 렌더 */
-  const renderItem = ({ item }: { item: ChatMessage }) => {
-    if (item.type === 'image') {
-      // 이미지 메시지
-      if (item.mine) {
-        return (
-          <View style={styles.rowRight}>
-            <Text style={styles.timeRight}>{item.time}</Text>
-            <View style={styles.imageBubbleMine}>
-              <Image source={{ uri: item.uri }} style={styles.msgImageMine} />
-            </View>
-          </View>
-        );
-      }
-      return (
-        <View style={styles.rowLeft}>
-          <View style={styles.avatar} />
-          <View style={styles.imageBubbleOthers}>
-            <Image source={{ uri: item.uri }} style={styles.msgImageOthers} />
-          </View>
-          <Text style={styles.timeLeft}>{item.time}</Text>
-        </View>
-      );
-    }
-
-    // 텍스트 메시지
-    if (item.mine) {
-      return (
-        <View style={styles.rowRight}>
-          <Text style={styles.timeRight}>{item.time}</Text>  
-          <View style={styles.bubbleMine}>
-            <Text style={styles.bubbleTextMine}>{item.text}</Text>
-          </View>
-        </View>
-      );
-    }
-    return (
-      <View style={styles.rowLeft}>
-        <View style={styles.avatar} />
-        <View style={styles.bubbleOthers}>
-          <Text style={styles.bubbleTextOthers}>{item.text}</Text>
-        </View>
-        <Text style={styles.timeLeft}>{item.time}</Text>
-      </View>
-    );
+    // MessageList가 자동 스크롤 처리
   };
 
   // 첨부 썸네일 바가 있으면 하단 패딩을 늘려 겹침 방지
@@ -209,19 +161,11 @@ export default function ChatRoomPage() {
   return (
     <View style={styles.container}>
       {/* ===== 헤더: 뒤로가기 / 닉네임 / more ===== */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Image source={backIcon} style={styles.icon} />
-        </TouchableOpacity>
-
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          {sellerNickname ?? '닉네임'}
-        </Text>
-
-        <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.moreBtn}>
-          <Image source={moreIcon} style={styles.icon_more} />
-        </TouchableOpacity>
-      </View>
+      <ChatHeader
+        title={sellerNickname ?? '닉네임'}
+        onPressBack={() => navigation.goBack()}
+        onPressMore={() => setMenuVisible(true)}
+      />
 
       {/* ===== 상품 요약 카드 ===== */}
       <View style={styles.productCardShadowWrap}>
@@ -250,88 +194,45 @@ export default function ChatRoomPage() {
         </TouchableOpacity>
       </View>
 
-      {/* ===== 채팅 리스트 ===== */}
-      <FlatList
-        ref={flatRef}
+      {/* ===== 채팅 리스트 (FlatList → MessageList로 교체) ===== */}
+      <MessageList
         data={messages}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={[styles.listContent, { paddingBottom: 100 + extraBottomPad }]}
-        renderItem={renderItem}
-        onContentSizeChange={() => flatRef.current?.scrollToEnd({ animated: false })}
+        bottomInset={100 + extraBottomPad}
       />
 
       {/* ===== 첨부 썸네일 바 (입력창 위) ===== */}
-      {attachments.length > 0 && (
-        <View style={styles.attachBar}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.attachScroll}
-          >
-            {attachments.map((uri, idx) => (
-              <View key={`${uri}-${idx}`} style={styles.thumbWrapAttach}>
-                <Image source={{ uri }} style={styles.thumbAttach} />
-                <TouchableOpacity
-                  style={styles.removeBtn}
-                  onPress={() => removeAttachmentAt(idx)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text style={styles.removeX}>×</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      )}
+      <AttachmentBar uris={attachments} onRemoveAt={removeAttachmentAt} />
 
       {/* ===== 하단 입력 바 ===== */}
       <DetailBottomBar
         variant="chat"
         placeholder="메세지를 입력해주세요."
         onPressSend={handleSend}                 // 텍스트/첨부 전송
-        onAddImages={(uris) => setAttachments(prev => [...prev, ...uris])} // + 버튼 선택 결과
+        onAddImages={handleAddImages}            // + 버튼 선택 결과
         attachmentsCount={attachments.length}    // 텍스트 없어도 첨부 있으면 전송 활성화
       />
 
       {/* ===== 더보기 메뉴 (신고/차단) ===== */}
-      <Modal
+      <MoreMenu
         visible={menuVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMenuVisible(false)}
-      >
-        <Pressable style={styles.menuBackdrop} onPress={() => setMenuVisible(false)}>
-          <View style={styles.menuBox}>
-            <TouchableOpacity style={styles.menuItem} onPress={handleReport}>
-              <Text style={styles.menuItemText}>신고하기</Text>
-            </TouchableOpacity>
-            <View style={styles.menuDivider} />
-            <TouchableOpacity style={styles.menuItem} onPress={handleBlock}>
-              <Text style={styles.menuItemText}>차단하기</Text>
-            </TouchableOpacity>
-          </View>
-        </Pressable>
-      </Modal>
+        onClose={() => setMenuVisible(false)}
+        onReport={handleReport}
+        onBlock={handleBlock}
+      />
 
       {/* ===== 약속잡기 모달 =====
-        - onSubmit 시 채팅에 시스템 메시지처럼 "📅 약속 제안"을 추가
-        - 닫기/완료 후 리스트 맨 아래로 스크롤
+          - onSubmit 시 채팅에 시스템 메시지처럼 "📅 약속 제안"을 추가
+          - 리스트 스크롤은 MessageList가 자동 처리
       */}
       <AppointmentModal
         visible={open}
         partnerNickname={sellerNickname ?? '닉네임'}
-        onClose={() => {
-          setOpen(false);
-          setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 0);
-        }}
+        onClose={() => setOpen(false)}
         onSubmit={({ date, time, place }) => {
-          // 유효성은 모달에서 버튼 비활성으로 1차 보장됨. 여기서는 방어코드만.
           if (!date || !time || !place) {
             setOpen(false);
             return;
           }
-
-          // 📌 채팅에 약속 제안 메시지로 추가
           const now = formatKoreanTime();
           const proposal = `📅 약속 제안\n- 날짜: ${date}\n- 시간: ${time}\n- 장소: ${place}`;
           const msg: ChatMessage = {
@@ -343,14 +244,9 @@ export default function ChatRoomPage() {
           };
           setMessages(prev => [...prev, msg]);
 
-          // TODO: 여기서 서버 API로 약속 생성/전송
-          // ex) POST /api/appointments { date, time, place, chatRoomId }
-          // 성공 시 상대에게도 "약속 제안" 시스템 메시지 전송 처리 필요
-
+          // TODO: POST /api/appointments { date, time, place, chatRoomId }
           setOpen(false);
-          setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 0);
         }}
-        // 필요하면 초기 플레이스홀더 값 지정 가능
         initialDate={undefined}
         initialTime={undefined}
         initialPlace={undefined}
