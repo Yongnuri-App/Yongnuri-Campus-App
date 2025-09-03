@@ -57,6 +57,14 @@ export default function ChatListPage({ navigation }: Props) {
 
   const enterRoom = async (room: ChatRoomSummary) => {
     await markRoomRead(room.roomId);
+
+    if (room.origin?.params) {
+      // ✅ 원본 네비 파라미터 그대로 사용 (키 이름/형태 유지)
+      navigation.navigate('ChatRoom', room.origin.params as any);
+      return;
+    }
+
+    // (폴백) 원본이 없을 때만 최소 정보로 진입
     navigation.navigate('ChatRoom', {
       roomId: room.roomId,
       category: room.category,

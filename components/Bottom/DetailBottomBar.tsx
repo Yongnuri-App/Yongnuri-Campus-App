@@ -215,6 +215,10 @@ const DetailBottomBar: React.FC<Props> = ({
           productPrice,
           productImageUri,
           preview: msg,
+          origin: {
+            source: chatAutoNavigateParams.source,   // 'market' | 'lost' | 'groupbuy'
+            params: chatAutoNavigateParams,          // ✅ 기존 네비 파라미터 원본 그대로 보관!
+          },
         });
 
         // === (2) ChatRoom으로 이동: 네가 쓰던 파라미터 형태를 1도 바꾸지 않음 ===

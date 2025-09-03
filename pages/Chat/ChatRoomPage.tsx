@@ -1,12 +1,12 @@
 // pages/Chat/ChatRoomPage.tsx
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, Image, Text, TouchableOpacity, View } from 'react-native';
 import type { RootStackParamList } from '../../types/navigation';
 import styles from './ChatRoomPage.styles';
 
-// ✅ 분리한 공통 컴포넌트/타입
+// ✅ 공통 컴포넌트/타입
 import AttachmentBar from '@/components/Chat/AttachmentBar/AttachmentBar';
 import ChatHeader from '@/components/Chat/ChatHeader/ChatHeader';
 import MessageList from '@/components/Chat/MessageList/MessageList';
@@ -18,6 +18,10 @@ import AppointmentModal from '@/components/Modal/AppointmentModal';
 
 // 하단 입력 바
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
+
+// ✅ 로컬 저장 연동
+import { appendOutboxImage, appendOutboxText, loadMessages } from '@/storage/chatMessagesStore';
+import { updateRoomOnSend /*, markRoomRead*/ } from '@/storage/chatStore';
 
 // 아이콘 (상단 카드에서만 필요)
 const calendarIcon = require('../../assets/images/calendar.png');
@@ -33,6 +37,40 @@ const formatKoreanTime = (d: Date = new Date()): string => {
   return `${ampm} ${hh}:${mm}`;
 };
 
+/** 원본 네비 파라미터로부터 roomId 복구 (DetailBottomBar에서 만들던 규칙과 동일) */
+function deriveRoomIdFromParams(params: any): string | null {
+  if (!params || !params.source) return null;
+
+  if (params.source === 'market') {
+    const { postId, sellerNickname } = params;
+    if (!postId || !sellerNickname) return null;
+    return `market-${postId}-${sellerNickname}`;
+  }
+  if (params.source === 'lost') {
+    const { postId, posterNickname } = params;
+    if (!postId || !posterNickname) return null;
+    return `lost-${postId}-${posterNickname}`;
+  }
+  if (params.source === 'groupbuy') {
+    const { postId, authorNickname } = params;
+    if (!postId || !authorNickname) return null;
+    return `group-${postId}-${authorNickname}`;
+  }
+  return null;
+}
+
+/** 저장소에서 읽은 time(ISO 등)을 화면 표시용으로 맞춰주는 헬퍼 */
+function ensureDisplayTimes(items: ChatMessage[]): ChatMessage[] {
+  return items.map((m) => {
+    // 이미 "오전/오후 HH:MM" 형태면 유지, 아니면 변환 시도
+    if (typeof m.time === 'string' && (m.time.includes('오전') || m.time.includes('오후'))) {
+      return m;
+    }
+    const d = m.time ? new Date(m.time) : new Date();
+    return { ...m, time: formatKoreanTime(d) };
+  });
+}
+
 type Nav = NativeStackNavigationProp<RootStackParamList, 'ChatRoom'>;
 
 /**
@@ -41,11 +79,9 @@ type Nav = NativeStackNavigationProp<RootStackParamList, 'ChatRoom'>;
  *   · market   → "가격"
  *   · lost     → "장소 + 분실/습득 배지"
  *   · groupbuy → "모집 인원(recruitLabel)"
- * - 헤더/리스트/더보기/첨부/약속 모달은 공통 컴포넌트 사용
  */
 export default function ChatRoomPage() {
   const navigation = useNavigation<Nav>();
-  // NOTE: 팀 내 union 타입 정착 전까지 any 유지. RootStackParamList['ChatRoom']로 좁히면 가장 좋음.
   const route = useRoute<any>();
 
   // ===== 약속 모달 상태 =====
@@ -65,9 +101,6 @@ export default function ChatRoomPage() {
   const isGroupBuy = raw?.source === 'groupbuy';
 
   // 2) 헤더 타이틀(상대 닉네임)
-  // - market   : sellerNickname
-  // - lost     : posterNickname
-  // - groupbuy : authorNickname
   const headerTitle: string = isMarket
     ? raw?.sellerNickname ?? '닉네임'
     : isLost
@@ -75,17 +108,11 @@ export default function ChatRoomPage() {
     : raw?.authorNickname ?? '닉네임'; // groupbuy
 
   // 3) 카드 타이틀(게시글 제목)
-  // - market   : productTitle
-  // - lost     : postTitle
-  // - groupbuy : postTitle
   const cardTitle: string = isMarket
     ? raw?.productTitle ?? '게시글 제목'
     : raw?.postTitle ?? '게시글 제목';
 
   // 4) 카드 썸네일
-  // - market   : productImageUri
-  // - lost     : postImageUri
-  // - groupbuy : postImageUri
   const cardImageUri: string | undefined = isMarket
     ? raw?.productImageUri
     : raw?.postImageUri;
@@ -100,28 +127,46 @@ export default function ChatRoomPage() {
   }, [isMarket, raw?.productPrice]);
 
   const placeLabel: string = isLost ? raw?.place ?? '장소 정보 없음' : '';
-
   const purposeBadge: string = isLost ? (raw?.purpose === 'lost' ? '분실' : '습득') : '';
-
-  // ✅ 공동구매 보조 라벨 (가격/위치 슬롯 대체)
   const recruitLabel: string = isGroupBuy ? raw?.recruitLabel ?? '' : '';
 
   // 6) 상세에서 보낸 첫 메시지 (optional)
   const initialMessage: string | undefined = raw?.initialMessage;
 
-  // 입장 직후, 상세에서 보낸 첫 메시지 처리
-  useEffect(() => {
-    if (!initialMessage?.trim()) return;
-    const firstMsg: ChatMessage = {
-      id: `init_${Date.now()}`,
-      type: 'text',
-      text: initialMessage,
-      time: formatKoreanTime(),
-      mine: true,
-    };
-    setMessages(prev => [...prev, firstMsg]);
-    // MessageList가 onContentSizeChange로 자동 스크롤 처리
-  }, [initialMessage]);
+  // ===== roomId 복구 =====
+  const roomId = raw?.roomId ?? deriveRoomIdFromParams(raw);
+
+  // 초기 시딩 중복 방지
+  const seededRef = useRef(false);
+
+  // ===== 화면 포커스 시: 메시지 로드 + 초기 전송 시딩 =====
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      (async () => {
+        if (!roomId) return;
+
+        // a) 저장된 메시지 로드
+        const stored = await loadMessages(roomId);
+        if (mounted) setMessages(ensureDisplayTimes(stored));
+
+        // b) 최초 상세 진입 시 initialMessage가 있으면 1회만 시딩
+        if (!seededRef.current && initialMessage?.trim()) {
+          const next = await appendOutboxText(roomId, initialMessage.trim());
+          if (mounted) setMessages(ensureDisplayTimes(next));
+          await updateRoomOnSend(roomId, initialMessage.trim()); // ChatList 프리뷰 갱신
+          seededRef.current = true;
+        }
+
+        // (옵션) 읽음 처리
+        // await markRoomRead(roomId);
+      })();
+
+      return () => {
+        mounted = false;
+      };
+    }, [roomId, initialMessage])
+  );
 
   // ===== 더보기 메뉴 액션 =====
   const handleReport = () => {
@@ -134,7 +179,7 @@ export default function ChatRoomPage() {
 
   const handleBlock = () => {
     setMenuVisible(false);
-    Alert.alert('차단하기', '해당 사용자를 차단하시겠어요?', [
+    Alert.alert('차단하기', '당신의 채팅 목록에서 숨겨집니다.', [
       { text: '취소', style: 'cancel' },
       { text: '차단', style: 'destructive', onPress: () => { /* TODO: 차단 API */ } },
     ]);
@@ -143,7 +188,7 @@ export default function ChatRoomPage() {
   /** 약속잡기 버튼 → 모달 열기 */
   const handleOpenSchedule = () => setOpen(true);
 
-  /** DetailBottomBar(+ 버튼) → 새로 선택된 이미지 URIs 수신 */
+  /** DetailBottomBar(+ 버튼) → 새로 선택된 이미지 URIs 수신 (즉시 전송 X, 전송 버튼에서 처리) */
   const handleAddImages = (uris: string[]) => {
     if (!uris?.length) return;
     setAttachments(prev => [...prev, ...uris]);
@@ -154,43 +199,52 @@ export default function ChatRoomPage() {
     setAttachments(prev => prev.filter((_, i) => i !== idx));
   };
 
-  /** 전송: 첨부 이미지(있으면 먼저) → 텍스트(있으면 이어서) */
-  const handleSend = (text: string) => {
-    const now = formatKoreanTime();
-    const trimmed = text.trim();
-    const newItems: ChatMessage[] = [];
+  /**
+   * 전송: 첨부 이미지(있으면 먼저) → 텍스트(있으면 이어서)
+   * - 로컬 저장소에 append + 화면 state 갱신
+   * - ChatList 프리뷰(updateRoomOnSend)도 갱신
+   */
+  const handleSend = async (text: string) => {
+    if (!roomId) return;
 
-    // 1) 이미지 메시지
+    const trimmed = text.trim();
+    let current: ChatMessage[] | null = null;
+
+    // 1) 이미지 메시지 먼저 저장/표시
     if (attachments.length > 0) {
       for (const uri of attachments) {
-        newItems.push({
-          id: `img_${Date.now()}_${Math.random()}`,
-          type: 'image',
-          uri,
-          time: now,
-          mine: true,
-        });
+        const next = await appendOutboxImage(roomId, uri);
+        current = next; // 마지막 값을 유지
       }
+      if (current) setMessages(ensureDisplayTimes(current));
+      setAttachments([]); // 전송 후 첨부 초기화
     }
-    // 2) 텍스트 메시지
-    if (trimmed) {
-      newItems.push({
-        id: `txt_${Date.now()}`,
-        type: 'text',
-        text: trimmed,
-        time: now,
-        mine: true,
-      });
-    }
-    if (newItems.length === 0) return;
 
-    setMessages(prev => [...prev, ...newItems]);
-    setAttachments([]); // 전송 후 첨부 초기화
-    // MessageList가 자동 스크롤 처리
+    // 2) 텍스트 메시지 저장/표시
+    if (trimmed) {
+      const next = await appendOutboxText(roomId, trimmed);
+      setMessages(ensureDisplayTimes(next));
+    }
+
+    // 3) ChatList 프리뷰 갱신
+    if (trimmed) {
+      await updateRoomOnSend(roomId, trimmed);
+    } else if (attachments.length > 0) {
+      const label = attachments.length === 1 ? '사진 1장' : `사진 ${attachments.length}장`;
+      await updateRoomOnSend(roomId, label);
+    }
   };
 
   // 첨부 썸네일 바가 있으면 하단 패딩을 늘려 겹침 방지
   const extraBottomPad = attachments.length > 0 ? 96 : 0;
+
+  if (!roomId) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text>채팅방 정보를 찾을 수 없어요.</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -280,10 +334,7 @@ export default function ChatRoomPage() {
         onBlock={handleBlock}
       />
 
-      {/* ===== 약속잡기 모달 =====
-          - onSubmit 시 채팅에 시스템 메시지처럼 "📅 약속 제안"을 추가
-          - 리스트 스크롤은 MessageList가 자동 처리
-      */}
+      {/* ===== 약속잡기 모달 ===== */}
       <AppointmentModal
         visible={open}
         partnerNickname={headerTitle}
@@ -293,18 +344,18 @@ export default function ChatRoomPage() {
             setOpen(false);
             return;
           }
-          const now = formatKoreanTime();
           const proposal = `📅 약속 제안\n- 날짜: ${date}\n- 시간: ${time}\n- 장소: ${place}`;
+          // 화면 표시는 바로 추가 (원하면 저장도 가능)
           const msg: ChatMessage = {
             id: `apt_${Date.now()}`,
             type: 'text',
             text: proposal,
-            time: now,
+            time: formatKoreanTime(),
             mine: true,
           };
           setMessages(prev => [...prev, msg]);
 
-          // TODO: POST /api/appointments { date, time, place, chatRoomId }
+          // TODO: 서버 전송 / 저장도 원하면 appendOutboxText(roomId, proposal) + updateRoomOnSend(roomId, '약속 제안') 호출
           setOpen(false);
         }}
         initialDate={undefined}
