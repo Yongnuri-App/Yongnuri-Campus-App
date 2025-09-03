@@ -1,3 +1,4 @@
+// App.tsx
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React from 'react';
@@ -30,6 +31,9 @@ import TradeHistoryPage from './pages/My/TradeHistory/TradeHistoryPage';
 import InquiryPage from './pages/My/Inquiry/InquiryPage';
 import WithdrawPage from './pages/My/Withdraw/WithdrawPage';
 
+// ✅ 관리자 페이지(바로 화면으로 등록)
+import AdminPage from './pages/Admin/AdminPage/AdminPage';
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
@@ -61,7 +65,10 @@ export default function App() {
         <Stack.Screen name="MyBlockedUsers" component={BlockedUsersPage} />
         <Stack.Screen name="MyTradeHistory" component={TradeHistoryPage} />
         <Stack.Screen name="MyInquiry" component={InquiryPage} />
-        <Stack.Screen name="MyWithdraw" component={WithdrawPage} /> 
+        <Stack.Screen name="MyWithdraw" component={WithdrawPage} />
+
+        {/* ✅ 관리자 게이트: AdminPage를 직접 등록 */}
+        <Stack.Screen name="AdminGate" component={AdminPage} />
       </Stack.Navigator>
     </NavigationContainer>
   );

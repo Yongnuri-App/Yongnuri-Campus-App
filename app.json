@@ -34,6 +34,10 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "ADMIN_ID": "202178028@yiu.ac.kr",
+      "ADMIN_PW": "1234"
     }
   }
 }

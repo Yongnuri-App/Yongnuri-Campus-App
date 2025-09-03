@@ -2,7 +2,6 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import {
-  Dimensions,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -11,39 +10,37 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
-// 공용 네비 타입 가져오기
 import { RootStackParamList } from '../../types/navigation';
 import styles from './LoginPage.styles';
 
-const { width } = Dimensions.get('window');
-
-// 공용 타입을 사용해 Props 지정
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 export default function LoginPage({ navigation }: Props) {
-  // 입력 상태 (이메일/비밀번호)
-  const [email, setEmail] = useState<string>('');
-  const [password, setPassword] = useState<string>('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
-  // 로그인 버튼 클릭 핸들러
+  // ✅ 임시 관리자 계정 (API 연결 전)
+  const ADMIN_ID = '202178028@yiu.ac.kr';
+  const ADMIN_PW = '1234';
+
   const onPressLogin = () => {
-    // TODO: 실제 로그인 API 연동
-    console.log('로그인 시도:', { email, password });
-    // 임시 로직: API 연결 전까지는 바로 메인페이지로 이동
-    navigation.navigate('Main');
+    const isAdmin = email.trim() === ADMIN_ID && password === ADMIN_PW;
+
+    // 둘 다 Main으로 가되, 관리자면 flag만 true
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Main', params: { isAdmin, initialTab: 'market' } }],
+    });
   };
 
   return (
-    // 키보드가 올라올 때 인풋이 가려지지 않도록 처리 (iOS padding / Android height)
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.select({ ios: 'padding', android: undefined })}
     >
-      {/* 빈 영역 터치 시 키보드 닫기 */}
       <Pressable style={styles.inner} onPress={Keyboard.dismiss}>
-        {/* 로고 */}
         <Image
           source={require('../../assets/images/yongnuri-icon.png')}
           style={styles.logo}
@@ -52,15 +49,9 @@ export default function LoginPage({ navigation }: Props) {
           accessibilityLabel="Yongnuri Campus 로고"
         />
 
-        {/* 제목 */}
         <Text style={styles.title}>Yongnuri Campus</Text>
+        <Text style={styles.subtitle}>용누리 캠퍼스와 함께하는 용인대학교 생활 :)</Text>
 
-        {/* 부제 */}
-        <Text style={styles.subtitle}>
-          용누리 캠퍼스와 함께하는 용인대학교 생활 :)
-        </Text>
-
-        {/* 이메일 입력 */}
         <TextInput
           style={styles.input}
           placeholder="이메일"
@@ -70,15 +61,8 @@ export default function LoginPage({ navigation }: Props) {
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="next"
-          // iOS에서 비밀번호 다음으로 이동할 때 UX 좋게
-          onSubmitEditing={() => {
-            // 비밀번호로 포커스 넘기고 싶다면 ref 사용
-          }}
-          accessible
-          accessibilityLabel="이메일 입력"
         />
 
-        {/* 비밀번호 입력 */}
         <TextInput
           style={styles.input}
           placeholder="비밀번호"
@@ -87,24 +71,17 @@ export default function LoginPage({ navigation }: Props) {
           onChangeText={setPassword}
           returnKeyType="done"
           onSubmitEditing={onPressLogin}
-          accessible
-          accessibilityLabel="비밀번호 입력"
         />
 
-        {/* 로그인 버튼 */}
         <TouchableOpacity style={styles.loginButton} onPress={onPressLogin} activeOpacity={0.8}>
           <Text style={styles.loginButtonText}>로그인</Text>
         </TouchableOpacity>
 
-        {/* 하단 링크 (회원가입 | 비밀번호 재설정) */}
         <View style={styles.bottomLinks}>
           <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
             <Text style={styles.linkText}>회원가입</Text>
           </TouchableOpacity>
-
-          {/* 구분선  */}
           <View style={styles.divider} />
-
           <TouchableOpacity onPress={() => navigation.navigate('PasswordReset')}>
             <Text style={styles.linkText}>비밀번호 재설정</Text>
           </TouchableOpacity>

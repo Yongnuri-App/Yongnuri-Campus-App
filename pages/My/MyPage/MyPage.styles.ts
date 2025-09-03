@@ -5,11 +5,11 @@ export default StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
+    marginTop: -40,
   },
   statusBar: {
     height: 44, // 피그마 iOS Status Bar
     backgroundColor: '#FFFFFF',
-    marginTop: -40,
   },
 
   /* 헤더 */

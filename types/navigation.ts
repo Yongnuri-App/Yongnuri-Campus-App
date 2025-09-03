@@ -3,19 +3,19 @@ import type {
   NativeStackScreenProps,
 } from '@react-navigation/native-stack';
 
-// 네비게이션 타입 정의
+// 기존 RootStackParamList (네가 올린 내용 유지)
 export type RootStackParamList = {
   Loading: undefined;
   Login: undefined;
-  Signup: undefined;          // 회원가입 페이지
-  PasswordReset: undefined;   // 비밀번호 재설정 페이지
-  Main: { initialTab?: 'group' | 'market' | 'lost' } | undefined;            // 로그인 성공 후 메인 페이지
-  Search: undefined;          // 검색 페이지
-  Notification: undefined;    // 알림 페이지
-  SellItem: { mode?: 'create' | 'edit'; id?: string };       // 판매 아이템 등록 페이지
-  GroupBuyRecruit: { mode?: 'create' | 'edit'; id?: string }; // 공동구매 모집글 작성 페이지
+  Signup: undefined;
+  PasswordReset: undefined;
+  Main: { initialTab?: 'group' | 'market' | 'lost'; isAdmin?: boolean } | undefined;
+  Search: undefined;
+  Notification: undefined;
+  SellItem: { mode?: 'create' | 'edit'; id?: string };
+  GroupBuyRecruit: { mode?: 'create' | 'edit'; id?: string };
   LostPost: { mode?: 'create' | 'edit'; id?: string };
-  ChatList: undefined;        // 채팅 목록 페이지
+  ChatList: undefined;
   MyPage: undefined;
   MyPersonalInfo: undefined;
   MyFavorites: undefined;
@@ -23,28 +23,29 @@ export type RootStackParamList = {
   MyTradeHistory: undefined;
   MyInquiry: undefined;
   MyWithdraw: undefined;
-
-  // 상세 페이지들
+  AdminGate: undefined; // ✅ 루트 스택엔 게이트만 등록
   MarketDetail: { id: string; isOwner?: boolean };
   LostDetail: { id: string; isOwner?: boolean };
   GroupBuyDetail: { id: string; isOwner?: boolean };
-
-  // ✅ 신고하기 페이지 (타겟 라벨은 선택)
   Report: { targetLabel?: string };
-
   ChatRoom: {
     postId: string;
     sellerNickname: string;
     productTitle: string;
-    productPrice: number;   // 숫자(KRW)
-    productImageUri?: string; // 썸네일 URL(없어도 OK)
-    initialMessage?: string; // 채팅방 진입 시 최초 메시지(없어도 OK)
+    productPrice: number;
+    productImageUri?: string;
+    initialMessage?: string;
   };
 };
 
-/** 화면 컴포넌트에서 사용할 공용 Props 타입 */
+// ✅ Admin 전용 스택 타입 (AdminGate 내부에서만 사용)
+export type AdminStackParamList = {
+  AdminPage: undefined;
+  
+  
+};
+
 export type RootStackScreenProps<T extends keyof RootStackParamList> =
   NativeStackScreenProps<RootStackParamList, T>;
 
-/** useNavigation에서 쓸 내비게이션 타입(선택) */
 export type RootStackNavigationProp = NativeStackNavigationProp<RootStackParamList>;
