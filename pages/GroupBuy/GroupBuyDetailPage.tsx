@@ -1,4 +1,6 @@
+// pages/GroupBuy/GroupBuyDetailPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native'; // ✅ 복귀 시 리로드
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -12,13 +14,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native'; // ✅ 복귀 시 리로드
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
-import type { RootStackScreenProps } from '../../types/navigation';
-import styles from './GroupBuyDetailPage.styles';
-import { useLike } from '../../hooks/useLike';
 import ProfileRow from '../../components/Profile/ProfileRow';
 import { useDeletePost } from '../../hooks/useDeletePost';
+import { useLike } from '../../hooks/useLike';
+import type { RootStackScreenProps } from '../../types/navigation';
+import styles from './GroupBuyDetailPage.styles';
 
 const POSTS_KEY = 'groupbuy_posts_v1';
 const LIKED_MAP_KEY = 'groupbuy_liked_map_v1';
@@ -44,6 +45,7 @@ type GroupBuyPost = {
   authorDept?: string;
 };
 
+/** 상대 시간 텍스트 */
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -85,7 +87,7 @@ export default function GroupBuyDetailPage({
     confirmCancelText: '취소',
   });
 
-  // 내 ID 로드
+  /** 내 ID 로드 */
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -101,7 +103,7 @@ export default function GroupBuyDetailPage({
     };
   }, []);
 
-  // 최초 진입 시 게시글 로드
+  /** 최초 진입 시 게시글 로드 */
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -132,7 +134,7 @@ export default function GroupBuyDetailPage({
     };
   }, [id, navigation, syncCount]);
 
-  // ✅ 수정 후 돌아오면 최신 내용으로 다시 로드
+  /** ✅ 수정 후 돌아오면 최신 내용으로 다시 로드 */
   useFocusEffect(
     React.useCallback(() => {
       let mounted = true;
@@ -155,6 +157,7 @@ export default function GroupBuyDetailPage({
     }, [id, syncCount])
   );
 
+  /** 소유자 여부 판단 */
   const isOwner = useMemo(() => {
     const p = (route.params as any)?.isOwner;
     if (typeof p === 'boolean') return p;
@@ -166,24 +169,30 @@ export default function GroupBuyDetailPage({
 
   const timeText = useMemo(() => (item ? timeAgo(item.createdAt) : ''), [item]);
 
+  // 🔹 프로필 정보(백 연동 전 임시 기본값 포함)
   const profileName = item?.authorName ?? '채히';
   const profileDept = item?.authorDept ?? 'AI학부';
 
+  // 🔹 모집 인원 레이블(제한 없음/숫자)
   const recruitLabel =
     item?.recruit?.mode === 'unlimited' ? '제한 없음' : `${item?.recruit?.count ?? 0}명`;
 
+  // 🔹 현재 인원 (백 연동되면 API 값으로 대체)
   const currentCount = 0;
 
+  /** 상단 이미지 페이징 인덱스 계산 */
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
+  /** 신고하기 이동 */
   const onPressReport = () => {
     const targetLabel = `${profileDept} - ${profileName}`;
     navigation.navigate('Report', { targetLabel });
   };
 
+  /** 외부 신청 링크 이동 */
   const onPressApply = () => {
     if (!item?.applyLink) {
       Alert.alert('안내', '신청 링크가 없습니다.');
@@ -208,7 +217,7 @@ export default function GroupBuyDetailPage({
   const openOwnerMenu = () => setOwnerMenuVisible(true);
   const closeOwnerMenu = () => setOwnerMenuVisible(false);
 
-  // ✅ 수정 버튼: Recruit 페이지를 edit 모드로 재활용
+  /** ✅ 수정 버튼: Recruit 페이지를 edit 모드로 재활용 */
   const onOwnerEdit = () => {
     closeOwnerMenu();
     navigation.navigate('GroupBuyRecruit', { mode: 'edit', id });
@@ -218,6 +227,12 @@ export default function GroupBuyDetailPage({
     closeOwnerMenu();
     await confirmAndDelete();
   };
+
+  /** ✅ 채팅 상단 보조 라벨(가격/위치 대체)로 사용할 "모집 인원" 한 줄 문구 */
+  const recruitText = `현재 모집 인원 ${currentCount}명 (${recruitLabel})`;
+
+  /** ✅ 채팅 상단 썸네일로 사용할 첫 이미지(없으면 undefined) */
+  const thumbUri = images.length > 0 ? images[0] : undefined;
 
   return (
     <View style={styles.container}>
@@ -289,7 +304,7 @@ export default function GroupBuyDetailPage({
             </Text>
           </View>
 
-          {/* 소유자 옵션 모달 (스타일 분리) */}
+          {/* 소유자 옵션 모달 */}
           {isOwner && ownerMenuVisible && (
             <>
               <TouchableOpacity
@@ -356,6 +371,7 @@ export default function GroupBuyDetailPage({
         </View>
       </ScrollView>
 
+      {/* ===== 하단 바: 전송 시 채팅방으로 이동 (공동구매 파라미터 전달) ===== */}
       <DetailBottomBar
         initialLiked={liked}
         onToggleLike={async (nextLiked) => {
@@ -366,8 +382,14 @@ export default function GroupBuyDetailPage({
             return { ...prev, likeCount: nextCount };
           });
         }}
-        onPressSend={(msg) => {
-          Alert.alert('전송', `메시지: ${msg}`);
+        // ❗ onPressSend를 따로 넘기지 않으면, DetailBottomBar가 chatAutoNavigateParams로 자동 네비게이션
+        chatAutoNavigateParams={{
+          source: 'groupbuy',
+          postId: id,
+          authorNickname: profileName,
+          postTitle: item.title,
+          recruitLabel: recruitText,   // 가격/위치 대신 채팅 헤더 보조 라벨로 표시
+          postImageUri: thumbUri,      // 썸네일(옵션)
         }}
       />
     </View>
