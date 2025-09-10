@@ -114,7 +114,6 @@ export default StyleSheet.create({
     borderColor: '#EDEDED',
     borderRadius: 10,
     paddingVertical: 6,
-    minWidth: 120,
     zIndex: 50,
     ...(Platform.OS === 'ios'
       ? {

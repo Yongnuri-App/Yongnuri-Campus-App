@@ -30,6 +30,7 @@ import BlockedUsersPage from './pages/My/BlockedUsers/BlockedUsersPage';
 import TradeHistoryPage from './pages/My/TradeHistory/TradeHistoryPage';
 import InquiryPage from './pages/My/Inquiry/InquiryPage';
 import WithdrawPage from './pages/My/Withdraw/WithdrawPage';
+import AdminNoticeCreatePage from './pages/Admin/NoticeCreate/NoticeCreatePage';
 
 // ✅ 관리자 페이지(바로 화면으로 등록)
 import AdminPage from './pages/Admin/AdminPage/AdminPage';
@@ -66,6 +67,7 @@ export default function App() {
         <Stack.Screen name="MyTradeHistory" component={TradeHistoryPage} />
         <Stack.Screen name="MyInquiry" component={InquiryPage} />
         <Stack.Screen name="MyWithdraw" component={WithdrawPage} />
+        <Stack.Screen name="AdminNoticeCreate" component={AdminNoticeCreatePage} />
 
         {/* ✅ 관리자 게이트: AdminPage를 직접 등록 */}
         <Stack.Screen name="AdminGate" component={AdminPage} />

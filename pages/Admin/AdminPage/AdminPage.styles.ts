@@ -37,10 +37,11 @@ export default StyleSheet.create({
   contentContainer: {
     paddingHorizontal: 20,
     paddingBottom: 24,
+    marginTop: 10,
   },
 
   greetingWrap: {
-    paddingTop: 8,
+    paddingTop: 12,
     paddingBottom: 12,
   },
   greetingTextCol: {},
@@ -61,12 +62,14 @@ export default StyleSheet.create({
     backgroundColor: '#979797',
     opacity: 0.6,
     marginVertical: 16,
+    marginTop: 20,
   },
   dividerMid: {
     height: 1,
     backgroundColor: '#979797',
     opacity: 0.6,
     marginVertical: 16,
+    marginTop: 30,
   },
 
   sectionCaption: {

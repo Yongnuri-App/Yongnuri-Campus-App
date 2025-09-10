@@ -57,6 +57,7 @@ export type RootStackParamList = {
   MyInquiry: undefined;
   MyWithdraw: undefined;
   AdminGate: undefined; // ✅ 루트 스택엔 게이트만 등록
+  AdminNoticeCreate: undefined;
   MarketDetail: { id: string; isOwner?: boolean };
   LostDetail: { id: string; isOwner?: boolean };
   GroupBuyDetail: { id: string; isOwner?: boolean };

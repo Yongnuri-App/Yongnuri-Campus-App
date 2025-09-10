@@ -1,27 +1,38 @@
 // components/Header/HeaderIcons.tsx
-import { useNavigation, useRoute } from '@react-navigation/native';
-import React, { useState } from 'react';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import React, { useCallback, useState } from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
 import styles from './HeaderIcons.styles';
-
-// (선택) 타입이 있다면 가져와도 됨
-// import type { RootStackParamList } from '../../types/navigation';
-// import type { RouteProp } from '@react-navigation/native';
+import { getIsAdmin } from '../../utils/auth';
 
 export default function HeaderIcons() {
   const navigation = useNavigation<any>();
-  const route = useRoute<any>();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [notificationCount] = useState(3); // 임시 뱃지
 
-  // ✅ Main에서 전달된 관리자 플래그 읽기 (없으면 false)
-  const isAdmin = Boolean(route?.params?.isAdmin);
-
-  const [notificationCount] = useState(3); // <- 임시 배지
+  // 화면에 포커스될 때마다 저장된 관리자 플래그를 읽어 최신화
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      (async () => {
+        try {
+          const flag = await getIsAdmin();
+          if (mounted) setIsAdmin(Boolean(flag));
+        } catch {
+          if (mounted) setIsAdmin(false);
+        }
+      })();
+      return () => {
+        mounted = false;
+      };
+    }, [])
+  );
 
   const goMyPage = () => {
     if (isAdmin) {
-      navigation.navigate('AdminGate');
+      navigation.navigate('AdminGate'); // 관리자 홈
     } else {
-      navigation.navigate('MyPage');
+      navigation.navigate('MyPage'); // 일반 마이페이지
     }
   };
 
@@ -44,7 +55,7 @@ export default function HeaderIcons() {
         )}
       </TouchableOpacity>
 
-      {/* 마이페이지 */}
+      {/* 마이페이지 (관리자/유저 분기) */}
       <TouchableOpacity onPress={goMyPage}>
         <Image source={require('../../assets/images/person.png')} style={styles.icon} />
       </TouchableOpacity>

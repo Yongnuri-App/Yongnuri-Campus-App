@@ -1,3 +1,4 @@
+// pages/Admin/AdminPage/AdminPage.tsx
 import React from 'react';
 import {
   Image,
@@ -9,6 +10,7 @@ import {
 } from 'react-native';
 import styles from './AdminPage.styles';
 import type { RootStackScreenProps } from '../../../types/navigation';
+import { clearIsAdmin } from '../../../utils/auth';
 
 export default function AdminPage({ navigation }: RootStackScreenProps<'AdminGate'>) {
   // 상단 아이콘 동작
@@ -17,7 +19,7 @@ export default function AdminPage({ navigation }: RootStackScreenProps<'AdminGat
 
   // 섹션 이동 (상세 페이지 준비되면 라우트 연결)
   const goNoticeRegister = () => {
-    // navigation.navigate('AdminNoticeRegister');
+    navigation.navigate('AdminNoticeCreate');
   };
   const goInquiryNotice = () => {
     // navigation.navigate('AdminInquiryNotice');
@@ -28,8 +30,11 @@ export default function AdminPage({ navigation }: RootStackScreenProps<'AdminGat
   const goMemberInfo = () => {
     // navigation.navigate('AdminMemberInfo');
   };
-  const onLogout = () =>
+
+  const onLogout = async () => {
+    await clearIsAdmin(); // ✅ 관리자 플래그 해제
     navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+  };
 
   return (
     <SafeAreaView style={styles.container}>

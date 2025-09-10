@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { setIsAdmin } from '../../utils/auth';
 import { RootStackParamList } from '../../types/navigation';
 import styles from './LoginPage.styles';
 
@@ -25,8 +26,11 @@ export default function LoginPage({ navigation }: Props) {
   const ADMIN_ID = '202178028@yiu.ac.kr';
   const ADMIN_PW = '1234';
 
-  const onPressLogin = () => {
+  const onPressLogin = async () => {
     const isAdmin = email.trim() === ADMIN_ID && password === ADMIN_PW;
+
+    // ✅ 관리자 여부를 영속화
+    await setIsAdmin(isAdmin);
 
     // 둘 다 Main으로 가되, 관리자면 flag만 true
     navigation.reset({
