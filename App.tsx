@@ -35,6 +35,9 @@ import AdminNoticeCreatePage from './pages/Admin/NoticeCreate/NoticeCreatePage';
 // ✅ 관리자 페이지(바로 화면으로 등록)
 import AdminPage from './pages/Admin/AdminPage/AdminPage';
 
+// ✅ 공지 상세 페이지 추가
+import NoticeDetailPage from './pages/Notice/NoticeDetailPage';
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
@@ -51,15 +54,21 @@ export default function App() {
         <Stack.Screen name="Main" component={MainPage} />
         <Stack.Screen name="Search" component={SearchPage} />
         <Stack.Screen name="Notification" component={NotificationPage} />
+
+        {/* 마켓/공동구매/분실물 */}
         <Stack.Screen name="SellItem" component={SellItemPage} />
+        <Stack.Screen name="MarketDetail" component={MarketDetailPage} />
         <Stack.Screen name="GroupBuyDetail" component={GroupBuyDetailPage} />
-        <Stack.Screen name="ChatList" component={ChatListPage} />
         <Stack.Screen name="GroupBuyRecruit" component={GroupBuyRecruitPage} />
         <Stack.Screen name="LostPost" component={LostPostPage} />
-        <Stack.Screen name="MarketDetail" component={MarketDetailPage} />
         <Stack.Screen name="LostDetail" component={LostDetailPage} />
-        <Stack.Screen name="Report" component={ReportPage} />
+
+        {/* 채팅/신고 */}
+        <Stack.Screen name="ChatList" component={ChatListPage} />
         <Stack.Screen name="ChatRoom" component={ChatRoomPage} />
+        <Stack.Screen name="Report" component={ReportPage} />
+
+        {/* 마이페이지 */}
         <Stack.Screen name="MyPage" component={MyPagePage} />
         <Stack.Screen name="MyPersonalInfo" component={PersonalInfoPage} />
         <Stack.Screen name="MyFavorites" component={FavoritesPage} />
@@ -67,9 +76,14 @@ export default function App() {
         <Stack.Screen name="MyTradeHistory" component={TradeHistoryPage} />
         <Stack.Screen name="MyInquiry" component={InquiryPage} />
         <Stack.Screen name="MyWithdraw" component={WithdrawPage} />
-        <Stack.Screen name="AdminNoticeCreate" component={AdminNoticeCreatePage} />
 
-        {/* ✅ 관리자 게이트: AdminPage를 직접 등록 */}
+        {/* ✅ 공지 상세 + 작성/수정 */}
+        <Stack.Screen name="NoticeDetail" component={NoticeDetailPage} />
+        {/* 기존 관리자 공지 작성 화면을 NoticeWrite 별칭으로도 등록 */}
+        <Stack.Screen name="AdminNoticeCreate" component={AdminNoticeCreatePage} />
+        <Stack.Screen name="NoticeWrite" component={AdminNoticeCreatePage} />
+
+        {/* ✅ 관리자 게이트 */}
         <Stack.Screen name="AdminGate" component={AdminPage} />
       </Stack.Navigator>
     </NavigationContainer>

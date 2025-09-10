@@ -301,8 +301,8 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
                 status={isClosed(item.endDate) ? 'closed' : 'open'}
                 image={item.images?.[0]}
                 onPress={() => {
-                  // TODO: 공지 상세 연결시 사용
-                  // navigation.navigate('NoticeDetail', { id: item.id });
+                  // ✅ 다른 탭들과 동일하게 바로 상세로 이동
+                  navigation.navigate('NoticeDetail', { id: item.id });
                 }}
               />
             )}

@@ -3,7 +3,7 @@ import type {
   NativeStackScreenProps,
 } from '@react-navigation/native-stack';
 
-/** ✅ 공용 채팅 파라미터: 중고거래(market) | 분실물(lost) | 공동구매(groupbuy) */
+/** ✅ 공용 채팅 파라미터: 중고거래(market) | 분실물(lost) | 공동구매(groupbuy) | 공지사항(notice) */
 export type ChatRoomParams =
   | {
       source: 'market';               // 중고거래에서 진입
@@ -25,7 +25,7 @@ export type ChatRoomParams =
       initialMessage?: string;
     }
   | {
-      source: 'groupbuy';             // ✅ 공동구매에서 진입
+      source: 'groupbuy';             // 공동구매에서 진입
       postId: string;
       authorNickname: string;         // 작성자 닉네임
       postTitle: string;              // 글 제목
@@ -34,7 +34,6 @@ export type ChatRoomParams =
       postImageUri?: string;          // 썸네일(첫 이미지)
       initialMessage?: string;        // 상세에서 바로 보낸 첫 메시지
     };
-  
 
 // 네비게이션 타입 정의
 export type RootStackParamList = {
@@ -45,10 +44,16 @@ export type RootStackParamList = {
   Main: { initialTab?: 'group' | 'market' | 'lost'; isAdmin?: boolean } | undefined;
   Search: undefined;
   Notification: undefined;
+
+  // 마켓 / 공동구매 / 분실물
   SellItem: { mode?: 'create' | 'edit'; id?: string };
   GroupBuyRecruit: { mode?: 'create' | 'edit'; id?: string };
   LostPost: { mode?: 'create' | 'edit'; id?: string };
+
+  // 채팅/리스트
   ChatList: undefined;
+
+  // 마이
   MyPage: undefined;
   MyPersonalInfo: undefined;
   MyFavorites: undefined;
@@ -56,22 +61,27 @@ export type RootStackParamList = {
   MyTradeHistory: undefined;
   MyInquiry: undefined;
   MyWithdraw: undefined;
+
+  // 관리자 게이트/공지 작성
   AdminGate: undefined; // ✅ 루트 스택엔 게이트만 등록
-  AdminNoticeCreate: undefined;
+  AdminNoticeCreate: undefined; // 기존 경로 유지
+  NoticeWrite: { mode: 'create' | 'edit'; id?: string } | undefined; // ✅ 별칭 라우트(수정/작성 공용)
+
+  // 상세 페이지들
   MarketDetail: { id: string; isOwner?: boolean };
   LostDetail: { id: string; isOwner?: boolean };
   GroupBuyDetail: { id: string; isOwner?: boolean };
+  NoticeDetail: { id: string; isAdmin?: boolean };
+
   Report: { targetLabel?: string };
 
-  // ✅ 공용 채팅방: 중고/분실 모두 이 타입으로 진입
+  // ✅ 공용 채팅방: 중고/분실/공동구매/공지 모두 이 타입으로 진입
   ChatRoom: ChatRoomParams;
 };
 
 // ✅ Admin 전용 스택 타입 (AdminGate 내부에서만 사용)
 export type AdminStackParamList = {
   AdminPage: undefined;
-  
-  
 };
 
 export type RootStackScreenProps<T extends keyof RootStackParamList> =

@@ -1,7 +1,6 @@
-// pages/Admin/NoticeCreate/NoticeCreatePage.tsx
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { CommonActions } from '@react-navigation/native';
+import { CommonActions, useRoute, RouteProp, useNavigation } from '@react-navigation/native';
 import {
   Alert,
   SafeAreaView,
@@ -13,20 +12,58 @@ import {
   Image,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import type { RootStackScreenProps } from '../../../types/navigation';
+import type { RootStackParamList } from '../../../types/navigation';
 import PhotoPicker from '../../../components/PhotoPicker/PhotoPicker';
 import DatePickerSheet from '../../../components/TimePicker/DatePickerSheet';
 import styles from './NoticeCreatePage.styles';
 
-type Props = RootStackScreenProps<'AdminNoticeCreate'>;
+type NoticeWriteRoute = RouteProp<RootStackParamList, 'AdminNoticeCreate' | 'NoticeWrite'>;
 
-export default function NoticeCreatePage({ navigation }: Props) {
-  // 이미지 (PhotoPicker 사용)
+const NOTICE_KEY = 'notice_posts_v1';
+const MAX = 10;
+
+export default function NoticeCreatePage() {
+  const route = useRoute<NoticeWriteRoute>();
+  const navigation = useNavigation();
+
+  // NoticeWrite에서만 mode/id 파라미터가 있음
+  const isNoticeWrite = route.name === 'NoticeWrite';
+  const mode = isNoticeWrite ? route.params?.mode ?? 'create' : 'create';
+  const editId = isNoticeWrite ? route.params?.id : undefined;
+
   const [images, setImages] = useState<string[]>([]);
-  const max = 10;
+  const [title, setTitle] = useState('');
+  const [desc, setDesc] = useState('');
+  const [applyUrl, setApplyUrl] = useState('');
+  const [applyDate, setApplyDate] = useState<Date | null>(null);
+  const [dateOpen, setDateOpen] = useState(false);
 
+  // 기존 수정 데이터 로드
+  useEffect(() => {
+    if (mode !== 'edit' || !editId) return;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(NOTICE_KEY);
+        const list = raw ? JSON.parse(raw) : [];
+        const found = list.find((n: any) => n.id === editId);
+        if (!found) return;
+
+        setTitle(found.title ?? '');
+        setDesc(found.description ?? '');
+        setApplyUrl(found.applyUrl ?? '');
+        setImages(found.images ?? []);
+        if (found.endDate) {
+          setApplyDate(new Date(found.endDate));
+        }
+      } catch (e) {
+        console.log('공지 수정 로드 오류', e);
+      }
+    })();
+  }, [mode, editId]);
+
+  // 이미지 추가/삭제
   const openAdd = useCallback(async () => {
-    if (images.length >= max) {
+    if (images.length >= MAX) {
       Alert.alert('알림', '이미지는 최대 10장까지 등록할 수 있어요.');
       return;
     }
@@ -40,23 +77,15 @@ export default function NoticeCreatePage({ navigation }: Props) {
       quality: 0.85,
     });
     if (!res.canceled && res.assets?.[0]?.uri) {
-      setImages(prev => [...prev, res.assets[0].uri].slice(0, max));
+      setImages((prev) => [...prev, res.assets[0].uri].slice(0, MAX));
     }
   }, [images.length]);
 
   const removeAt = useCallback((index: number) => {
-    setImages(prev => prev.filter((_, i) => i !== index));
+    setImages((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  // 폼 상태
-  const [title, setTitle] = useState('');
-  const [desc, setDesc] = useState('');
-  const [applyUrl, setApplyUrl] = useState('');
-
-  // 날짜 (DatePickerSheet 사용)
-  const [applyDate, setApplyDate] = useState<Date | null>(null);
-  const [dateOpen, setDateOpen] = useState(false);
-
+  // 날짜 유틸
   const now = useMemo(() => new Date(), []);
   const minDate = useMemo(() => new Date(now.getFullYear() - 50, 0, 1), [now]);
   const maxDate = useMemo(() => new Date(now.getFullYear() + 50, 11, 31), [now]);
@@ -71,36 +100,50 @@ export default function NoticeCreatePage({ navigation }: Props) {
     [title, desc]
   );
 
-  const NOTICE_KEY = 'notice_posts_v1';
-
+  // 등록/수정 저장
   const submit = async () => {
     if (!canSubmit) {
       Alert.alert('알림', '제목과 설명을 입력해주세요.');
       return;
     }
     try {
-      // 시작 날짜 = 작성 시각(지금)
       const start = new Date();
-      // 마감일은 선택한 날짜 (없으면 시작일과 동일하게 저장)
       const end = applyDate ?? start;
-
-      const newItem = {
-        id: `${Date.now()}`,
-        title: title.trim(),
-        description: desc.trim(),
-        images,
-        startDate: start.toISOString(),
-        endDate: new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59).toISOString(), // 하루 끝
-        createdAt: start.toISOString(),
-        applyUrl: applyUrl.trim() || null,
-      };
 
       const raw = await AsyncStorage.getItem(NOTICE_KEY);
       const list = raw ? JSON.parse(raw) : [];
-      list.unshift(newItem);
+
+      if (mode === 'edit' && editId) {
+        // 수정
+        const idx = list.findIndex((n: any) => n.id === editId);
+        if (idx !== -1) {
+          list[idx] = {
+            ...list[idx],
+            title: title.trim(),
+            description: desc.trim(),
+            images,
+            endDate: new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59).toISOString(),
+            applyUrl: applyUrl.trim() || null,
+          };
+        }
+      } else {
+        // 신규 등록
+        const newItem = {
+          id: `${Date.now()}`,
+          title: title.trim(),
+          description: desc.trim(),
+          images,
+          startDate: start.toISOString(),
+          endDate: new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59).toISOString(),
+          createdAt: start.toISOString(),
+          applyUrl: applyUrl.trim() || null,
+        };
+        list.unshift(newItem);
+      }
+
       await AsyncStorage.setItem(NOTICE_KEY, JSON.stringify(list));
 
-      // 초기화 & 메인 공지 탭으로 이동
+      // 초기화 후 메인 공지 탭으로 이동
       setTitle('');
       setDesc('');
       setApplyUrl('');
@@ -124,12 +167,9 @@ export default function NoticeCreatePage({ navigation }: Props) {
       {/* 헤더 */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Image
-            source={require('../../../assets/images/back.png')}
-            style={styles.backIcon}
-          />
+          <Image source={require('../../../assets/images/back.png')} style={styles.backIcon} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>공지사항 등록</Text>
+        <Text style={styles.headerTitle}>{mode === 'edit' ? '공지 수정' : '공지 등록'}</Text>
         <View style={{ width: 24 }} />
       </View>
 
@@ -141,7 +181,7 @@ export default function NoticeCreatePage({ navigation }: Props) {
       >
         {/* 사진 */}
         <Text style={styles.label}>사진</Text>
-        <PhotoPicker images={images} max={max} onAddPress={openAdd} onRemoveAt={removeAt} />
+        <PhotoPicker images={images} max={MAX} onAddPress={openAdd} onRemoveAt={removeAt} />
 
         {/* 제목 */}
         <Text style={styles.label}>제목</Text>
@@ -166,14 +206,15 @@ export default function NoticeCreatePage({ navigation }: Props) {
 
         {/* 신청 기간 */}
         <Text style={styles.label}>신청 기간</Text>
-        <TouchableOpacity style={styles.dateBtn} onPress={() => setDateOpen(true)} activeOpacity={0.9}>
+        <TouchableOpacity
+          style={styles.dateBtn}
+          onPress={() => setDateOpen(true)}
+          activeOpacity={0.9}
+        >
           <Text style={styles.dateText}>
             {applyDate ? formatKoreanDate(applyDate) : '날짜를 선택하세요'}
           </Text>
-          <Image
-            source={require('../../../assets/images/down.png')}
-            style={styles.chevronIcon}
-          />
+          <Image source={require('../../../assets/images/down.png')} style={styles.chevronIcon} />
         </TouchableOpacity>
 
         {/* 모집 신청 링크 */}
@@ -195,13 +236,15 @@ export default function NoticeCreatePage({ navigation }: Props) {
           disabled={!canSubmit}
           activeOpacity={0.85}
         >
-          <Text style={styles.submitText}>작성 완료</Text>
+          <Text style={styles.submitText}>
+            {mode === 'edit' ? '수정 완료' : '작성 완료'}
+          </Text>
         </TouchableOpacity>
 
         <View style={{ height: 28 }} />
       </ScrollView>
 
-      {/* ===== 날짜 선택 바텀시트 (공용 컴포넌트) ===== */}
+      {/* 날짜 선택 바텀시트 */}
       <DatePickerSheet
         visible={dateOpen}
         initial={applyDate ?? new Date()}
@@ -209,7 +252,6 @@ export default function NoticeCreatePage({ navigation }: Props) {
         maxDate={maxDate}
         onClose={() => setDateOpen(false)}
         onConfirm={(d) => {
-          // 정오로 고정(타임존 영향 최소화)
           const picked = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0);
           setApplyDate(picked);
           setDateOpen(false);
