@@ -1,5 +1,5 @@
 // pages/Market/MarketDetailPage.styles.ts
-import { Dimensions, StyleSheet, Platform } from 'react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 const { width } = Dimensions.get('window');
 
 export default StyleSheet.create({
@@ -80,4 +80,20 @@ export default StyleSheet.create({
   /* 로딩 */
   fallback: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },
   fallbackText: { color: '#797979' },
+
+  devOpenChatBtn: {
+  position: 'absolute',
+  right: 12,
+  bottom: 92, // 하단바와 겹치지 않도록 약간 위
+  backgroundColor: '#000',
+  paddingHorizontal: 10,
+  paddingVertical: 6,
+  borderRadius: 8,
+  opacity: 0.8,
+},
+devOpenChatText: {
+  color: '#FFF',
+  fontSize: 11,
+  fontWeight: '700',
+},
 });

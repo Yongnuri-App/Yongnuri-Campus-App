@@ -4,6 +4,7 @@
  * 채팅에서 공통으로 쓰이는 타입 정의
  * - ⚠️ ChatRoom으로 네비게이션할 때 넘기던 "기존 파라미터 형태"를 보존하기 위해
  *   ChatRoomSummary.origin 에 원본 params 를 그대로 저장할 수 있게 확장했습니다.
+ * - ✅ 판매자 전용 UI 노출을 위해 market 원본 파라미터에 authorId/authorEmail/initialSaleStatus 등을 추가했습니다.
  */
 
 /** 채팅 메시지 */
@@ -14,13 +15,16 @@ export type ChatMessage =
 /** 채팅 카테고리 (리스트 칩 필터와 연동) */
 export type ChatCategory = 'market' | 'lost' | 'group';
 
+/** 판매 상태(API enum) */
+export type SaleStatusApi = 'ON_SALE' | 'RESERVED' | 'SOLD';
+
 /* ------------------------------------------------------------------ */
 /*  원본 네비게이션 파라미터(Detail → ChatRoom) 보존용 타입            */
 /*  - 기존에 사용하던 키 이름과 형태를 그대로 유지하기 위해 정의       */
 /*  - ChatList에서 재진입 시 room.origin.params 를 그대로 사용 가능     */
 /* ------------------------------------------------------------------ */
 
-/** 중고거래에서 ChatRoom으로 갈 때 사용하던 원본 파라미터 */
+/** 중고거래에서 ChatRoom으로 갈 때 사용하던 원본 파라미터 (+판매자/상태 메타 확장) */
 export type MarketChatOriginParams = {
   source: 'market';
   postId: string;
@@ -28,7 +32,12 @@ export type MarketChatOriginParams = {
   productTitle: string;
   productPrice: number;        // 숫자(KRW), 0=나눔
   productImageUri?: string;    // 썸네일 URL
-  /** 필요 시 기존에 넘기던 다른 키들이 있으면 여기에 추가 */
+
+  /** 🔽 추가: ChatRoom에서 판매자 전용 컴포넌트 노출을 위한 메타 */
+  authorId?: string | number;          // usePermissions 매칭용 (AsyncStorage('auth_user_id')와 비교)
+  authorEmail?: string | null;         // 이메일 매칭도 허용
+  initialSaleStatus?: SaleStatusApi;   // 판매상태 초기값 ('ON_SALE' 기본)
+  initialMessage?: string;             // 최초 진입 시 자동 전송(시딩) 텍스트 (선택)
 };
 
 /** 분실물에서 ChatRoom으로 갈 때 사용하던 원본 파라미터 */
@@ -74,7 +83,7 @@ export type ChatRoomOrigin = {
 
 /** 채팅방 요약(리스트에서 사용) */
 export interface ChatRoomSummary {
-  roomId: string;              // 고유 채팅방 ID
+  roomId: string;              // 고유 채팅방 ID ("market-<postId>-<nickname>" 등)
   category: ChatCategory;      // 중고거래/분실물/공동구매('group')
   nickname: string;            // 상대방 닉네임
   lastMessage: string;         // 최근 메시지(텍스트/이미지 대체문구)
@@ -89,6 +98,16 @@ export interface ChatRoomSummary {
 
   /** ✅ 최초 상세 → ChatRoom 진입 시의 "원본 네비 파라미터" 보관 (재진입 복구용) */
   origin?: ChatRoomOrigin;
+
+  /** ⬇️ (선택) 폴백/편의 메타 — origin이 없을 때 ChatList→ChatRoom 진입 품질 개선 */
+  sellerId?: string | number | null;   // = authorId
+  sellerEmail?: string | null;
+  saleStatus?: SaleStatusApi;
+
+  // 분실물/공동구매 편의 메타 (있으면 사용)
+  place?: string;
+  purpose?: 'lost' | 'found';
+  recruitLabel?: string;
 }
 
 /* ------------------------------------------------------------------ */

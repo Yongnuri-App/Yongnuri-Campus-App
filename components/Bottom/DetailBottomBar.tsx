@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 
 import { useImagePicker } from '../../hooks/useImagePicker';
-import type { RootStackParamList } from '../../types/navigation';
+import type { ChatRoomParams, RootStackParamList } from '../../types/navigation';
 import styles from './DetailBottomBar.styles';
 
 // ✅ ChatList가 읽어갈 로컬 저장 (리스트 즉시 반영용)
@@ -29,36 +29,11 @@ import type { ChatCategory } from '@/types/chat';
 /** 어떤 화면에서 쓰는지 구분 */
 type Variant = 'detail' | 'chat';
 
-/** ✅ 상세 → ChatRoom으로 넘길 정보 (기존 형태 그대로 유지) */
-type ChatAutoNavigateParams =
-  | {
-      /** 중고거래에서 진입 */
-      source: 'market';
-      postId: string;
-      sellerNickname: string;
-      productTitle: string;
-      productPrice: number;        // 숫자(KRW), 0=나눔
-      productImageUri?: string;    // 썸네일 URL(없어도 OK)
-    }
-  | {
-      /** 분실물에서 진입 */
-      source: 'lost';
-      postId: string;
-      posterNickname: string;      // 게시자 닉네임
-      postTitle: string;           // 글 제목
-      place: string;               // 분실/습득 장소
-      purpose: 'lost' | 'found';   // 분실/습득
-      postImageUri?: string;
-    }
-  | {
-      /** 공동구매에서 진입 */
-      source: 'groupbuy';          // ⚠️ 리스트 필터는 'group'이라 저장 시 매핑
-      postId: string;
-      authorNickname: string;      // 작성자 닉네임
-      postTitle: string;           // 글 제목
-      recruitLabel: string;        // 헤더 보조 라벨(예: "현재 3명 (10명)")
-      postImageUri?: string;       // 썸네일 URL
-    };
+/** ✅ 상세 → ChatRoom으로 넘길 정보
+ *  기존에 로컬로 정의했던 유니온을 제거하고, 프로젝트 전역 네비 타입을 그대로 사용합니다.
+ *  이렇게 해야 authorId / authorEmail / initialSaleStatus 같은 추가 필드를 안전하게 전달할 수 있어요.
+ */
+type ChatAutoNavigateParams = ChatRoomParams;
 
 type Props = {
   /** 기본값은 'detail' (※ 채팅 화면에서는 반드시 variant="chat"으로 넘겨주세요) */
@@ -111,6 +86,7 @@ const DetailBottomBar: React.FC<Props> = ({
   chatAutoNavigateParams,
   clearPickedAfterNotify = true,
   attachmentsCount = 0,
+  imagePickerMax,
 }) => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
@@ -119,7 +95,7 @@ const DetailBottomBar: React.FC<Props> = ({
 
   // 훅은 조건부 호출 금지. chat 모드에서만 결과를 사용합니다.
   const { images: pickedImages, setImages: setPickedImages, openAdd, remain } =
-    useImagePicker({ max: 10 });
+    useImagePicker({ max: imagePickerMax ?? 10 });
 
   /** 외부 초기 좋아요 값 변경 시 동기화 */
   useEffect(() => {
@@ -216,8 +192,8 @@ const DetailBottomBar: React.FC<Props> = ({
           productImageUri,
           preview: msg,
           origin: {
-            source: chatAutoNavigateParams.source,   // 'market' | 'lost' | 'groupbuy'
-            params: chatAutoNavigateParams,          // ✅ 기존 네비 파라미터 원본 그대로 보관!
+            source: chatAutoNavigateParams.source, // 'market' | 'lost' | 'groupbuy'
+            params: chatAutoNavigateParams,        // ✅ 기존 네비 파라미터 원본 그대로 보관!
           },
         });
 
@@ -226,13 +202,6 @@ const DetailBottomBar: React.FC<Props> = ({
           ...chatAutoNavigateParams, // ✅ 기존 키 그대로( sellerNickname / postTitle / recruitLabel 등 )
           initialMessage: msg,       // (선택) ChatRoom에서 초기 전송 처리 시 사용
         } as any);
-
-        // (옵션) 디버그 로그 — 필요 없으면 제거
-        // console.log('[CHAT][Detail] upsert & navigate (no param shape change)', {
-        //   roomId,
-        //   category,
-        //   from: chatAutoNavigateParams.source,
-        // });
       }
     } else {
       // 채팅 화면

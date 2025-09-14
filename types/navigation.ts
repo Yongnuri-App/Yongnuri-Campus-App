@@ -3,37 +3,54 @@ import type {
   NativeStackScreenProps,
 } from '@react-navigation/native-stack';
 
+/** ✅ 공통 메타: 작성자 판별/판매상태 초기값 */
+type OwnerMeta = {
+  /** 작성자(판매자) 식별값 — usePermissions가 AsyncStorage('auth_user_id')와 비교 */
+  authorId?: string | number;
+  /** 이메일 매칭도 허용 */
+  authorEmail?: string | null;
+  /** 라우트 힌트(선택): true면 무조건 소유자로 처리(개발/특수 케이스) */
+  isOwner?: boolean;
+};
+
+type SaleStatusApi = 'ON_SALE' | 'RESERVED' | 'SOLD';
+
+type MarketMeta = {
+  /** 중고거래 전용: 판매상태 초기값(API enum) */
+  initialSaleStatus?: SaleStatusApi;
+};
+
 /** ✅ 공용 채팅 파라미터: 중고거래(market) | 분실물(lost) | 공동구매(groupbuy) | 공지사항(notice) */
 export type ChatRoomParams =
-  | {
-      source: 'market';               // 중고거래에서 진입
+  | ({
+      source: 'market';
       postId: string;
       sellerNickname: string;
       productTitle: string;
       productPrice: number;           // 0 = 나눔
       productImageUri?: string;
       initialMessage?: string;
-    }
-  | {
-      source: 'lost';                 // 분실물에서 진입
+    } & OwnerMeta & MarketMeta)
+  | ({
+      source: 'lost';
       postId: string;
-      posterNickname: string;         // 게시자 닉네임
-      postTitle: string;              // 글 제목
-      place: string;                  // 분실/습득 장소
-      purpose: 'lost' | 'found';      // 분실/습득 구분
+      posterNickname: string;
+      postTitle: string;
+      place: string;
+      purpose: 'lost' | 'found';
       postImageUri?: string;
       initialMessage?: string;
-    }
-  | {
-      source: 'groupbuy';             // 공동구매에서 진입
+    } & OwnerMeta)
+  | ({
+      source: 'groupbuy';
       postId: string;
-      authorNickname: string;         // 작성자 닉네임
-      postTitle: string;              // 글 제목
-      /** 채팅 상단의 보조라벨(가격/위치 자리)에 띄울 문구 */
-      recruitLabel: string;           // 예: "현재 0명 (제한 없음)" 또는 "현재 3명 (10명)"
-      postImageUri?: string;          // 썸네일(첫 이미지)
-      initialMessage?: string;        // 상세에서 바로 보낸 첫 메시지
-    };
+      authorNickname: string;
+      postTitle: string;
+      /** 채팅 상단 보조라벨(가격/위치 자리)에 띄울 문구 */
+      recruitLabel: string;
+      postImageUri?: string;
+      initialMessage?: string;
+    } & OwnerMeta);
 
 // 네비게이션 타입 정의
 export type RootStackParamList = {

@@ -11,7 +11,7 @@ export type CategoryItem = {
 /** 기본 카테고리 리스트 */
 export const DEFAULT_CATEGORIES: CategoryItem[] = [
   { id: 'all', label: '전체' },
-  { id: 'maingate', label: '용인대정문' },
+  { id: 'maingate', label: '용인대 정문' },
   { id: 'mudo', label: '무도대학' },
   { id: 'sports', label: '체육과학대학' },
   { id: 'aibio', label: 'AI바이오융합대학' },

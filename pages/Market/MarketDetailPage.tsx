@@ -1,4 +1,6 @@
 // pages/Market/MarketDetailPage.tsx
+import { upsertRoomOnOpen } from '@/storage/chatStore';
+import type { ChatCategory } from '@/types/chat';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -13,11 +15,11 @@ import {
   View,
 } from 'react-native';
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
+import AdminActionSheet from '../../components/Modals/AdminActionSheet/AdminActionSheet';
 import ProfileRow from '../../components/Profile/ProfileRow';
 import { useDeletePost } from '../../hooks/useDeletePost';
 import { useLike } from '../../hooks/useLike';
 import usePermissions from '../../hooks/usePermissions';
-import AdminActionSheet from '../../components/Modals/AdminActionSheet/AdminActionSheet';
 import { updatePostLikeCountInList } from '../../repositories/marketRepo';
 import type { RootStackScreenProps } from '../../types/navigation';
 import { loadJson, saveJson } from '../../utils/storage';
@@ -37,10 +39,15 @@ type MarketPost = {
   images: string[];
   likeCount: number;
   createdAt: string; // ISO
+
+  /** ✅ 작성자 메타(판매자 판별용) */
   authorId?: string | number;
   authorEmail?: string | null;
   authorName?: string;
   authorDept?: string;
+
+  /** ✅ (선택) 판매 상태: 있으면 채팅 초깃값으로 전달 */
+  status?: 'ON_SALE' | 'RESERVED' | 'SOLD';
 };
 
 function timeAgo(iso: string) {
@@ -119,9 +126,9 @@ export default function MarketDetailPage({
 
   /** 권한 파생: 관리자/소유자 (관리자 우선 정책은 모달에서 showEdit로 처리) */
   const { isAdmin, isOwner } = usePermissions({
-    authorId: item?.authorId,
-    authorEmail: item?.authorEmail ?? null,
-    routeParams: route.params,
+    authorId: item?.authorId,                 // ✅ 작성자 비교에 쓰임
+    authorEmail: item?.authorEmail ?? null,   // ✅ 이메일 매칭도 허용
+    routeParams: route.params,                // isOwner 힌트가 들어왔다면 OR 처리
   });
 
   /** 표시용 프로필 */
@@ -186,126 +193,200 @@ export default function MarketDetailPage({
   };
 
   return (
-    <View style={styles.container}>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={[styles.contentContainer, { paddingBottom: 140 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ===== 상단 이미지 ===== */}
-        <View style={styles.imageArea}>
-          {images.length > 0 ? (
-            <ScrollView
-              ref={hScrollRef}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={onMomentumEnd}
-              contentOffset={{ x: 0, y: 0 }}
-            >
-              {images.map((uri, i) => (
-                <Image key={`${uri}-${i}`} source={{ uri }} style={styles.mainImage} />
-              ))}
-            </ScrollView>
-          ) : (
-            <View style={[styles.mainImage, styles.imagePlaceholder]}>
-              <Text style={styles.imagePlaceholderText}>이미지 없음</Text>
-            </View>
-          )}
-
-          {/* 좌상단: 뒤로가기 */}
-          <TouchableOpacity
-            style={[styles.iconBtn, styles.iconLeftTop]}
-            onPress={() => navigation.goBack()}
-            accessibilityRole="button"
-            accessibilityLabel="뒤로가기"
-            activeOpacity={0.9}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+  <View style={styles.container}>
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={[styles.contentContainer, { paddingBottom: 140 }]}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* ===== 상단 이미지 ===== */}
+      <View style={styles.imageArea}>
+        {images.length > 0 ? (
+          <ScrollView
+            ref={hScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={onMomentumEnd}
+            contentOffset={{ x: 0, y: 0 }}
           >
-            <Image source={require('../../assets/images/back_white.png')} style={styles.icon} />
-          </TouchableOpacity>
-
-          {/* 우상단: 역할별 버튼 */}
-          <RightTopButton />
-
-          {/* 우하단: 인디케이터 */}
-          <View style={styles.counterPill}>
-            <Text style={styles.counterText}>
-              {images.length > 0 ? `${index + 1} / ${images.length}` : '0 / 0'}
-            </Text>
+            {images.map((uri, i) => (
+              <Image key={`${uri}-${i}`} source={{ uri }} style={styles.mainImage} />
+            ))}
+          </ScrollView>
+        ) : (
+          <View style={[styles.mainImage, styles.imagePlaceholder]}>
+            <Text style={styles.imagePlaceholderText}>이미지 없음</Text>
           </View>
+        )}
+
+        {/* 좌상단: 뒤로가기 */}
+        <TouchableOpacity
+          style={[styles.iconBtn, styles.iconLeftTop]}
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="뒤로가기"
+          activeOpacity={0.9}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Image source={require('../../assets/images/back_white.png')} style={styles.icon} />
+        </TouchableOpacity>
+
+        {/* 우상단: 역할별 버튼 */}
+        <RightTopButton />
+
+        {/* 우하단: 인디케이터 */}
+        <View style={styles.counterPill}>
+          <Text style={styles.counterText}>
+            {images.length > 0 ? `${index + 1} / ${images.length}` : '0 / 0'}
+          </Text>
+        </View>
+      </View>
+
+      {/* ===== 본문 ===== */}
+      <View style={styles.body}>
+        <ProfileRow name={profileName} dept={profileDept} />
+
+        <View style={styles.divider} />
+
+        {/* 제목/가격/시간 */}
+        <View style={styles.titleBlock}>
+          <Text style={styles.title}>{item.title}</Text>
+          <Text style={styles.price}>{priceDisplay}</Text>
+          <Text style={styles.time}>{timeAgo(item.createdAt)}</Text>
         </View>
 
-        {/* ===== 본문 ===== */}
-        <View style={styles.body}>
-          <ProfileRow name={profileName} dept={profileDept} />
+        {/* 설명 */}
+        <Text style={styles.desc}>{item.description}</Text>
 
-          <View style={styles.divider} />
-
-          {/* 제목/가격/시간 */}
-          <View style={styles.titleBlock}>
-            <Text style={styles.title}>{item.title}</Text>
-            <Text style={styles.price}>{priceDisplay}</Text>
-            <Text style={styles.time}>{timeAgo(item.createdAt)}</Text>
-          </View>
-
-          {/* 설명 */}
-          <Text style={styles.desc}>{item.description}</Text>
-
-          {/* 거래 희망 장소 */}
-          <View style={styles.locationRow}>
-            <Text style={styles.locationLabel}>거래 희망 장소</Text>
-            <Text style={styles.locationValue}>{item.location}</Text>
-          </View>
-
-          <View style={{ height: 24 }} />
+        {/* 거래 희망 장소 */}
+        <View style={styles.locationRow}>
+          <Text style={styles.locationLabel}>거래 희망 장소</Text>
+          <Text style={styles.locationValue}>{item.location}</Text>
         </View>
-      </ScrollView>
 
-      {/* ===== 하단 고정 바 ===== */}
-      {!isOwner && (
-        <DetailBottomBar
-          variant="detail"
-          initialLiked={liked}
-          onToggleLike={async (likedFlag) => {
-            const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
-            likedMap[id] = likedFlag;
-            await saveJson(LIKED_MAP_KEY, likedMap);
+        <View style={{ height: 24 }} />
+      </View>
+    </ScrollView>
 
-            setItem((prev) => {
-              if (!prev) return prev;
-              const nextCount = Math.max(0, (prev.likeCount ?? 0) + (likedFlag ? 1 : -1));
-              updatePostLikeCountInList(POSTS_KEY, prev.id, nextCount);
-              return { ...prev, likeCount: nextCount };
-            });
-          }}
-          chatAutoNavigateParams={{
+    {/* ✅ DEV: 판매자 강제 채팅 진입 버튼 (배포 제외) */}
+    {__DEV__ && isOwner && (
+      <TouchableOpacity
+        style={styles.devOpenChatBtn}
+        onPress={async () => {
+          // 1) 방 메타 구성
+          const category: ChatCategory = 'market';
+          const roomId = `market-${String(item.id)}-${profileName ?? '판매자'}`;
+          const nickname = profileName ?? '판매자';
+          const productTitle = item.title;
+          const productPrice = item.mode === 'donate' ? 0 : Number(item.price ?? 0);
+          const productImageUri =
+            Array.isArray(images) && images.length > 0 ? images[0] : undefined;
+
+          // 2) ChatList에 즉시 보이도록 upsert
+          const preview = 'DEV: 판매자 진입 테스트'; // 리스트 미리보기 문구
+          await upsertRoomOnOpen({
+            roomId,
+            category,
+            nickname,
+            productTitle,
+            productPrice,
+            productImageUri,
+            preview,
+            origin: {
+              source: 'market',
+              params: {
+                source: 'market',
+                postId: String(item.id),
+                sellerNickname: nickname,
+                productTitle,
+                productPrice,
+                productImageUri,
+
+                // ✅ 판매자 판별 메타
+                authorId: item.authorId,
+                authorEmail: item.authorEmail ?? null,
+
+                // ✅ 초기 판매상태
+                initialSaleStatus: item.status ?? 'ON_SALE',
+
+                // (선택) ChatRoom에서 최초 전송 시딩
+                initialMessage: preview,
+              },
+            },
+          });
+
+          // 3) ChatRoom으로 이동 (원본 파라미터 그대로)
+          navigation.navigate('ChatRoom', {
             source: 'market',
             postId: String(item.id),
-            sellerNickname: profileName ?? '판매자',
-            productTitle: item.title,
-            productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0),
-            productImageUri: Array.isArray(images) && images.length > 0 ? images[0] : undefined,
-          }}
-        />
-      )}
+            sellerNickname: nickname,
+            productTitle,
+            productPrice,
+            productImageUri,
+            authorId: item.authorId,
+            authorEmail: item.authorEmail ?? null,
+            initialSaleStatus: item.status ?? 'ON_SALE',
+            initialMessage: preview,
+          });
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="DEV: 채팅 열기(판매자)"
+        activeOpacity={0.9}
+      >
+        <Text style={styles.devOpenChatText}>DEV: 채팅 열기(판매자)</Text>
+      </TouchableOpacity>
+    )}
 
-      {/* ✅ 관리자/판매자 공통 옵션 모달
-          - 관리자: 삭제만 (showEdit=false)
-          - 판매자: 수정+삭제 (showEdit=true)
-          - 관리자이면서 판매자여도 정책상 삭제만을 강제 → showEdit={!isAdmin && isOwner}
-      */}
-      {(isAdmin || isOwner) && (
-        <AdminActionSheet
-          visible={menuVisible}
-          onClose={() => setMenuVisible(false)}
-          showEdit={!isAdmin && isOwner}
-          onEdit={() => navigation.navigate('SellItem', { mode: 'edit', id })}
-          onDelete={confirmAndDelete}
-          editLabel="수정"
-          deleteLabel="삭제"
-        />
-      )}
-    </View>
-  );
+    {/* ===== 하단 고정 바 ===== */}
+    {/* ✅ 작성자 본인이라면 상세에서 채팅 시작을 숨김 */}
+    {!isOwner && (
+      <DetailBottomBar
+        variant="detail"
+        initialLiked={liked}
+        onToggleLike={async (likedFlag) => {
+          const likedMap = await loadJson<Record<string, boolean>>(LIKED_MAP_KEY, {});
+          likedMap[id] = likedFlag;
+          await saveJson(LIKED_MAP_KEY, likedMap);
+
+          setItem((prev) => {
+            if (!prev) return prev;
+            const nextCount = Math.max(0, (prev.likeCount ?? 0) + (likedFlag ? 1 : -1));
+            updatePostLikeCountInList(POSTS_KEY, prev.id, nextCount);
+            return { ...prev, likeCount: nextCount };
+          });
+        }}
+        /** ✅ ChatRoom으로 넘어갈 때 작성자 메타 + 초기 판매상태를 함께 전달 */
+        chatAutoNavigateParams={{
+          source: 'market',
+          postId: String(item.id),
+          sellerNickname: profileName ?? '판매자',
+          productTitle: item.title,
+          productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0),
+          productImageUri: Array.isArray(images) && images.length > 0 ? images[0] : undefined,
+
+          // ✅ 판매자 판별용 메타 (가장 중요)
+          authorId: item.authorId,
+          authorEmail: item.authorEmail ?? null,
+
+          // ✅ 판매상태 초기값(선택)
+          initialSaleStatus: item.status ?? 'ON_SALE',
+        }}
+      />
+    )}
+
+    {/* ✅ 관리자/판매자 공통 옵션 모달 */}
+    {(isAdmin || isOwner) && (
+      <AdminActionSheet
+        visible={menuVisible}
+        onClose={() => setMenuVisible(false)}
+        showEdit={!isAdmin && isOwner}
+        onEdit={() => navigation.navigate('SellItem', { mode: 'edit', id })}
+        onDelete={confirmAndDelete}
+        editLabel="수정"
+        deleteLabel="삭제"
+      />
+    )}
+  </View>
+);
 }

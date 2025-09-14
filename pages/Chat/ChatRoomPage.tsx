@@ -23,6 +23,12 @@ import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 import { appendOutboxImage, appendOutboxText, loadMessages } from '@/storage/chatMessagesStore';
 import { updateRoomOnSend /*, markRoomRead*/ } from '@/storage/chatStore';
 
+// ✅ 권한 훅 (판매자 여부 판별용)
+import usePermissions from '@/hooks/usePermissions';
+
+// ✅ 판매 상태 선택 컴포넌트 (한글 라벨 기반)
+import SaleStatusSelector, { type SaleStatusLabel } from '@/components/Chat/SaleStatusSelector/SaleStatusSelector';
+
 // 아이콘 (상단 카드에서만 필요)
 const calendarIcon = require('../../assets/images/calendar.png');
 
@@ -62,7 +68,6 @@ function deriveRoomIdFromParams(params: any): string | null {
 /** 저장소에서 읽은 time(ISO 등)을 화면 표시용으로 맞춰주는 헬퍼 */
 function ensureDisplayTimes(items: ChatMessage[]): ChatMessage[] {
   return items.map((m) => {
-    // 이미 "오전/오후 HH:MM" 형태면 유지, 아니면 변환 시도
     if (typeof m.time === 'string' && (m.time.includes('오전') || m.time.includes('오후'))) {
       return m;
     }
@@ -73,12 +78,43 @@ function ensureDisplayTimes(items: ChatMessage[]): ChatMessage[] {
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'ChatRoom'>;
 
+/** ✅ 판매상태 매핑 유틸
+ * - API(enum, 영문) ↔ UI(라벨, 한글) 간 변환 담당
+ */
+type ApiSaleStatus = 'ON_SALE' | 'RESERVED' | 'SOLD';
+
+const toLabel = (s?: ApiSaleStatus): SaleStatusLabel => {
+  switch (s) {
+    case 'RESERVED':
+      return '예약중';
+    case 'SOLD':
+      return '거래완료';
+    case 'ON_SALE':
+    default:
+      return '판매중';
+  }
+};
+
+const toApi = (l: SaleStatusLabel): ApiSaleStatus => {
+  switch (l) {
+    case '예약중':
+      return 'RESERVED';
+    case '거래완료':
+      return 'SOLD';
+    case '판매중':
+    default:
+      return 'ON_SALE';
+  }
+};
+
 /**
  * 채팅방 페이지 (중고거래/분실물/공동구매 공용)
  * - 상단 카드:
  *   · market   → "가격"
  *   · lost     → "장소 + 분실/습득 배지"
  *   · groupbuy → "모집 인원(recruitLabel)"
+ *
+ * + 추가: 중고거래 && 판매자일 때만 "판매상태 선택"을 약속잡기 버튼 오른쪽에 노출
  */
 export default function ChatRoomPage() {
   const navigation = useNavigation<Nav>();
@@ -135,6 +171,41 @@ export default function ChatRoomPage() {
 
   // ===== roomId 복구 =====
   const roomId = raw?.roomId ?? deriveRoomIdFromParams(raw);
+
+  // ===== 판매자(작성자) 여부 판별 =====
+  const { isOwner } = usePermissions({
+    authorId: raw?.authorId,
+    authorEmail: raw?.authorEmail,
+    routeParams: { isOwner: raw?.isOwner },
+  });
+
+  // ===== DEV 전용: 소유자 강제 토글 (AUTO/null → OWNER/true → GUEST/false) =====
+  const [devForceOwner, setDevForceOwner] = useState<boolean | null>(null);
+  const effectiveIsOwner = (__DEV__ && devForceOwner !== null) ? devForceOwner : isOwner;
+
+  // ===== 판매상태 라벨 state (UI 표기용) =====
+  // - 네비에서 initialSaleStatus(API enum)가 오면 라벨로 변환하여 초깃값 세팅
+  const [saleStatusLabel, setSaleStatusLabel] = useState<SaleStatusLabel>(
+    toLabel(raw?.initialSaleStatus as ApiSaleStatus | undefined)
+  );
+
+  // ===== 판매상태 UI 표시 조건 =====
+  const showSaleStatus = isMarket && effectiveIsOwner && !!raw?.postId;
+
+  // ===== 판매상태 변경 핸들러 (컴포넌트 → 페이지 → API 매핑) =====
+  const handleChangeSaleStatus = useCallback(
+    (nextLabel: SaleStatusLabel) => {
+      setSaleStatusLabel(nextLabel); // 1) UI 라벨 즉시 반영
+      const apiValue = toApi(nextLabel); // 2) API enum으로 변환
+
+      // 3) TODO: 판매상태 PATCH/PUT API 연동 (postId 필요)
+      //    예: await MarketRepo.updateStatus(raw.postId, apiValue)
+      //    성공 시: 리스트/상세/채팅 상단 배지 등과 상태 동기화
+      //    필요하면 ChatList 프리뷰 문구 갱신 등 추가 작업
+      // console.log('[SaleStatus] change ->', nextLabel, '/', apiValue);
+    },
+    []
+  );
 
   // 초기 시딩 중복 방지
   const seededRef = useRef(false);
@@ -255,6 +326,31 @@ export default function ChatRoomPage() {
         onPressMore={() => setMenuVisible(true)}
       />
 
+      {/* ✅ DEV 토글 스위치 (AUTO ↔ OWNER ↔ GUEST, 길게누르면 AUTO) 확인용 */}
+      {__DEV__ && (
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            right: 8,
+            top: 8,
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+            borderWidth: 1,
+            borderColor: '#D9D9D9',
+            backgroundColor: '#FFFFFF',
+            borderRadius: 6,
+            marginTop: 40,
+          }}
+          onPress={() => setDevForceOwner(prev => (prev === null ? true : prev ? false : null))}
+          onLongPress={() => setDevForceOwner(null)}
+          activeOpacity={0.9}
+        >
+          <Text style={{ fontSize: 11, fontWeight: '700', color: '#666' }}>
+            {devForceOwner === null ? 'AUTO' : devForceOwner ? 'OWNER' : 'GUEST'}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* ===== 상단 요약 카드 (market | lost | groupbuy 공용) ===== */}
       <View style={styles.productCardShadowWrap}>
         <View style={styles.productCard}>
@@ -304,11 +400,25 @@ export default function ChatRoomPage() {
           </View>
         </View>
 
-        {/* 약속잡기 버튼 */}
-        <TouchableOpacity style={styles.scheduleBtn} onPress={handleOpenSchedule}>
-          <Image source={calendarIcon} style={styles.calendarIcon} />
-          <Text style={styles.scheduleBtnText}>약속잡기</Text>
-        </TouchableOpacity>
+        {/* ===== 액션 행: 왼쪽=약속잡기 / 오른쪽=판매상태(조건부) ===== */}
+        <View style={styles.actionsRow}>
+          <View style={styles.actionsLeft}>
+            <TouchableOpacity style={styles.scheduleBtn} onPress={handleOpenSchedule}>
+              <Image source={calendarIcon} style={styles.calendarIcon} />
+              <Text style={styles.scheduleBtnText}>약속잡기</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.actionsRight}>
+            {/* 중고거래 + 판매자 + postId가 있을 때만 노출 */}
+            {showSaleStatus && (
+              <SaleStatusSelector
+                value={saleStatusLabel}                 // ✅ 라벨로 전달
+                onChange={handleChangeSaleStatus}       // ✅ 라벨로 수신 → API enum 변환
+              />
+            )}
+          </View>
+        </View>
       </View>
 
       {/* ===== 채팅 리스트 ===== */}
@@ -321,9 +431,9 @@ export default function ChatRoomPage() {
       <DetailBottomBar
         variant="chat"
         placeholder="메세지를 입력해주세요."
-        onPressSend={handleSend}                 // 텍스트/첨부 전송
-        onAddImages={handleAddImages}            // + 버튼 선택 결과
-        attachmentsCount={attachments.length}    // 텍스트 없어도 첨부 있으면 전송 활성화
+        onPressSend={handleSend}
+        onAddImages={handleAddImages}
+        attachmentsCount={attachments.length}
       />
 
       {/* ===== 더보기 메뉴 (신고/차단) ===== */}
@@ -345,7 +455,6 @@ export default function ChatRoomPage() {
             return;
           }
           const proposal = `📅 약속 제안\n- 날짜: ${date}\n- 시간: ${time}\n- 장소: ${place}`;
-          // 화면 표시는 바로 추가 (원하면 저장도 가능)
           const msg: ChatMessage = {
             id: `apt_${Date.now()}`,
             type: 'text',
@@ -354,14 +463,29 @@ export default function ChatRoomPage() {
             mine: true,
           };
           setMessages(prev => [...prev, msg]);
-
-          // TODO: 서버 전송 / 저장도 원하면 appendOutboxText(roomId, proposal) + updateRoomOnSend(roomId, '약속 제안') 호출
+          // TODO: appendOutboxText(roomId, proposal) + updateRoomOnSend(roomId, '약속 제안')
           setOpen(false);
         }}
         initialDate={undefined}
         initialTime={undefined}
         initialPlace={undefined}
       />
+
+      {/* ===== 임시 디버그 배지 (개발 모드에서만 보임) ===== */}
+      {__DEV__ && (
+        <View style={styles.debugBadge}>
+          <Text style={styles.debugText}>source: {String(raw?.source)}</Text>
+          <Text style={styles.debugText}>postId: {String(raw?.postId)}</Text>
+          <Text style={styles.debugText}>authorId: {String(raw?.authorId)}</Text>
+          <Text style={styles.debugText}>authorEmail: {String(raw?.authorEmail)}</Text>
+          <Text style={styles.debugText}>isMarket: {String(isMarket)}</Text>
+          <Text style={styles.debugText}>isOwner: {String(isOwner)}</Text>
+          <Text style={styles.debugText}>effectiveIsOwner: {String(effectiveIsOwner)}</Text>
+          <Text style={styles.debugText}>devForceOwner: {String(devForceOwner)}</Text>
+          <Text style={styles.debugText}>showSaleStatus: {String(showSaleStatus)}</Text>
+          <Text style={styles.debugText}>saleStatusLabel: {String(saleStatusLabel)}</Text>
+        </View>
+      )}
     </View>
   );
 }
