@@ -71,8 +71,8 @@ export default StyleSheet.create({
     alignItems: 'center',
   },
   likeIcon: {
-    width: 14,
-    height: 14,
+    width: 16,
+    height: 16,
     tintColor: '#BBBBBB',
     marginRight: 4,
   },

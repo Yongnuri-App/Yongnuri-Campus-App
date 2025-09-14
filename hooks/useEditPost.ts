@@ -53,6 +53,8 @@ type UseEditPostParams<
   onSaved?: (post: TPost) => void;
   /** 제공 시: 이 어댑터 규칙으로 폼을 구성/저장 (분실물/중고거래 등 커스텀 스키마) */
   adapters?: EditAdapters<TPost, TForm>;
+  /** ✅ 추가: 편집 화면일 때만 동작하도록 제어 (create 모드일 땐 false) */
+  enabled?: boolean; // default true
 };
 
 /** ===== 기본(공동구매) 변환기 ===== */
@@ -100,8 +102,9 @@ export function useEditPost<
   onLoaded,
   onSaved,
   adapters,
+  enabled = true,
 }: UseEditPostParams<TPost, TForm>) {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [origin, setOrigin] = useState<TPost | null>(null);
 
   // 폼 상태 (어댑터 유무에 따라 제네릭)
@@ -135,6 +138,7 @@ export function useEditPost<
 
   /** 상세 로드 */
   const load = useCallback(async () => {
+    if (!enabled) return;
     setLoading(true);
     try {
       const raw = await AsyncStorage.getItem(postsKey);
@@ -157,9 +161,10 @@ export function useEditPost<
     } finally {
       setLoading(false);
     }
-  }, [postId, postsKey]);
+  }, [enabled, postId, postsKey]);
 
-  useEffect(() => { load(); }, [load]);
+  // enabled일 때만 로드
+  useEffect(() => { if (enabled) load(); }, [enabled, load]);
 
   /** 유효성 */
   const isValid = useMemo(() => {
@@ -174,6 +179,7 @@ export function useEditPost<
       applyLink?: string;
       extra?: Record<string, any>;
     }) => {
+      if (!enabled) return false;
       if (!origin) return false;
       if (!isValid) {
         Alert.alert('확인', '필수 항목을 확인해 주세요.');
@@ -189,7 +195,7 @@ export function useEditPost<
           return false;
         }
 
-        // override 반영 (공동구매/커스텀 모두 지원)
+        // override 반영
         let nextForm: any = { ...form };
         if (override?.images) nextForm.imagesText = override.images.join(', ');
         if (override?.applyLink != null) nextForm.applyLink = override.applyLink;
@@ -207,7 +213,7 @@ export function useEditPost<
         return false;
       }
     },
-    [origin, form, isValid, postsKey, postId, onSaved]
+    [enabled, origin, form, isValid, postsKey, postId, onSaved]
   );
 
   /** ===== 편의: 기본 폼과 동일한 필드 셋터 노출 ===== */
@@ -223,6 +229,9 @@ export function useEditPost<
       const next = typeof patch === 'function' ? (patch as any)(prev) : patch;
       return { ...p, extra: { ...prev, ...next } };
     }), []);
+
+  // enabled=false일 때도 동일 인터페이스 유지
+  const noOpSave = useCallback(async () => false, []);
 
   return {
     /** 상태 */
@@ -240,13 +249,15 @@ export function useEditPost<
 
     /** setters */
     setTitle, setDesc, setMode, setCount, setApplyLink, setImagesText, setExtra,
-    setForm, // 필요 시 전체 교체
+    setForm,
 
     /** 파생 */
-    isValid,
+    isValid: enabled ? isValid : true,
 
     /** 동작 */
     load,
-    save,
+    save: enabled ? save : (noOpSave as any),
   };
 }
+
+export default useEditPost;

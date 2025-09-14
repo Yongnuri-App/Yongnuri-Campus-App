@@ -12,6 +12,8 @@ export default StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
     marginBottom: 12,
+    // ✅ 하단 배지/고정 요소를 위한 기준점
+    position: 'relative',
   },
 
   thumbnail: {
@@ -28,6 +30,7 @@ export default StyleSheet.create({
     flex: 1,
     marginLeft: 16,
     justifyContent: 'center',
+    // ✅ 중고거래 카드와 동일하게 하단 고정요소 공간 확보
     marginBottom: 40,
   },
 
@@ -47,10 +50,10 @@ export default StyleSheet.create({
     marginRight: 8,
   },
   badgeOpen: {
-    backgroundColor: '#419EBD', // 파랑-민트 느낌(피그마 '모집중'에 맞춤)
+    backgroundColor: '#419EBD',
   },
   badgeClosed: {
-    backgroundColor: '#F070C8', // 분홍 톤(요청 '모집마감')
+    backgroundColor: '#F070C8',
   },
   badgeText: {
     fontFamily: 'Inter',
@@ -81,5 +84,21 @@ export default StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: '#9CA3AF',
+  },
+
+  // ✅ 중고거래 카드와 동일한 하단 배지 스타일
+  bottomTagBox: {
+    position: 'absolute',
+    left: 137, // 썸네일(121) + 간격(16)
+    bottom: 8,
+    paddingHorizontal: 10,
+    height: 28,
+    backgroundColor: '#F2F3F6',
+    justifyContent: 'center',
+  },
+  bottomTagText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
   },
 });

@@ -1,6 +1,7 @@
+// pages/Notice/NoticeDetailPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   Alert,
   Dimensions,
@@ -13,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
 import ProfileRow from '../../components/Profile/ProfileRow';
 import { useDeletePost } from '../../hooks/useDeletePost';
 import { useLike } from '../../hooks/useLike';
@@ -24,41 +26,28 @@ const LIKED_MAP_KEY = 'notice_liked_map_v1';
 const AUTH_IS_ADMIN_KEY = 'auth_is_admin';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
-// ─── Types from storage ────────────────────────────────────────────────────────
 type StoredNotice = {
   id: string;
   title: string;
   description: string;
   images?: string[];
-  startDate?: string;  // ISO
-  endDate?: string;    // ISO
-  createdAt?: string;  // ISO
+  startDate?: string;     // ISO
+  endDate?: string;       // ISO
+  createdAt?: string;     // ISO
   applyUrl?: string | null;
   likeCount?: number;
   authorName?: string;
   authorDept?: string;
 };
 
-// ─── UI model for this page ────────────────────────────────────────────────────
-type NoticeItem = {
-  id: string;
-  title: string;
-  description: string;
-  images: string[];
-  likeCount: number;
-
-  // derived
-  termText: string;              // e.g. "2025-03-01 ~ 2025-07-31"
-  timeAgoText: string;           // e.g. "1시간 전"
-  status: 'open' | 'closed';     // endDate < now ? closed : open
-  link?: string;                 // from applyUrl
-
-  authorName?: string;
-  authorDept?: string;
-  createdAt?: string;            // ISO
-};
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+function ymd(iso?: string) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
 function timeAgo(iso?: string) {
   if (!iso) return '';
   const diff = Date.now() - new Date(iso).getTime();
@@ -70,50 +59,37 @@ function timeAgo(iso?: string) {
   const d = Math.floor(h / 24);
   return `${d}일 전`;
 }
-function ymd(iso?: string) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-function normalizeNotice(raw: StoredNotice): NoticeItem {
+
+/** 저장소 → UI 파생 모델 */
+function toUi(raw: StoredNotice) {
   const startIso = raw.startDate ?? raw.createdAt ?? new Date().toISOString();
-  const endIso = raw.endDate ?? raw.startDate ?? raw.createdAt ?? new Date().toISOString();
+  const endIso = raw.endDate ?? raw.startDate ?? raw.createdAt ?? startIso;
+  const images = Array.isArray(raw.images) ? raw.images : [];
   const open = new Date(endIso).getTime() >= Date.now();
 
   return {
     id: raw.id,
     title: raw.title ?? '',
     description: raw.description ?? '',
-    images: Array.isArray(raw.images) ? raw.images : [],
-    likeCount: typeof raw.likeCount === 'number' ? raw.likeCount : 0,
-
+    images,
+    likeCount: Number(raw.likeCount ?? 0),
     termText: `${ymd(startIso)} ~ ${ymd(endIso)}`,
     timeAgoText: timeAgo(raw.createdAt ?? startIso),
-    status: open ? 'open' as const : 'closed' as const,
+    status: open ? ('open' as const) : ('closed' as const),
     link: raw.applyUrl ?? undefined,
-
-    authorName: raw.authorName,
-    authorDept: raw.authorDept,
+    authorName: raw.authorName ?? '운영자',
+    authorDept: raw.authorDept ?? '관리자',
     createdAt: raw.createdAt,
   };
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export default function NoticeDetailPage({
   route,
   navigation,
 }: RootStackScreenProps<'NoticeDetail'>) {
   const { id } = route.params;
 
-  const [item, setItem] = useState<NoticeItem | null>(null);
-  const [index, setIndex] = useState(0);
-  const [adminMenuVisible, setAdminMenuVisible] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const hScrollRef = useRef<ScrollView | null>(null);
-
+  /** 좋아요 훅을 먼저 선언 (load에서 syncCount 사용하므로) */
   const { liked, syncCount, setLikedPersisted } = useLike({
     itemId: id,
     likedMapKey: LIKED_MAP_KEY,
@@ -121,6 +97,53 @@ export default function NoticeDetailPage({
     initialCount: 0,
   });
 
+  /** 관리자 여부 */
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const adminFlag = await AsyncStorage.getItem(AUTH_IS_ADMIN_KEY);
+        const paramAdmin = (route.params as any)?.isAdmin;
+        const derived =
+          typeof paramAdmin === 'boolean'
+            ? paramAdmin
+            : adminFlag === 'true' || adminFlag === '1';
+        if (mounted) setIsAdmin(!!derived);
+      } catch {
+        // no-op
+      }
+    })();
+    return () => { mounted = false; };
+  }, [route.params]);
+
+  /** 글 로드 */
+  const [post, setPost] = useState<StoredNotice | null>(null);
+  const load = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(POSTS_KEY);
+      const list: StoredNotice[] = raw ? JSON.parse(raw) : [];
+      const found = list.find(p => p.id === id) ?? null;
+      if (!found) {
+        Alert.alert('알림', '해당 공지를 찾을 수 없어요.', [
+          { text: '확인', onPress: () => navigation.goBack() },
+        ]);
+        return;
+      }
+      setPost(found);
+      // 좋아요 카운트 동기화
+      syncCount(found.likeCount ?? 0);
+    } catch {
+      Alert.alert('오류', '공지사항을 불러오지 못했어요.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    }
+  }, [id, navigation, syncCount]);
+
+  useEffect(() => { load(); }, [load]);
+  useFocusEffect(React.useCallback(() => { load(); }, [load]));
+
+  /** 삭제 훅(관리자만 메뉴 노출) */
   const { confirmAndDelete } = useDeletePost({
     postId: id,
     postsKey: POSTS_KEY,
@@ -132,97 +155,18 @@ export default function NoticeDetailPage({
     confirmCancelText: '취소',
   });
 
-  // 관리자 여부 로드
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const adminFlag = await AsyncStorage.getItem(AUTH_IS_ADMIN_KEY);
-        if (!mounted) return;
-        const paramAdmin = (route.params as any)?.isAdmin;
-        const derived =
-          typeof paramAdmin === 'boolean'
-            ? paramAdmin
-            : adminFlag === 'true' || adminFlag === '1';
-        setIsAdmin(!!derived);
-      } catch (e) {
-        if (!mounted) return;
-        console.log('auth load error', e);
-      }
-    })();
-    return () => { mounted = false; };
-  }, [route.params]);
+  const ui = useMemo(() => (post ? toUi(post) : null), [post]);
 
-  // 최초 로드
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(POSTS_KEY);
-        const list: StoredNotice[] = raw ? JSON.parse(raw) : [];
-        const foundRaw = list.find((p) => p.id === id) ?? null;
-        if (!mounted) return;
-
-        if (!foundRaw) {
-          Alert.alert('알림', '해당 공지를 찾을 수 없어요.', [
-            { text: '확인', onPress: () => navigation.goBack() },
-          ]);
-          return;
-        }
-
-        const normalized = normalizeNotice(foundRaw);
-        setItem(normalized);
-        syncCount(normalized.likeCount);
-      } catch (e) {
-        if (!mounted) return;
-        console.log('notice detail load error', e);
-        Alert.alert('오류', '공지사항을 불러오지 못했어요.', [
-          { text: '확인', onPress: () => navigation.goBack() },
-        ]);
-      }
-    })();
-    return () => { mounted = false; };
-  }, [id, navigation, syncCount]);
-
-  // 복귀 시 리로드
-  useFocusEffect(
-    React.useCallback(() => {
-      let mounted = true;
-      (async () => {
-        try {
-          const raw = await AsyncStorage.getItem(POSTS_KEY);
-          const list: StoredNotice[] = raw ? JSON.parse(raw) : [];
-          const foundRaw = list.find((p) => p.id === id) ?? null;
-          if (!mounted) return;
-
-          if (foundRaw) {
-            const normalized = normalizeNotice(foundRaw);
-            setItem(normalized);
-            syncCount(normalized.likeCount);
-          }
-        } catch (e) {
-          if (!mounted) return;
-          console.log('notice detail reload error', e);
-        }
-      })();
-      return () => { mounted = false; };
-    }, [id, syncCount])
-  );
-
-  const profileName = item?.authorName ?? '운영자';
-  const profileDept = item?.authorDept ?? '관리자';
-
+  /** 이미지 슬라이드 */
+  const [index, setIndex] = useState(0);
+  const hScrollRef = useRef<ScrollView | null>(null);
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  const onPressOpenLink = () => {
-    if (!item?.link) return;
-    const url = /^https?:\/\//i.test(item.link) ? item.link : `https://${item.link}`;
-    Linking.openURL(url).catch(() => Alert.alert('오류', '링크를 열 수 없습니다.'));
-  };
-
+  /** 관리자 옵션 */
+  const [adminMenuVisible, setAdminMenuVisible] = useState(false);
   const openAdminMenu = () => setAdminMenuVisible(true);
   const closeAdminMenu = () => setAdminMenuVisible(false);
   const onAdminEdit = () => {
@@ -234,7 +178,14 @@ export default function NoticeDetailPage({
     await confirmAndDelete();
   };
 
-  if (!item) {
+  /** 링크 열기 */
+  const onPressOpenLink = useCallback(() => {
+    if (!ui?.link) return;
+    const url = /^https?:\/\//i.test(ui.link) ? ui.link : `https://${ui.link}`;
+    Linking.openURL(url).catch(() => Alert.alert('오류', '링크를 열 수 없습니다.'));
+  }, [ui?.link]);
+
+  if (!ui) {
     return (
       <View style={styles.fallback}>
         <Text style={styles.fallbackText}>공지사항을 불러오는 중...</Text>
@@ -242,9 +193,9 @@ export default function NoticeDetailPage({
     );
   }
 
-  const images = item.images ?? [];
-  const badgeText = item.status === 'closed' ? '모집마감' : '모집중';
-  const badgeStyle = item.status === 'closed' ? styles.badgeClosed : styles.badgeOpen;
+  const images = ui.images ?? [];
+  const badgeText = ui.status === 'closed' ? '모집마감' : '모집중';
+  const badgeStyle = ui.status === 'closed' ? styles.badgeClosed : styles.badgeOpen;
 
   return (
     <View style={styles.container}>
@@ -254,7 +205,7 @@ export default function NoticeDetailPage({
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ===== 상단 이미지 ===== */}
+        {/* 상단 이미지 */}
         <View style={styles.imageArea}>
           {images.length > 0 ? (
             <ScrollView
@@ -322,9 +273,9 @@ export default function NoticeDetailPage({
           )}
         </View>
 
-        {/* ===== 본문 ===== */}
+        {/* 본문 */}
         <View style={styles.body}>
-          <ProfileRow name={profileName} dept={profileDept} />
+          <ProfileRow name={ui.authorName} dept={ui.authorDept} />
 
           <View style={styles.divider} />
 
@@ -332,22 +283,15 @@ export default function NoticeDetailPage({
             <View style={[styles.badgeBase, badgeStyle]}>
               <Text style={styles.badgeText}>{badgeText}</Text>
             </View>
+
             <Text style={styles.title} numberOfLines={2}>
-              {item.title}
+              {ui.title}
             </Text>
 
-            {/* 우측 하트 토글 */}
+            {/* 우측 하트 */}
             <TouchableOpacity
               style={styles.heartBtn}
-              onPress={async () => {
-                const nextLiked = !liked;
-                await setLikedPersisted(nextLiked);
-                setItem((prev) => {
-                  if (!prev) return prev;
-                  const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));
-                  return { ...prev, likeCount: nextCount };
-                });
-              }}
+              onPress={() => setLikedPersisted(!liked)}
               accessibilityRole="button"
               accessibilityLabel="좋아요"
             >
@@ -362,29 +306,23 @@ export default function NoticeDetailPage({
             </TouchableOpacity>
           </View>
 
-          {/* 기간 */}
-          {!!item.termText && (
-            <Text style={styles.term} numberOfLines={1}>
-              {item.termText}
-            </Text>
-          )}
-          {!!item.timeAgoText && <Text style={styles.timeAgo}>{item.timeAgoText}</Text>}
+          {/* 기간 / 등록시점 */}
+          {!!ui.termText && <Text style={styles.term} numberOfLines={1}>{ui.termText}</Text>}
+          {!!ui.timeAgoText && <Text style={styles.timeAgo}>{ui.timeAgoText}</Text>}
 
           {/* 본문 */}
-          {!!item.description && (
+          {!!ui.description && (
             <View style={styles.descCard}>
-              <Text style={styles.descText}>{item.description}</Text>
+              <Text style={styles.descText}>{ui.description}</Text>
             </View>
           )}
 
           {/* 신청 링크 */}
-          {!!item.link && (
+          {!!ui.link && (
             <View style={{ marginTop: 16 }}>
               <Text style={styles.sectionLabel}>신청 링크</Text>
               <TouchableOpacity onPress={onPressOpenLink} activeOpacity={0.8}>
-                <Text style={styles.linkText} numberOfLines={2}>
-                  {item.link}
-                </Text>
+                <Text style={styles.linkText} numberOfLines={2}>{ui.link}</Text>
               </TouchableOpacity>
             </View>
           )}

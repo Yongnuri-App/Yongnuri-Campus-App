@@ -9,6 +9,10 @@ type Props = {
   timeAgoText: string;   // "34분 전" 등
   status: 'open' | 'closed'; // 모집중 / 모집마감
   image?: string;        // ✅ 썸네일 URI (로컬 file:// 또는 http(s)://)
+
+  /** ✅ 검색 결과에서만 하단 배지로 사용 (중고거래 카드와 동일 레이아웃) */
+  bottomTag?: string;
+
   onPress?: (id: string) => void;
 };
 
@@ -20,6 +24,7 @@ export default function NoticeItem({
   status,
   image,
   onPress,
+  bottomTag,
 }: Props) {
   const badgeText = status === 'closed' ? '모집마감' : '모집중';
   const badgeStyle = status === 'closed' ? styles.badgeClosed : styles.badgeOpen;
@@ -54,6 +59,13 @@ export default function NoticeItem({
 
         <Text style={styles.timeAgo}>{timeAgoText}</Text>
       </View>
+
+      {/* ✅ 하단 배지(검색 결과에서만 표시) */}
+      {bottomTag ? (
+        <View className="bottomTagBox" style={styles.bottomTagBox}>
+          <Text style={styles.bottomTagText}>{bottomTag}</Text>
+        </View>
+      ) : null}
     </TouchableOpacity>
   );
 }

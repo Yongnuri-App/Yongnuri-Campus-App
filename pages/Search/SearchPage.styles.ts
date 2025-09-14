@@ -1,3 +1,4 @@
+// pages/Search/SearchPage.styles.ts
 import { StyleSheet } from 'react-native';
 
 export default StyleSheet.create({
@@ -74,17 +75,5 @@ export default StyleSheet.create({
     width: 15,
     height: 15,
     tintColor: '#979797',
-  },
-  resultBadgeBox: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    height: 28,
-    backgroundColor: '#F2F3F6',
-    justifyContent: 'center',
-  },
-  resultBadgeText: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '600',
   },
 });

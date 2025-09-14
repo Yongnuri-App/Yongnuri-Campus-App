@@ -1,3 +1,4 @@
+// pages/Admin/NoticeCreate/NoticeCreatePage.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CommonActions, useRoute, RouteProp, useNavigation } from '@react-navigation/native';
@@ -11,11 +12,12 @@ import {
   View,
   Image,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+
 import type { RootStackParamList } from '../../../types/navigation';
 import PhotoPicker from '../../../components/PhotoPicker/PhotoPicker';
 import DatePickerSheet from '../../../components/TimePicker/DatePickerSheet';
 import styles from './NoticeCreatePage.styles';
+import { useImagePicker } from '../../../hooks/useImagePicker';
 
 type NoticeWriteRoute = RouteProp<RootStackParamList, 'AdminNoticeCreate' | 'NoticeWrite'>;
 
@@ -24,14 +26,17 @@ const MAX = 10;
 
 export default function NoticeCreatePage() {
   const route = useRoute<NoticeWriteRoute>();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
 
   // NoticeWrite에서만 mode/id 파라미터가 있음
   const isNoticeWrite = route.name === 'NoticeWrite';
   const mode = isNoticeWrite ? route.params?.mode ?? 'create' : 'create';
   const editId = isNoticeWrite ? route.params?.id : undefined;
 
-  const [images, setImages] = useState<string[]>([]);
+  // ✅ 이미지: 재사용 훅 사용 (UI는 PhotoPicker가 처리)
+  const { images, setImages, openAdd, removeAt } = useImagePicker({ max: MAX });
+
+  // 폼 상태
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [applyUrl, setApplyUrl] = useState('');
@@ -51,7 +56,7 @@ export default function NoticeCreatePage() {
         setTitle(found.title ?? '');
         setDesc(found.description ?? '');
         setApplyUrl(found.applyUrl ?? '');
-        setImages(found.images ?? []);
+        setImages(Array.isArray(found.images) ? found.images : []);
         if (found.endDate) {
           setApplyDate(new Date(found.endDate));
         }
@@ -59,31 +64,7 @@ export default function NoticeCreatePage() {
         console.log('공지 수정 로드 오류', e);
       }
     })();
-  }, [mode, editId]);
-
-  // 이미지 추가/삭제
-  const openAdd = useCallback(async () => {
-    if (images.length >= MAX) {
-      Alert.alert('알림', '이미지는 최대 10장까지 등록할 수 있어요.');
-      return;
-    }
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('권한 필요', '사진 라이브러리 접근 권한이 필요합니다.');
-      return;
-    }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.85,
-    });
-    if (!res.canceled && res.assets?.[0]?.uri) {
-      setImages((prev) => [...prev, res.assets[0].uri].slice(0, MAX));
-    }
-  }, [images.length]);
-
-  const removeAt = useCallback((index: number) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  }, [mode, editId, setImages]);
 
   // 날짜 유틸
   const now = useMemo(() => new Date(), []);
@@ -101,7 +82,7 @@ export default function NoticeCreatePage() {
   );
 
   // 등록/수정 저장
-  const submit = async () => {
+  const submit = useCallback(async () => {
     if (!canSubmit) {
       Alert.alert('알림', '제목과 설명을 입력해주세요.');
       return;
@@ -160,7 +141,7 @@ export default function NoticeCreatePage() {
       console.log(e);
       Alert.alert('오류', e?.message ?? '저장에 실패했어요. 잠시 후 다시 시도해주세요.');
     }
-  };
+  }, [canSubmit, images, title, desc, applyUrl, applyDate, mode, editId, navigation, setImages]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -181,7 +162,12 @@ export default function NoticeCreatePage() {
       >
         {/* 사진 */}
         <Text style={styles.label}>사진</Text>
-        <PhotoPicker images={images} max={MAX} onAddPress={openAdd} onRemoveAt={removeAt} />
+        <PhotoPicker
+          images={images}
+          max={MAX}
+          onAddPress={openAdd}     // ✅ 훅에서 제공
+          onRemoveAt={removeAt}    // ✅ 훅에서 제공
+        />
 
         {/* 제목 */}
         <Text style={styles.label}>제목</Text>
@@ -229,7 +215,7 @@ export default function NoticeCreatePage() {
           keyboardType="url"
         />
 
-        {/* 작성 완료 */}
+        {/* 작성/수정 완료 */}
         <TouchableOpacity
           style={[styles.submitBtn, !canSubmit && styles.submitBtnDisabled]}
           onPress={submit}

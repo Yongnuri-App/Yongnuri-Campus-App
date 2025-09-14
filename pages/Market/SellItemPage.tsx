@@ -146,33 +146,28 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
       }
     : undefined;
 
-  const edit = useEditPost<MarketPost, any>(
-    isEdit
-      ? {
-          postId: editId!,
-          postsKey: POSTS_KEY,
-          adapters: marketAdapters as any,
-          onLoaded: (post) => {
-            // 폼 주입
-            setTitle(post.title ?? '');
-            setDesc(post.description ?? '');
-            setMode(post.mode ?? 'sell');
-            setPriceRaw(
-              post.mode === 'donate' ? '' : String(Number(post.price ?? 0))
-            );
-            setLocation(post.location ?? '');
-            if (post.images && post.images.length) {
-              setImages(post.images);
-            }
-          },
-          onSaved: (next) => {
-            // 상세 페이지 즉시 갱신 콜백(상세에서 넘겨준 onEdited가 있으면 실행)
-            route.params?.onEdited?.(next);
-          },
-        }
-      : // 생성 모드에서는 훅 동작 안 함
-        ({} as any)
-  );
+  // ✅ 핵심: enabled: isEdit (create 모드에선 훅이 동작하지 않음)
+  const edit = useEditPost<MarketPost, any>({
+    postId: editId ?? '',
+    postsKey: POSTS_KEY,
+    adapters: marketAdapters as any,
+    onLoaded: (post) => {
+      // 폼 주입
+      setTitle(post.title ?? '');
+      setDesc(post.description ?? '');
+      setMode(post.mode ?? 'sell');
+      setPriceRaw(post.mode === 'donate' ? '' : String(Number(post.price ?? 0)));
+      setLocation(post.location ?? '');
+      if (post.images && post.images.length) {
+        setImages(post.images);
+      }
+    },
+    onSaved: (next) => {
+      // 상세 페이지 즉시 갱신 콜백(상세에서 넘겨준 onEdited가 있으면 실행)
+      route.params?.onEdited?.(next);
+    },
+    enabled: isEdit,
+  });
 
   /** 폼 유효성 (작성/수정 버튼 활성/비활성) */
   const canSubmitCreate = useMemo(() => {
