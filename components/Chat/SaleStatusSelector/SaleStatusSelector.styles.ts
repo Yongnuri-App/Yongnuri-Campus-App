@@ -2,99 +2,78 @@ import { StyleSheet } from 'react-native';
 
 const COLORS = {
   text: '#1E1E1E',
-  border: '#D9D9D9',
   bg: '#FFFFFF',
-  backdrop: 'rgba(0,0,0,0.25)',
-  sheetBg: '#FFFFFF',
-  dot: '#D9D9D9',
-  dotActive: '#1E1E1E',
-  selectedBg: '#F5F5F5',
+  divider: '#D9D9D9',
+  backdrop: 'rgba(0,0,0,0.4)',
 };
 
 export default StyleSheet.create({
-  /* ===== 셀렉터 본체 ===== */
+  /* ===== 셀렉터 버튼 ===== */
   selector: {
-    // 피그마: 79×30 / 1px 보더 / 2px 라운드
-    width: 79,
+    width: 80,
     height: 30,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: COLORS.divider,
     borderRadius: 2,
     backgroundColor: COLORS.bg,
-
-    // 내부 컨텐츠 정렬(텍스트 왼쪽, 아이콘 오른쪽)
-    flexDirection: 'row',
+    flexDirection: 'row',       // 텍스트 + 아이콘 가로 정렬
     alignItems: 'center',
-    paddingHorizontal: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
   },
   selectorText: {
-    // 피그마: font-size: 11px, weight: 600, line-height: 14px
     fontSize: 12,
     fontWeight: '600',
-    lineHeight: 14,
     color: COLORS.text,
-    // 좌측 정렬 유지, 오른쪽 아이콘과 간격
-    flex: 1,
   },
   chevronIcon: {
-    width: 13,   // 필요에 따라 크기 조정
+    width: 13,
     height: 13,
-    marginLeft: 3,
+    marginLeft: 4,
   },
 
-  /* ===== 모달/시트 ===== */
+  /* ===== 모달 ===== */
   backdrop: {
     flex: 1,
     backgroundColor: COLORS.backdrop,
   },
-  sheet: {
+  sheetContainer: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 24,
-    borderRadius: 12,
-    backgroundColor: COLORS.sheetBg,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+  },
 
-    // 그림자 (iOS/Android 공통)
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+  /* ===== 옵션 카드 ===== */
+  optionCard: {
+    borderRadius: 12,
+    backgroundColor: COLORS.bg,
+    overflow: 'hidden',
+    marginBottom: 8,
   },
-  sheetTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 6,
-  },
-  optionRow: {
-    height: 44,
-    flexDirection: 'row',
+  optionBtn: {
+    height: 56,
     alignItems: 'center',
-    paddingHorizontal: 6,
-    borderRadius: 8,
+    justifyContent: 'center',
   },
-  optionRowSelected: {
-    backgroundColor: COLORS.selectedBg,
+  optionDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.divider,
   },
   optionText: {
-    fontSize: 14,
+    fontSize: 16,
     color: COLORS.text,
-    flex: 1,
   },
-  optionTextSelected: {
+
+  /* ===== 닫기 카드 ===== */
+  closeCard: {
+    borderRadius: 12,
+    backgroundColor: COLORS.bg,
+    overflow: 'hidden',
+  },
+  closeText: {
     fontWeight: '700',
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: COLORS.dot,
-  },
-  dotActive: {
-    backgroundColor: COLORS.dotActive,
   },
 });

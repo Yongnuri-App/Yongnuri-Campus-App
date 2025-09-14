@@ -8,9 +8,9 @@ import {
     View,
     ViewStyle,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import styles from './SaleStatusSelector.styles';
 
-/** 판매 상태 한글 라벨 타입 */
 export type SaleStatusLabel = '판매중' | '예약중' | '거래완료';
 
 type Props = {
@@ -20,7 +20,7 @@ type Props = {
   readOnly?: boolean;
 };
 
-const downIcon = require('../../../assets/images/down3.png'); 
+const downIcon = require('../../../assets/images/down3.png');
 
 export default function SaleStatusSelector({
   value,
@@ -35,10 +35,7 @@ export default function SaleStatusSelector({
     []
   );
 
-  const handleOpen = () => {
-    if (readOnly) return;
-    setOpen(true);
-  };
+  const insets = useSafeAreaInsets();
 
   const handleSelect = (next: SaleStatusLabel) => {
     setOpen(false);
@@ -49,45 +46,50 @@ export default function SaleStatusSelector({
     <View style={style}>
       {/* 본체 버튼 */}
       <TouchableOpacity
-        activeOpacity={0.8}
         style={styles.selector}
-        onPress={handleOpen}
+        activeOpacity={0.8}
         disabled={readOnly}
+        onPress={() => setOpen(true)}
       >
-        <Text style={styles.selectorText} numberOfLines={1}>
-          {value}
-        </Text>
+        {/* 현재 선택된 상태 텍스트 */}
+        <Text style={styles.selectorText}>{value}</Text>
 
-        {/* 아이콘 */}
-        <Image
-          source={downIcon}
-          style={styles.chevronIcon}
-          resizeMode="contain"
-        />
+        {/* ▼ 아이콘 */}
+        <Image source={downIcon} style={styles.chevronIcon} resizeMode="contain" />
       </TouchableOpacity>
 
-      {/* 드롭다운 모달 */}
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+      {/* 하단 액션시트 모달 */}
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOpen(false)}
+      >
         <Pressable style={styles.backdrop} onPress={() => setOpen(false)} />
-        <View style={styles.sheet}>
-          <Text style={styles.sheetTitle}>판매 상태 변경</Text>
 
-          {options.map((opt) => {
-            const selected = opt === value;
-            return (
+        <View style={[styles.sheetContainer, { paddingBottom: insets.bottom || 12 }]}>
+          {/* 옵션 카드 */}
+          <View style={styles.optionCard}>
+            {options.map((opt, idx) => (
               <TouchableOpacity
                 key={opt}
-                style={[styles.optionRow, selected && styles.optionRowSelected]}
+                style={[
+                  styles.optionBtn,
+                  idx < options.length - 1 && styles.optionDivider,
+                ]}
                 onPress={() => handleSelect(opt)}
-                activeOpacity={0.9}
               >
-                <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
-                  {opt}
-                </Text>
-                <View style={[styles.dot, selected && styles.dotActive]} />
+                <Text style={styles.optionText}>{opt}</Text>
               </TouchableOpacity>
-            );
-          })}
+            ))}
+          </View>
+
+          {/* 닫기 카드 */}
+          <View style={styles.closeCard}>
+            <TouchableOpacity style={styles.optionBtn} onPress={() => setOpen(false)}>
+              <Text style={[styles.optionText, styles.closeText]}>닫기</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </View>

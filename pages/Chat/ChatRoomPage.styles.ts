@@ -62,7 +62,7 @@ export default StyleSheet.create({
 
   /** 약속잡기 버튼 (기존) */
   scheduleBtn: {
-    width: 79,
+    width: 80,
     height: 30,
     borderWidth: 1,
     borderColor: COLORS.border,
