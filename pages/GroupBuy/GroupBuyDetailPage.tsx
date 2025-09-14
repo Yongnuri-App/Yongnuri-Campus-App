@@ -1,6 +1,6 @@
 // pages/GroupBuy/GroupBuyDetailPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect } from '@react-navigation/native'; // ✅ 복귀 시 리로드
+import { useFocusEffect } from '@react-navigation/native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -18,12 +18,13 @@ import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 import ProfileRow from '../../components/Profile/ProfileRow';
 import { useDeletePost } from '../../hooks/useDeletePost';
 import { useLike } from '../../hooks/useLike';
+import usePermissions from '../../hooks/usePermissions';
+import AdminActionSheet from '../../components/Modals/AdminActionSheet/AdminActionSheet';
 import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './GroupBuyDetailPage.styles';
 
 const POSTS_KEY = 'groupbuy_posts_v1';
 const LIKED_MAP_KEY = 'groupbuy_liked_map_v1';
-const AUTH_USER_ID_KEY = 'auth_user_id';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 type RecruitMode = 'unlimited' | 'limited' | null;
@@ -40,12 +41,12 @@ type GroupBuyPost = {
   images: string[];
   likeCount: number;
   createdAt: string; // ISO
-  authorId?: string;
+  authorId?: string | number;
+  authorEmail?: string | null;   // (있으면 훅에서도 활용 가능)
   authorName?: string;
   authorDept?: string;
 };
 
-/** 상대 시간 텍스트 */
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -65,8 +66,7 @@ export default function GroupBuyDetailPage({
 
   const [item, setItem] = useState<GroupBuyPost | null>(null);
   const [index, setIndex] = useState(0);
-  const [ownerMenuVisible, setOwnerMenuVisible] = useState(false);
-  const [myId, setMyId] = useState<string | null>(null);
+  const [menuVisible, setMenuVisible] = useState(false);
   const hScrollRef = useRef<ScrollView | null>(null);
 
   const { liked, syncCount, setLikedPersisted } = useLike({
@@ -87,33 +87,17 @@ export default function GroupBuyDetailPage({
     confirmCancelText: '취소',
   });
 
-  /** 내 ID 로드 */
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const stored = await AsyncStorage.getItem(AUTH_USER_ID_KEY);
-        if (mounted) setMyId(stored);
-      } catch (e) {
-        console.log('load my id error', e);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  /** 최초 진입 시 게시글 로드 */
+  /** 최초 로드 */
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(POSTS_KEY);
         const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
-        const found = list.find((p) => p.id === id) ?? null;
+        const found = list.find((p) => String(p.id) === String(id)) ?? null;
         if (!mounted) return;
-        setItem(found);
 
+        setItem(found);
         if (!found) {
           Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
             { text: '확인', onPress: () => navigation.goBack() },
@@ -134,7 +118,7 @@ export default function GroupBuyDetailPage({
     };
   }, [id, navigation, syncCount]);
 
-  /** ✅ 수정 후 돌아오면 최신 내용으로 다시 로드 */
+  /** 수정 후 복귀 시 리로드 */
   useFocusEffect(
     React.useCallback(() => {
       let mounted = true;
@@ -142,7 +126,7 @@ export default function GroupBuyDetailPage({
         try {
           const raw = await AsyncStorage.getItem(POSTS_KEY);
           const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
-          const found = list.find((p) => p.id === id) ?? null;
+          const found = list.find((p) => String(p.id) === String(id)) ?? null;
           if (!mounted) return;
           setItem(found);
           if (found) syncCount(found.likeCount ?? 0);
@@ -157,42 +141,32 @@ export default function GroupBuyDetailPage({
     }, [id, syncCount])
   );
 
-  /** 소유자 여부 판단 */
-  const isOwner = useMemo(() => {
-    const p = (route.params as any)?.isOwner;
-    if (typeof p === 'boolean') return p;
-    if (typeof p === 'string') return p === 'true' || p === '1';
-    if (typeof p === 'number') return p === 1;
-    if (item?.authorId && myId) return item.authorId === myId;
-    return false;
-  }, [route.params, item?.authorId, myId]);
+  /** 권한 파생(관리자/소유자). 관리자 우선 정책은 모달에서 showEdit로 제어 */
+  const { isAdmin, isOwner } = usePermissions({
+    authorId: item?.authorId,
+    authorEmail: item?.authorEmail ?? null,
+    routeParams: route.params,
+  });
 
   const timeText = useMemo(() => (item ? timeAgo(item.createdAt) : ''), [item]);
 
-  // 🔹 프로필 정보(백 연동 전 임시 기본값 포함)
-  const profileName = item?.authorName ?? '채히';
+  const profileName = item?.authorName ?? '채희';
   const profileDept = item?.authorDept ?? 'AI학부';
 
-  // 🔹 모집 인원 레이블(제한 없음/숫자)
   const recruitLabel =
     item?.recruit?.mode === 'unlimited' ? '제한 없음' : `${item?.recruit?.count ?? 0}명`;
+  const currentCount = 0; // TODO: API 연동 시 실제 현재 인원으로 대체
 
-  // 🔹 현재 인원 (백 연동되면 API 값으로 대체)
-  const currentCount = 0;
-
-  /** 상단 이미지 페이징 인덱스 계산 */
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  /** 신고하기 이동 */
   const onPressReport = () => {
     const targetLabel = `${profileDept} - ${profileName}`;
     navigation.navigate('Report', { targetLabel });
   };
 
-  /** 외부 신청 링크 이동 */
   const onPressApply = () => {
     if (!item?.applyLink) {
       Alert.alert('안내', '신청 링크가 없습니다.');
@@ -213,26 +187,32 @@ export default function GroupBuyDetailPage({
   }
 
   const images = Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
-
-  const openOwnerMenu = () => setOwnerMenuVisible(true);
-  const closeOwnerMenu = () => setOwnerMenuVisible(false);
-
-  /** ✅ 수정 버튼: Recruit 페이지를 edit 모드로 재활용 */
-  const onOwnerEdit = () => {
-    closeOwnerMenu();
-    navigation.navigate('GroupBuyRecruit', { mode: 'edit', id });
-  };
-
-  const onOwnerDelete = async () => {
-    closeOwnerMenu();
-    await confirmAndDelete();
-  };
-
-  /** ✅ 채팅 상단 보조 라벨(가격/위치 대체)로 사용할 "모집 인원" 한 줄 문구 */
+  const thumbUri = images.length > 0 ? images[0] : undefined;
   const recruitText = `현재 모집 인원 ${currentCount}명 (${recruitLabel})`;
 
-  /** ✅ 채팅 상단 썸네일로 사용할 첫 이미지(없으면 undefined) */
-  const thumbUri = images.length > 0 ? images[0] : undefined;
+  /** 우상단 버튼: 관리자/소유자 ⇒ 옵션(모달), 일반 ⇒ 신고 */
+  const RightTopButton = () =>
+    isAdmin || isOwner ? (
+      <TouchableOpacity
+        style={[styles.iconBtn, styles.iconRightTop]}
+        onPress={() => setMenuVisible(true)}
+        accessibilityRole="button"
+        accessibilityLabel="게시글 옵션"
+        activeOpacity={0.9}
+      >
+        <Image source={require('../../assets/images/tab.png')} style={styles.icon} />
+      </TouchableOpacity>
+    ) : (
+      <TouchableOpacity
+        style={[styles.iconBtn, styles.iconRightTop]}
+        onPress={onPressReport}
+        accessibilityRole="button"
+        accessibilityLabel="신고하기"
+        activeOpacity={0.9}
+      >
+        <Image source={require('../../assets/images/alert_white.png')} style={styles.icon} />
+      </TouchableOpacity>
+    );
 
   return (
     <View style={styles.container}>
@@ -274,28 +254,8 @@ export default function GroupBuyDetailPage({
             <Image source={require('../../assets/images/back_white.png')} style={styles.icon} />
           </TouchableOpacity>
 
-          {/* 우상단: 신고 or 소유자 메뉴 버튼 */}
-          {!isOwner ? (
-            <TouchableOpacity
-              style={[styles.iconBtn, styles.iconRightTop]}
-              onPress={onPressReport}
-              accessibilityRole="button"
-              accessibilityLabel="신고하기"
-              activeOpacity={0.9}
-            >
-              <Image source={require('../../assets/images/alert_white.png')} style={styles.icon} />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[styles.iconBtn, styles.iconRightTop]}
-              onPress={openOwnerMenu}
-              accessibilityRole="button"
-              accessibilityLabel="게시글 옵션"
-              activeOpacity={0.9}
-            >
-              <Image source={require('../../assets/images/tab.png')} style={styles.icon} />
-            </TouchableOpacity>
-          )}
+          {/* 우상단: 역할별 버튼 */}
+          <RightTopButton />
 
           {/* 우하단: 인디케이터 */}
           <View style={styles.counterPill}>
@@ -303,33 +263,6 @@ export default function GroupBuyDetailPage({
               {images.length > 0 ? `${index + 1} / ${images.length}` : '0 / 0'}
             </Text>
           </View>
-
-          {/* 소유자 옵션 모달 */}
-          {isOwner && ownerMenuVisible && (
-            <>
-              <TouchableOpacity
-                style={styles.ownerDim}
-                activeOpacity={1}
-                onPress={closeOwnerMenu}
-              />
-              <View style={styles.ownerMenuCard}>
-                <TouchableOpacity
-                  onPress={onOwnerEdit}
-                  style={styles.ownerMenuItem}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.ownerMenuText}>수정</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={onOwnerDelete}
-                  style={styles.ownerMenuItem}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.ownerMenuTextDanger}>삭제</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
         </View>
 
         {/* ===== 본문 ===== */}
@@ -348,9 +281,7 @@ export default function GroupBuyDetailPage({
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.recruitLine}>
-            현재 모집 인원 {currentCount}명 ({recruitLabel})
-          </Text>
+          <Text style={styles.recruitLine}>{recruitText}</Text>
 
           <Text style={styles.time}>{timeText}</Text>
 
@@ -371,27 +302,45 @@ export default function GroupBuyDetailPage({
         </View>
       </ScrollView>
 
-      {/* ===== 하단 바: 전송 시 채팅방으로 이동 (공동구매 파라미터 전달) ===== */}
-      <DetailBottomBar
-        initialLiked={liked}
-        onToggleLike={async (nextLiked) => {
-          await setLikedPersisted(nextLiked);
-          setItem((prev) => {
-            if (!prev) return prev;
-            const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));
-            return { ...prev, likeCount: nextCount };
-          });
-        }}
-        // ❗ onPressSend를 따로 넘기지 않으면, DetailBottomBar가 chatAutoNavigateParams로 자동 네비게이션
-        chatAutoNavigateParams={{
-          source: 'groupbuy',
-          postId: id,
-          authorNickname: profileName,
-          postTitle: item.title,
-          recruitLabel: recruitText,   // 가격/위치 대신 채팅 헤더 보조 라벨로 표시
-          postImageUri: thumbUri,      // 썸네일(옵션)
-        }}
-      />
+      {/* ===== 하단 바: 전송 시 채팅방으로 이동 ===== */}
+      {!isOwner && (
+        <DetailBottomBar
+          initialLiked={liked}
+          onToggleLike={async (nextLiked) => {
+            await setLikedPersisted(nextLiked);
+            setItem((prev) => {
+              if (!prev) return prev;
+              const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));
+              return { ...prev, likeCount: nextCount };
+            });
+          }}
+          chatAutoNavigateParams={{
+            source: 'groupbuy',
+            postId: id,
+            authorNickname: profileName,
+            postTitle: item.title,
+            recruitLabel: recruitText,
+            postImageUri: thumbUri,
+          }}
+        />
+      )}
+
+      {/* ✅ 관리자/작성자 공통 옵션 모달
+          - 관리자: 삭제만 (showEdit=false)
+          - 작성자: 수정+삭제 (showEdit=true)
+          - 둘 다 해당돼도 정책상 관리자 우선 → showEdit={!isAdmin && isOwner}
+      */}
+      {(isAdmin || isOwner) && (
+        <AdminActionSheet
+          visible={menuVisible}
+          onClose={() => setMenuVisible(false)}
+          showEdit={!isAdmin && isOwner}
+          onEdit={() => navigation.navigate('GroupBuyRecruit', { mode: 'edit', id })}
+          onDelete={confirmAndDelete}
+          editLabel="수정"
+          deleteLabel="삭제"
+        />
+      )}
     </View>
   );
 }

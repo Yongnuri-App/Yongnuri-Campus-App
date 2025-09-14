@@ -19,6 +19,11 @@ const AUTH_STUDENT_ID_KEY = 'auth_student_id';
 const AUTH_NICKNAME_KEY = 'auth_user_nickname';
 const AUTH_TOKEN_KEY = 'auth_token'; // 예: 토큰/세션키가 있다면 함께 제거
 
+/** 닉네임 최대 글자 수 */
+const MAX_NICKNAME = 6;
+/** 이모지/합자 고려한 안전 자르기 */
+const clampNickname = (text: string) => Array.from(text).slice(0, MAX_NICKNAME).join('');
+
 export default function PersonalInfoPage() {
   const navigation = useNavigation<any>();
 
@@ -132,15 +137,15 @@ export default function PersonalInfoPage() {
         <Text style={styles.readonlyValue}>{studentId}</Text>
         <View style={styles.divider} />
 
-        {/* 닉네임 (수정 가능) */}
+        {/* 닉네임 (수정 가능, 최대 6자) */}
         <Text style={styles.fieldLabelMuted}>닉네임</Text>
         <TextInput
           value={nickname}
-          onChangeText={setNickname}
+          onChangeText={(t) => setNickname(clampNickname(t))}
           placeholder="닉네임을 입력하세요"
           placeholderTextColor="#BDBDBD"
           style={styles.input}
-          maxLength={20}
+          maxLength={MAX_NICKNAME}
           returnKeyType="done"
         />
 

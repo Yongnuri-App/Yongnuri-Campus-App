@@ -17,6 +17,9 @@ import styles from './SignUpPage.styles';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Signup'>;
 
+const MAX_NICKNAME = 6;
+const clampNickname = (text: string) => Array.from(text).slice(0, MAX_NICKNAME).join('');
+
 export default function SignUpPage({ navigation }: Props) {
   // ✅ 상태들
   const [email, setEmail] = useState('');
@@ -40,7 +43,8 @@ export default function SignUpPage({ navigation }: Props) {
   // ✅ 유효성 검사 함수들
   const isValidEmail = (value: string) => /\S+@\S+\.\S+/.test(value);
   const isValidCode = (value: string) => /^\d{6}$/.test(value);
-  const isPasswordValid = (value: string) => /^[A-Za-z0-9!@#$%^&*()_+{}\[\]:;<>,.?/~\\-]{8,}$/.test(value);
+  const isPasswordValid = (value: string) =>
+    /^[A-Za-z0-9!@#$%^&*()_+{}\[\]:;<>,.?/~\\-]{8,}$/.test(value);
 
   useEffect(() => {
     const filled =
@@ -49,6 +53,7 @@ export default function SignUpPage({ navigation }: Props) {
       name.trim() !== '' &&
       department.trim() !== '' &&
       nickname.trim() !== '' &&
+      nickname.length <= MAX_NICKNAME &&
       isPasswordValid(password) &&
       password === passwordCheck;
 
@@ -66,11 +71,18 @@ export default function SignUpPage({ navigation }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <ScrollView contentContainerStyle={styles.inner}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Image source={require('../../assets/images/back.png')} style={styles.backIcon} resizeMode="contain" />
+            <Image
+              source={require('../../assets/images/back.png')}
+              style={styles.backIcon}
+              resizeMode="contain"
+            />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>회원가입</Text>
         </View>
@@ -88,7 +100,9 @@ export default function SignUpPage({ navigation }: Props) {
             onSubmitEditing={() => codeRef.current?.focus()}
             blurOnSubmit={false}
           />
-          <TouchableOpacity style={styles.subButton}><Text style={styles.subButtonText}>인증요청</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.subButton}>
+            <Text style={styles.subButtonText}>인증요청</Text>
+          </TouchableOpacity>
         </View>
 
         <Text style={styles.label}>인증번호</Text>
@@ -104,7 +118,9 @@ export default function SignUpPage({ navigation }: Props) {
             onSubmitEditing={() => nameRef.current?.focus()}
             blurOnSubmit={false}
           />
-          <TouchableOpacity style={styles.subButton}><Text style={styles.subButtonText}>인증확인</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.subButton}>
+            <Text style={styles.subButtonText}>인증확인</Text>
+          </TouchableOpacity>
         </View>
 
         <Text style={styles.sectionTitle}>필수정보입력</Text>
@@ -131,13 +147,14 @@ export default function SignUpPage({ navigation }: Props) {
           onSubmitEditing={() => nickRef.current?.focus()}
         />
 
-        <Text style={styles.label}>닉네임</Text>
+        <Text style={styles.label}>닉네임 (최대 6자)</Text>
         <TextInput
           ref={nickRef}
           style={styles.input}
           placeholder="닉네임"
           value={nickname}
-          onChangeText={setNickname}
+          onChangeText={(t) => setNickname(clampNickname(t))}
+          maxLength={MAX_NICKNAME}
           returnKeyType="next"
           onSubmitEditing={() => passRef.current?.focus()}
         />
@@ -165,16 +182,27 @@ export default function SignUpPage({ navigation }: Props) {
             onChangeText={setPasswordCheck}
           />
           {passwordCheck.length > 0 && passwordCheck === password && (
-            <Image source={require('../../assets/images/correct.png')} style={styles.correctIcon} resizeMode="contain" />
+            <Image
+              source={require('../../assets/images/correct.png')}
+              style={styles.correctIcon}
+              resizeMode="contain"
+            />
           )}
         </View>
 
         <TouchableOpacity
-          style={[styles.signUpButton, { backgroundColor: isFormValid && !loading ? '#0035A4' : '#ccc' }]}
+          style={[
+            styles.signUpButton,
+            { backgroundColor: isFormValid && !loading ? '#0035A4' : '#ccc' },
+          ]}
           disabled={!isFormValid || loading}
           onPress={handleSignUp}
         >
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.signUpButtonText}>회원가입</Text>}
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.signUpButtonText}>회원가입</Text>
+          )}
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>

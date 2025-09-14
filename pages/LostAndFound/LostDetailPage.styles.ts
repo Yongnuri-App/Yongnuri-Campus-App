@@ -1,3 +1,4 @@
+// pages/LostAndFound/LostDetailPage.styles.ts
 import { Dimensions, StyleSheet } from 'react-native';
 const { width } = Dimensions.get('window');
 
@@ -8,7 +9,7 @@ export default StyleSheet.create({
   /* ===== 상단 이미지 ===== */
   imageArea: {
     width: '100%',
-    height: 390,                 // 피그마 스펙
+    height: 390,
     backgroundColor: '#D9D9D9',
   },
   mainImage: {
@@ -47,13 +48,6 @@ export default StyleSheet.create({
   /* ===== 본문 ===== */
   body: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 16 },
 
-  /* 임시 프로필 */
-  profileRow: { flexDirection: 'row', alignItems: 'center', height: 53 },
-  avatar: { width: 53, height: 53, borderRadius: 26.5, backgroundColor: '#D9D9D9' },
-  profileTextCol: { marginLeft: 9, justifyContent: 'center' },
-  profileName: { fontSize: 16, fontWeight: '700', color: '#1E1E1E', lineHeight: 23 },
-  profileDept: { fontSize: 12, fontWeight: '400', color: '#979797', lineHeight: 17 },
-
   divider: { height: 1, backgroundColor: '#EDEDED', marginTop: 16, marginBottom: 12 },
 
   /* 뱃지 + 제목 */
@@ -83,44 +77,4 @@ export default StyleSheet.create({
   /* 로딩 */
   fallback: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },
   fallbackText: { color: '#797979' },
-
-  /* ===== (추가) 오너 메뉴 오버레이 ===== */
-  ownerDim: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    right: 0,
-    bottom: 0,
-    // (기존 인라인과 동일: zIndex 지정 없음, 렌더 순서로 카드가 위에 위치)
-  },
-  ownerMenuCard: {
-    position: 'absolute',
-    right: 12,
-    top: 55 + 28,                 // 기존 인라인과 동일 값
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingVertical: 6,
-    // iOS/Android 그림자: 기존 elevation/shadow 그대로
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
-    zIndex: 20,                   // 기존 인라인과 동일
-  },
-  ownerMenuItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  ownerMenuText: {
-    fontSize: 14,
-    color: '#1E1E1E',
-  },
-  ownerMenuTextDanger: {
-    fontSize: 14,
-    color: '#D32F2F',
-    fontWeight: '700',
-  },
 });

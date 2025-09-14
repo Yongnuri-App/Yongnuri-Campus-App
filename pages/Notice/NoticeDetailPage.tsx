@@ -18,12 +18,13 @@ import {
 import ProfileRow from '../../components/Profile/ProfileRow';
 import { useDeletePost } from '../../hooks/useDeletePost';
 import { useLike } from '../../hooks/useLike';
+import usePermissions from '../../hooks/usePermissions';
+import AdminActionSheet from '../../components/Modals/AdminActionSheet/AdminActionSheet';
 import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './NoticeDetailPage.styles';
 
 const POSTS_KEY = 'notice_posts_v1';
 const LIKED_MAP_KEY = 'notice_liked_map_v1';
-const AUTH_IS_ADMIN_KEY = 'auth_is_admin';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 type StoredNotice = {
@@ -89,7 +90,7 @@ export default function NoticeDetailPage({
 }: RootStackScreenProps<'NoticeDetail'>) {
   const { id } = route.params;
 
-  /** 좋아요 훅을 먼저 선언 (load에서 syncCount 사용하므로) */
+  /** 좋아요 훅 (syncCount를 load 내부에서 호출하므로 먼저 선언) */
   const { liked, syncCount, setLikedPersisted } = useLike({
     itemId: id,
     likedMapKey: LIKED_MAP_KEY,
@@ -97,25 +98,8 @@ export default function NoticeDetailPage({
     initialCount: 0,
   });
 
-  /** 관리자 여부 */
-  const [isAdmin, setIsAdmin] = useState(false);
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const adminFlag = await AsyncStorage.getItem(AUTH_IS_ADMIN_KEY);
-        const paramAdmin = (route.params as any)?.isAdmin;
-        const derived =
-          typeof paramAdmin === 'boolean'
-            ? paramAdmin
-            : adminFlag === 'true' || adminFlag === '1';
-        if (mounted) setIsAdmin(!!derived);
-      } catch {
-        // no-op
-      }
-    })();
-    return () => { mounted = false; };
-  }, [route.params]);
+  /** 공지는 “관리자만 수정/삭제” 정책 → author 정보 없이도 OK */
+  const { isAdmin } = usePermissions({ routeParams: route.params });
 
   /** 글 로드 */
   const [post, setPost] = useState<StoredNotice | null>(null);
@@ -131,7 +115,6 @@ export default function NoticeDetailPage({
         return;
       }
       setPost(found);
-      // 좋아요 카운트 동기화
       syncCount(found.likeCount ?? 0);
     } catch {
       Alert.alert('오류', '공지사항을 불러오지 못했어요.', [
@@ -143,7 +126,7 @@ export default function NoticeDetailPage({
   useEffect(() => { load(); }, [load]);
   useFocusEffect(React.useCallback(() => { load(); }, [load]));
 
-  /** 삭제 훅(관리자만 메뉴 노출) */
+  /** 삭제 훅 */
   const { confirmAndDelete } = useDeletePost({
     postId: id,
     postsKey: POSTS_KEY,
@@ -165,18 +148,8 @@ export default function NoticeDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  /** 관리자 옵션 */
+  /** 관리자 모달 상태 */
   const [adminMenuVisible, setAdminMenuVisible] = useState(false);
-  const openAdminMenu = () => setAdminMenuVisible(true);
-  const closeAdminMenu = () => setAdminMenuVisible(false);
-  const onAdminEdit = () => {
-    closeAdminMenu();
-    navigation.navigate('NoticeWrite', { mode: 'edit', id });
-  };
-  const onAdminDelete = async () => {
-    closeAdminMenu();
-    await confirmAndDelete();
-  };
 
   /** 링크 열기 */
   const onPressOpenLink = useCallback(() => {
@@ -241,7 +214,7 @@ export default function NoticeDetailPage({
           {isAdmin && (
             <TouchableOpacity
               style={[styles.iconBtn, styles.iconRightTop]}
-              onPress={openAdminMenu}
+              onPress={() => setAdminMenuVisible(true)}
               accessibilityRole="button"
               accessibilityLabel="공지 옵션"
               activeOpacity={0.9}
@@ -256,21 +229,6 @@ export default function NoticeDetailPage({
               {images.length > 0 ? `${index + 1} / ${images.length}` : '0 / 0'}
             </Text>
           </View>
-
-          {/* 관리자 옵션 모달 */}
-          {isAdmin && adminMenuVisible && (
-            <>
-              <TouchableOpacity style={styles.ownerDim} activeOpacity={1} onPress={closeAdminMenu} />
-              <View style={styles.ownerMenuCard}>
-                <TouchableOpacity onPress={onAdminEdit} style={styles.ownerMenuItem} activeOpacity={0.8}>
-                  <Text style={styles.ownerMenuText}>수정</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={onAdminDelete} style={styles.ownerMenuItem} activeOpacity={0.8}>
-                  <Text style={styles.ownerMenuTextDanger}>삭제</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
         </View>
 
         {/* 본문 */}
@@ -284,9 +242,7 @@ export default function NoticeDetailPage({
               <Text style={styles.badgeText}>{badgeText}</Text>
             </View>
 
-            <Text style={styles.title} numberOfLines={2}>
-              {ui.title}
-            </Text>
+            <Text style={styles.title} numberOfLines={2}>{ui.title}</Text>
 
             {/* 우측 하트 */}
             <TouchableOpacity
@@ -330,6 +286,17 @@ export default function NoticeDetailPage({
           <View style={{ height: 24 }} />
         </View>
       </ScrollView>
+
+      {/* 관리자 전용 액션시트: 공지는 수정+삭제 */}
+      <AdminActionSheet
+        visible={isAdmin && adminMenuVisible}
+        onClose={() => setAdminMenuVisible(false)}
+        showEdit
+        onEdit={() => navigation.navigate('NoticeWrite', { mode: 'edit', id })}
+        onDelete={confirmAndDelete}
+        editLabel="수정"
+        deleteLabel="삭제"
+      />
     </View>
   );
 }
