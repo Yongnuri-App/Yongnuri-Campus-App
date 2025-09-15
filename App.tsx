@@ -1,4 +1,3 @@
-// App.tsx
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React from 'react';
@@ -30,23 +29,26 @@ import BlockedUsersPage from './pages/My/BlockedUsers/BlockedUsersPage';
 import TradeHistoryPage from './pages/My/TradeHistory/TradeHistoryPage';
 import InquiryPage from './pages/My/Inquiry/InquiryPage';
 import WithdrawPage from './pages/My/Withdraw/WithdrawPage';
-import AdminNoticeCreatePage from './pages/Admin/NoticeCreate/NoticeCreatePage';
 
 // ✅ 관리자 페이지(바로 화면으로 등록)
 import AdminPage from './pages/Admin/AdminPage/AdminPage';
 
-// ✅ 공지 상세 페이지 추가
+// ✅ 공지 상세 + 작성/수정
+import AdminNoticeCreatePage from './pages/Admin/NoticeCreate/NoticeCreatePage';
 import NoticeDetailPage from './pages/Notice/NoticeDetailPage';
+
+// ✅ [관리자] 문의하기 공지 설정 페이지
+import InquiryNoticeSettingPage from './pages/Admin/InquiryNoticeSetting/InquiryNoticeSettingPage';
+
+// ✅ [관리자] 회원 정보 목록 페이지 (새로 추가)
+import MemberListPage from './pages/Admin/MemberList/MemberListPage';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   return (
     <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName="Loading"
-        screenOptions={{ headerShown: false }}
-      >
+      <Stack.Navigator initialRouteName="Loading" screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Loading" component={LoadingScreen} />
         <Stack.Screen name="Login" component={LoginPage} />
         <Stack.Screen name="Signup" component={SignUpPage} />
@@ -77,14 +79,19 @@ export default function App() {
         <Stack.Screen name="MyInquiry" component={InquiryPage} />
         <Stack.Screen name="MyWithdraw" component={WithdrawPage} />
 
-        {/* ✅ 공지 상세 + 작성/수정 */}
+        {/* 공지 상세 + 작성/수정 */}
         <Stack.Screen name="NoticeDetail" component={NoticeDetailPage} />
-        {/* 기존 관리자 공지 작성 화면을 NoticeWrite 별칭으로도 등록 */}
         <Stack.Screen name="AdminNoticeCreate" component={AdminNoticeCreatePage} />
         <Stack.Screen name="NoticeWrite" component={AdminNoticeCreatePage} />
 
-        {/* ✅ 관리자 게이트 */}
+        {/* 관리자 게이트 */}
         <Stack.Screen name="AdminGate" component={AdminPage} />
+
+        {/* ✅ 관리자: 문의하기 공지 설정 */}
+        <Stack.Screen name="AdminInquiryNotice" component={InquiryNoticeSettingPage} />
+
+        {/* ✅ 관리자: 회원 정보 목록 */}
+        <Stack.Screen name="AdminMemberList" component={MemberListPage} />
       </Stack.Navigator>
     </NavigationContainer>
   );

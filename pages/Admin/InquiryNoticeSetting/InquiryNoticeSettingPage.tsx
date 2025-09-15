@@ -1,0 +1,140 @@
+// [관리자] 문의하기 공지 설정 페이지
+// - InquiryPage 가 사용하는 키('admin_inquiry_notice_v1')에 내용을 저장/갱신
+// - 저장(완료) 시 goBack()
+// - 헤더/입력 영역/완료 버튼으로 단순 구성
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useEffect, useState } from 'react';
+import {
+  Alert,
+  Image,
+  Keyboard,
+  SafeAreaView,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import styles from './InquiryNoticeSettingPage.styles';
+
+// ✅ InquiryPage 와 동일 키 사용 (연동 포인트)
+const ADMIN_INQUIRY_NOTICE_KEY = 'admin_inquiry_notice_v1';
+
+// 기본 안내 문구(키가 비어있을 때 한 번 표시됨)
+const DEFAULT_NOTICE =
+  '채팅 가능 시간은 09:00 ~ 18:00 시입니다.\n이 공지 영역은 관리자 페이지에서 설정 가능합니다.';
+
+export default function InquiryNoticeSettingPage() {
+  const navigation = useNavigation<any>();
+
+  const [text, setText] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(true);
+  const canSave = text.trim().length > 0;
+
+  // 최초 로드: 저장된 공지 불러오기(없으면 기본값)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(ADMIN_INQUIRY_NOTICE_KEY);
+        if (!mounted) return;
+        setText((saved && saved.trim()) ? saved : DEFAULT_NOTICE);
+      } catch {
+        if (!mounted) return;
+        setText(DEFAULT_NOTICE);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const onPressBack = () => {
+    Keyboard.dismiss();
+    navigation.goBack();
+  };
+
+  const onPressSave = async () => {
+    const value = text.trim();
+    if (!value) {
+      Alert.alert('안내', '공지 내용을 입력해주세요.');
+      return;
+    }
+    try {
+      await AsyncStorage.setItem(ADMIN_INQUIRY_NOTICE_KEY, value);
+      Alert.alert('완료', '문의하기 공지가 저장됐어요.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    } catch {
+      Alert.alert('오류', '저장에 실패했어요. 잠시 후 다시 시도해주세요.');
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* 상단 상태 영역 여백 */}
+      <View style={styles.statusBar} />
+
+      {/* 헤더 */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={onPressBack}
+          style={styles.backBtn}
+          accessibilityRole="button"
+          accessibilityLabel="뒤로가기"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Image source={require('../../../assets/images/back.png')} style={styles.backIcon} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>문의하기 공지</Text>
+        {/* 우측 공간 채움(정렬용) */}
+        <View style={{ width: 24 }} />
+      </View>
+
+      {/* 본문 */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.contentContainer}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 공지 입력 카드 */}
+        <View style={styles.noticeCard}>
+          <Image
+            source={require('../../../assets/images/campaign.png')}
+            style={styles.noticeIcon}
+            resizeMode="contain"
+          />
+          <TextInput
+            value={text}
+            onChangeText={setText}
+            placeholder="문의하기 상단에 노출될 공지를 입력하세요."
+            placeholderTextColor="#9CA3AF"
+            style={styles.noticeInput}
+            multiline
+            editable={!loading}
+            textAlignVertical="top"
+          />
+        </View>
+
+        <View style={{ height: 24 }} />
+      </ScrollView>
+
+      {/* 하단 완료 버튼 */}
+      <View style={styles.footer}>
+        <TouchableOpacity
+          onPress={onPressSave}
+          activeOpacity={canSave ? 0.9 : 1}
+          style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
+          disabled={!canSave || loading}
+          accessibilityRole="button"
+          accessibilityLabel="완료"
+        >
+          <Text style={styles.saveBtnText}>완료</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+}

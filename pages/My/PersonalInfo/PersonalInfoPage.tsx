@@ -1,3 +1,4 @@
+// pages/My/PersonalInfo/PersonalInfoPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -13,33 +14,32 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import styles from './PersonalInfoPage.styles';
 
-/** 로그인/회원가입 시 저장해둔 키 (프로젝트에 맞게 필요 시 조정) */
 const AUTH_NAME_KEY = 'auth_user_name';
 const AUTH_STUDENT_ID_KEY = 'auth_student_id';
 const AUTH_NICKNAME_KEY = 'auth_user_nickname';
-const AUTH_TOKEN_KEY = 'auth_token'; // 예: 토큰/세션키가 있다면 함께 제거
+const AUTH_TOKEN_KEY = 'auth_token';
+const AUTH_EMAIL_KEY = 'auth_email';
 
-/** 닉네임 최대 글자 수 */
+const USERS_ALL_KEY = 'users_all_v1';
+
 const MAX_NICKNAME = 6;
-/** 이모지/합자 고려한 안전 자르기 */
 const clampNickname = (text: string) => Array.from(text).slice(0, MAX_NICKNAME).join('');
 
 export default function PersonalInfoPage() {
   const navigation = useNavigation<any>();
 
   const [name, setName] = useState('000');
-  const [studentId, setStudentId] = useState('202178010');
+  const [studentId, setStudentId] = useState(''); // 빈값 가능
   const [nickname, setNickname] = useState('');
-  const [originalNickname, setOriginalNickname] = useState(''); // 원래 닉네임 (비교용)
+  const [originalNickname, setOriginalNickname] = useState('');
+  const [email, setEmail] = useState('');
 
-  /** 초기 로드: 이름/학번/닉네임 불러오기 */
+  /** 초기 로드 */
   useEffect(() => {
     (async () => {
       try {
-        const [n, s, nn] = await Promise.all([
-          AsyncStorage.getItem(AUTH_NAME_KEY),
-          AsyncStorage.getItem(AUTH_STUDENT_ID_KEY),
-          AsyncStorage.getItem(AUTH_NICKNAME_KEY),
+        const [[, n], [, s], [, nn], [, em]] = await AsyncStorage.multiGet([
+          AUTH_NAME_KEY, AUTH_STUDENT_ID_KEY, AUTH_NICKNAME_KEY, AUTH_EMAIL_KEY,
         ]);
         if (n) setName(n);
         if (s) setStudentId(s);
@@ -49,48 +49,53 @@ export default function PersonalInfoPage() {
         } else {
           setOriginalNickname('');
         }
+        if (em) setEmail(em);
       } catch (e) {
         console.log('personal-info load error', e);
       }
     })();
   }, []);
 
-  /** 닉네임 저장 */
+  /** 닉네임 저장 (+ 유저DB 업데이트) */
   const onSave = async () => {
     try {
-      await AsyncStorage.setItem(AUTH_NICKNAME_KEY, nickname.trim());
+      const nextNick = nickname.trim();
+      await AsyncStorage.setItem(AUTH_NICKNAME_KEY, nextNick);
+
+      // 로컬 유저DB 업데이트
+      const raw = await AsyncStorage.getItem(USERS_ALL_KEY);
+      const arr = raw ? (JSON.parse(raw) as any[]) : [];
+      const idx = arr.findIndex(u => u.email?.toLowerCase() === email.toLowerCase());
+      if (idx >= 0) {
+        arr[idx] = { ...arr[idx], nickname: nextNick };
+        await AsyncStorage.setItem(USERS_ALL_KEY, JSON.stringify(arr));
+      }
+
       Alert.alert('완료', '닉네임이 저장되었습니다.');
-      // 저장 후 원본 기준도 갱신 → 버튼 색상 원복
-      setOriginalNickname(nickname.trim());
+      setOriginalNickname(nextNick);
     } catch (e) {
       console.error('닉네임 저장 실패', e);
     }
   };
 
-  /** 비밀번호 변경 */
-  const goPasswordReset = () => {
-    navigation.navigate('PasswordReset'); // 네비게이터에 등록된 라우트명과 일치해야 함
-  };
+  const goPasswordReset = () => navigation.navigate('PasswordReset');
 
-  /** 로그아웃 */
   const onLogout = async () => {
     try {
       await Promise.all([
         AsyncStorage.removeItem(AUTH_TOKEN_KEY),
         AsyncStorage.removeItem(AUTH_NAME_KEY),
         AsyncStorage.removeItem(AUTH_STUDENT_ID_KEY),
-        // 닉네임 유지하려면 아래 라인은 주석 유지, 지우려면 주석 해제
-        // AsyncStorage.removeItem(AUTH_NICKNAME_KEY),
+        // AsyncStorage.removeItem(AUTH_NICKNAME_KEY), // 닉네임 유지하려면 주석 유지
+        AsyncStorage.removeItem(AUTH_EMAIL_KEY),
       ]);
     } catch (e) {
       console.log('logout error', e);
     } finally {
-      // 스택 초기화 후 로그인 화면으로
       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     }
   };
 
-  /** 닉네임 변경 여부 → 버튼 색상 제어 */
   const isNicknameChanged = useMemo(
     () => nickname.trim() !== (originalNickname ?? ''),
     [nickname, originalNickname]
@@ -98,10 +103,8 @@ export default function PersonalInfoPage() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* 상단 상태바 높이 */}
       <View style={styles.statusBar} />
 
-      {/* 헤더: 뒤로가기 + 타이틀 */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -110,10 +113,7 @@ export default function PersonalInfoPage() {
           accessibilityRole="button"
           accessibilityLabel="뒤로가기"
         >
-          <Image
-            source={require('../../../assets/images/back.png')}
-            style={styles.backIcon}
-          />
+          <Image source={require('../../../assets/images/back.png')} style={styles.backIcon} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>내 정보</Text>
       </View>
@@ -124,20 +124,16 @@ export default function PersonalInfoPage() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* 상단 섹션 타이틀 */}
         <Text style={styles.sectionCaption}>회원 정보 수정</Text>
 
-        {/* 이름 (읽기 전용) */}
         <Text style={styles.fieldLabelMuted}>이름</Text>
         <Text style={styles.readonlyValue}>{name}</Text>
         <View style={styles.divider} />
 
-        {/* 학번 (읽기 전용) */}
         <Text style={styles.fieldLabelMuted}>학번</Text>
-        <Text style={styles.readonlyValue}>{studentId}</Text>
+        <Text style={styles.readonlyValue}>{studentId || '-'}</Text>
         <View style={styles.divider} />
 
-        {/* 닉네임 (수정 가능, 최대 6자) */}
         <Text style={styles.fieldLabelMuted}>닉네임</Text>
         <TextInput
           value={nickname}
@@ -149,10 +145,8 @@ export default function PersonalInfoPage() {
           returnKeyType="done"
         />
 
-        {/* 회색 섹션 구분 바들 (피그마 Rectangle 445 / 443) */}
         <View style={[styles.grayStrip, { marginTop: 40 }]} />
 
-        {/* 액션 라인: 비밀번호 변경 / 로그아웃 */}
         <TouchableOpacity style={styles.actionRow} onPress={goPasswordReset} activeOpacity={0.85}>
           <Text style={styles.actionText}>비밀번호 변경</Text>
         </TouchableOpacity>
@@ -163,11 +157,9 @@ export default function PersonalInfoPage() {
           <Text style={styles.actionText}>로그아웃</Text>
         </TouchableOpacity>
 
-        {/* 스크롤 하단 여백: 고정 버튼에 가리지 않도록 충분히 확보 */}
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* ✅ 하단 고정 완료 버튼 */}
       <View style={styles.footer}>
         <TouchableOpacity
           style={[styles.primaryButton, isNicknameChanged && styles.primaryButtonActive]}

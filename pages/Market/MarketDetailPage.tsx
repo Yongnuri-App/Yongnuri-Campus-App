@@ -124,14 +124,14 @@ export default function MarketDetailPage({
     loadItem();
   }, [loadItem]);
 
-  /** 권한 파생: 관리자/소유자 (관리자 우선 정책은 모달에서 showEdit로 처리) */
+  /** 권한 파생: 관리자/소유자 */
   const { isAdmin, isOwner } = usePermissions({
-    authorId: item?.authorId,                 // ✅ 작성자 비교에 쓰임
-    authorEmail: item?.authorEmail ?? null,   // ✅ 이메일 매칭도 허용
-    routeParams: route.params,                // isOwner 힌트가 들어왔다면 OR 처리
+    authorId: item?.authorId,
+    authorEmail: item?.authorEmail ?? null,
+    routeParams: route.params,
   });
 
-  /** 표시용 프로필 */
+  /** (구데이터용) 폴백 텍스트 */
   const profileName = item?.authorName ?? '채희';
   const profileDept = item?.authorDept ?? 'AI학부';
 
@@ -245,7 +245,13 @@ export default function MarketDetailPage({
 
       {/* ===== 본문 ===== */}
       <View style={styles.body}>
-        <ProfileRow name={profileName} dept={profileDept} />
+        {/* ✅ 이메일 기반 최신 프로필 표시 + 폴백 */}
+        <ProfileRow
+          emailForLookup={item.authorEmail ?? null}
+          preferNickname
+          fallbackName={profileName}
+          fallbackDept={profileDept}
+        />
 
         <View style={styles.divider} />
 

@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { CommonActions, useRoute } from '@react-navigation/native';
+import { getCurrentUserEmail } from '../../utils/currentUser';
 
 import LocationPicker from '../../components/LocationPicker/LocationPicker';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
@@ -47,6 +48,7 @@ async function ensureLocalIdentity() {
     userId = `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     await AsyncStorage.setItem(AUTH_USER_ID_KEY, userId);
   }
+  // 이메일은 여기서 쓰지 않음(구키일 수 있음). 단지 userId만 확보.
   const userEmail = (await AsyncStorage.getItem(AUTH_USER_EMAIL_KEY)) ?? null;
   return { userId, userEmail };
 }
@@ -69,7 +71,7 @@ type MarketPost = {
 
 const SellItemPage: React.FC<Props> = ({ navigation }) => {
   const route = useRoute<any>();
-  const modeParam = route.params?.mode as 'create' | 'edit' | undefined;
+  const modeParam = route.params?.mode as 'create' | 'edit' | undefined; // ✅ 오타 수정 (the → const)
   const editId = route.params?.id as string | undefined;
   const isEdit = modeParam === 'edit' && !!editId;
 
@@ -237,8 +239,16 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
     if (!canSubmitCreate || submitting) return;
     setSubmitting(true);
     try {
-      // ✅ 내 로컬 사용자 식별자 확보
-      const { userId, userEmail } = await ensureLocalIdentity();
+      // ✅ 로컬 사용자 식별자(UID) 확보
+      const { userId } = await ensureLocalIdentity();
+      // ✅ 세션에서 현재 로그인 이메일(소문자) 확보 (표준키)
+      const userEmail = await getCurrentUserEmail();
+
+      if (!userEmail) {
+        Alert.alert('오류', '로그인이 필요합니다. 다시 로그인해 주세요.');
+        setSubmitting(false);
+        return;
+      }
 
       const payload = {
         title: title.trim(),
@@ -261,9 +271,8 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
         likeCount: 0,
         createdAt: new Date().toISOString(),
         authorId: userId,
-        authorEmail: userEmail,
-        authorName: '채희',
-        authorDept: 'AI학부',
+        authorEmail: userEmail, // ✅ 핵심: 이메일만 저장
+        // authorName / authorDept 하드코딩 제거
       };
 
       const raw = await AsyncStorage.getItem(POSTS_KEY);

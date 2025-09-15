@@ -1,4 +1,6 @@
-import React from 'react';
+// pages/My/MyPage/MyPage.tsx
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Image,
   SafeAreaView,
@@ -7,15 +9,53 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import styles from './MyPage.styles';
+
+// 세션 키 (다른 화면과 동일 키 사용)
+const AUTH_NAME_KEY = 'auth_user_name';
+const AUTH_STUDENT_ID_KEY = 'auth_student_id';
+const AUTH_NICKNAME_KEY = 'auth_user_nickname';
 
 export default function MyPagePage() {
   const navigation = useNavigation<any>();
 
-  // TODO: 실제 사용자 데이터로 치환
-  const userName = '000';
-  const studentId = '202178010';
+  // ✅ 스토리지에서 가져와서 렌더링할 값들
+  const [nickname, setNickname] = useState<string>('');
+  const [name, setName] = useState<string>(''); // 닉네임 없을 때 대비용
+  const [studentId, setStudentId] = useState<string>('');
+
+  // 공통 로더
+  const loadProfile = useCallback(async () => {
+    try {
+      const [[, n], [, sid], [, nn]] = await AsyncStorage.multiGet([
+        AUTH_NAME_KEY,
+        AUTH_STUDENT_ID_KEY,
+        AUTH_NICKNAME_KEY,
+      ]);
+      setName(n ?? '');
+      setStudentId(sid ?? '');
+      setNickname(nn ?? '');
+    } catch (e) {
+      console.log('mypage profile load error', e);
+    }
+  }, []);
+
+  // 최초 1회
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  // 화면에 다시 포커스될 때마다 갱신 (내 정보에서 수정 후 복귀 시 반영)
+  useFocusEffect(
+    useCallback(() => {
+      loadProfile();
+    }, [loadProfile])
+  );
+
+  // 표시용 값: 닉네임 우선, 없으면 이름, 그것도 없으면 기본 문구
+  const displayName = nickname || name || '사용자';
+  const displayStudentId = studentId || '-';
 
   // 상단 아이콘
   const onPressAlarm = () => navigation.navigate('Notification');
@@ -44,7 +84,6 @@ export default function MyPagePage() {
             onPress={onPressSearch}
             activeOpacity={0.9}
           >
-            {/* 검색 아이콘 (search.png) */}
             <Image
               source={require('../../../assets/images/search.png')}
               style={styles.headerIcon}
@@ -55,7 +94,6 @@ export default function MyPagePage() {
             onPress={onPressAlarm}
             activeOpacity={0.9}
           >
-            {/* 벨 아이콘 (bell.png) */}
             <Image
               source={require('../../../assets/images/bell.png')}
               style={styles.headerIcon}
@@ -76,8 +114,10 @@ export default function MyPagePage() {
           onPress={goPersonalInfo}
         >
           <View style={styles.greetingTextCol}>
-            <Text style={styles.greeting}>{userName}님 안녕하세요!</Text>
-            <Text style={styles.subId}>{studentId} 학번</Text>
+            {/* ✅ 닉네임 연동 */}
+            <Text style={styles.greeting}>{displayName}님 안녕하세요!</Text>
+            {/* ✅ 학번 연동 */}
+            <Text style={styles.subId}>{displayStudentId} 학번</Text>
           </View>
           <Image
             source={require('../../../assets/images/arrow.png')}
@@ -96,7 +136,11 @@ export default function MyPagePage() {
         </TouchableOpacity>
 
         {/* 섹션: 차단한 사용자 (탭 가능하게 변경) */}
-        <TouchableOpacity onPress={goBlockedUsers} activeOpacity={0.85} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+        <TouchableOpacity
+          onPress={goBlockedUsers}
+          activeOpacity={0.85}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        >
           <Text style={styles.sectionTitle}>차단한 사용자</Text>
         </TouchableOpacity>
 

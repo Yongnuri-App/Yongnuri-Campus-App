@@ -1,4 +1,3 @@
-// pages/Admin/AdminPage/AdminPage.tsx
 import React from 'react';
 import {
   Image,
@@ -17,22 +16,19 @@ export default function AdminPage({ navigation }: RootStackScreenProps<'AdminGat
   const onPressAlarm = () => navigation.navigate('Notification');
   const onPressSearch = () => navigation.navigate('Search');
 
-  // 섹션 이동 (상세 페이지 준비되면 라우트 연결)
-  const goNoticeRegister = () => {
-    navigation.navigate('AdminNoticeCreate');
-  };
-  const goInquiryNotice = () => {
-    // navigation.navigate('AdminInquiryNotice');
-  };
+  // 섹션 이동
+  const goNoticeRegister = () => navigation.navigate('AdminNoticeCreate');
+  const goInquiryNotice = () => navigation.navigate('AdminInquiryNotice');
   const goReportManage = () => {
     // navigation.navigate('AdminReportManage');
   };
   const goMemberInfo = () => {
-    // navigation.navigate('AdminMemberInfo');
+    // ✅ 신규: 회원 정보 페이지로 이동
+    navigation.navigate('AdminMemberList');
   };
 
   const onLogout = async () => {
-    await clearIsAdmin(); // ✅ 관리자 플래그 해제
+    await clearIsAdmin();
     navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
   };
 

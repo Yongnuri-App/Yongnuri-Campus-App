@@ -5,29 +5,25 @@ import type {
 
 /** ✅ 공통 메타: 작성자 판별/판매상태 초기값 */
 type OwnerMeta = {
-  /** 작성자(판매자) 식별값 — usePermissions가 AsyncStorage('auth_user_id')와 비교 */
   authorId?: string | number;
-  /** 이메일 매칭도 허용 */
   authorEmail?: string | null;
-  /** 라우트 힌트(선택): true면 무조건 소유자로 처리(개발/특수 케이스) */
   isOwner?: boolean;
 };
 
 type SaleStatusApi = 'ON_SALE' | 'RESERVED' | 'SOLD';
 
 type MarketMeta = {
-  /** 중고거래 전용: 판매상태 초기값(API enum) */
   initialSaleStatus?: SaleStatusApi;
 };
 
-/** ✅ 공용 채팅 파라미터: 중고거래(market) | 분실물(lost) | 공동구매(groupbuy) | 공지사항(notice) */
+/** ✅ 공용 채팅 파라미터: 중고거래(market) | 분실물(lost) | 공동구매(groupbuy) */
 export type ChatRoomParams =
   | ({
       source: 'market';
       postId: string;
       sellerNickname: string;
       productTitle: string;
-      productPrice: number;           // 0 = 나눔
+      productPrice: number;
       productImageUri?: string;
       initialMessage?: string;
     } & OwnerMeta & MarketMeta)
@@ -46,7 +42,6 @@ export type ChatRoomParams =
       postId: string;
       authorNickname: string;
       postTitle: string;
-      /** 채팅 상단 보조라벨(가격/위치 자리)에 띄울 문구 */
       recruitLabel: string;
       postImageUri?: string;
       initialMessage?: string;
@@ -58,7 +53,9 @@ export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
   PasswordReset: undefined;
-  Main: { initialTab?: 'group' | 'market' | 'lost'; isAdmin?: boolean } | undefined;
+  Main:
+    | { initialTab?: 'group' | 'market' | 'lost'; isAdmin?: boolean }
+    | undefined;
   Search: undefined;
   Notification: undefined;
 
@@ -80,9 +77,9 @@ export type RootStackParamList = {
   MyWithdraw: undefined;
 
   // 관리자 게이트/공지 작성
-  AdminGate: undefined; // ✅ 루트 스택엔 게이트만 등록
-  AdminNoticeCreate: undefined; // 기존 경로 유지
-  NoticeWrite: { mode: 'create' | 'edit'; id?: string } | undefined; // ✅ 별칭 라우트(수정/작성 공용)
+  AdminGate: undefined;
+  AdminNoticeCreate: undefined;
+  NoticeWrite: { mode: 'create' | 'edit'; id?: string } | undefined;
 
   // 상세 페이지들
   MarketDetail: { id: string; isOwner?: boolean };
@@ -92,16 +89,24 @@ export type RootStackParamList = {
 
   Report: { targetLabel?: string };
 
-  // ✅ 공용 채팅방: 중고/분실/공동구매/공지 모두 이 타입으로 진입
+  // ✅ 공용 채팅방
   ChatRoom: ChatRoomParams;
+
+  // ✅ 관리자: 문의하기 공지 설정
+  AdminInquiryNotice: undefined;
+
+  // ✅ 관리자: 회원 정보 목록 (새로 추가)
+  AdminMemberList: undefined;
 };
 
-// ✅ Admin 전용 스택 타입 (AdminGate 내부에서만 사용)
+// ✅ Admin 전용 스택 타입 (AdminGate 내부에서만 사용하고 싶다면)
 export type AdminStackParamList = {
   AdminPage: undefined;
+  AdminMemberList: undefined;
 };
 
 export type RootStackScreenProps<T extends keyof RootStackParamList> =
   NativeStackScreenProps<RootStackParamList, T>;
 
-export type RootStackNavigationProp = NativeStackNavigationProp<RootStackParamList>;
+export type RootStackNavigationProp =
+  NativeStackNavigationProp<RootStackParamList>;

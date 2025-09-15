@@ -88,11 +88,11 @@ const styles = StyleSheet.create({
   },
   correctIcon: {
     position: 'absolute',
-    right: 12, // 인풋 오른쪽 안쪽 위치
+    right: 12,
     top: '50%',
     width: 24,
     height: 24,
-    transform: [{ translateY: -17 }], // 세로 중앙 정렬
+    transform: [{ translateY: -17 }],
   },
   signUpButton: {
     marginTop: 20,

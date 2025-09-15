@@ -18,6 +18,7 @@ import styles, { COLORS } from './GroupBuyRecruitPage.styles';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import { useImagePicker } from '../../hooks/useImagePicker';
 import { useEditPost } from '../../hooks/useEditPost';
+import { getCurrentUserEmail } from '../../utils/currentUser';
 
 type RecruitMode = 'unlimited' | 'limited' | null;
 
@@ -38,8 +39,8 @@ async function ensureLocalIdentity() {
     userId = `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     await AsyncStorage.setItem(AUTH_USER_ID_KEY, userId);
   }
-  let userEmail = await AsyncStorage.getItem(AUTH_USER_EMAIL_KEY);
-  return { userId, userEmail: userEmail ?? null };
+  const compatEmail = await AsyncStorage.getItem(AUTH_USER_EMAIL_KEY);
+  return { userId, compatEmail: compatEmail ?? null };
 }
 
 const GroupBuyRecruitPage: React.FC<Props> = ({ navigation }) => {
@@ -100,25 +101,51 @@ const CreateForm: React.FC<{ navigation: any }> = ({ navigation }) => {
 
     setSubmitting(true);
     try {
-      const { userId, userEmail } = await ensureLocalIdentity();
+      const { userId, compatEmail } = await ensureLocalIdentity();
 
-      const newItem = {
+      // 표준 세션 이메일 우선
+      let userEmail: string | null = await getCurrentUserEmail();
+      if (!userEmail) userEmail = compatEmail;
+
+      if (!userEmail) {
+        Alert.alert('오류', '로그인이 필요합니다. 다시 로그인해 주세요.');
+        setSubmitting(false);
+        return;
+      }
+
+      // ✅ 타입 좁히기: TS가 recruitMode의 null 가능성을 알지 못하므로 명시
+      const modeNarrowed = (recruitMode ?? 'unlimited') as Exclude<RecruitMode, null>;
+
+      type GroupBuyPost = {
+        id: string;
+        title: string;
+        description: string;
+        recruit: { mode: 'unlimited' | 'limited'; count: number | null };
+        applyLink: string;
+        images: string[];
+        likeCount: number;
+        createdAt: string;
+        authorId?: string | number;
+        authorEmail?: string | null;
+        authorName?: string;
+        authorDept?: string;
+      };
+
+      const newItem: GroupBuyPost = {
         id: `${Date.now()}`,
         title: title.trim(),
         description: desc.trim(),
         recruit: {
-          mode: recruitMode,
-          count: recruitMode === 'limited' ? Number(recruitCount) : null,
+          mode: modeNarrowed,
+          count: modeNarrowed === 'limited' ? Number(recruitCount) : null,
         },
         applyLink: normalizedLink,
         images,
         likeCount: 0,
         createdAt: new Date().toISOString(),
         authorId: userId,
-        authorEmail: userEmail,
-        authorName: '채희',
-        authorDept: 'AI학부',
-      } as const;
+        authorEmail: userEmail, // 이메일만 저장 → 상세에서 최신 닉/학부 조회
+      };
 
       const raw = await AsyncStorage.getItem(POSTS_KEY);
       const list = raw ? JSON.parse(raw) : [];
@@ -301,14 +328,9 @@ const CreateForm: React.FC<{ navigation: any }> = ({ navigation }) => {
 const EditForm: React.FC<{ navigation: any; postId: string }> = ({ navigation, postId }) => {
   const [submitting, setSubmitting] = useState(false);
 
-  // 이미지 훅 먼저 선언
   const { images, setImages, openAdd, removeAt, max } = useImagePicker({ max: 10 });
 
-  // onLoaded를 메모해서 훅 내부 load의 deps에 영향 안 주게 함
   const handleLoaded = useCallback((post: any) => {
-    // 아래 상태들은 useEditPost에서 제공하는 setter를 사용해야 하므로
-    // 실제 값 주입은 useEditPost 내부에서 수행됨.
-    // 여기서는 이미지 세팅만 담당.
     if (post.images && post.images.length) {
       setImages(post.images);
     }

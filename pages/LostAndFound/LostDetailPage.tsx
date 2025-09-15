@@ -1,3 +1,4 @@
+// pages/LostAndFound/LostDetailPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -11,14 +12,19 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
-import ProfileRow from '../../components/Profile/ProfileRow';
+import AdminActionSheet from '../../components/Modals/AdminActionSheet/AdminActionSheet';
 import { useDeletePost } from '../../hooks/useDeletePost';
 import { useLike } from '../../hooks/useLike';
 import usePermissions from '../../hooks/usePermissions';
-import AdminActionSheet from '../../components/Modals/AdminActionSheet/AdminActionSheet';
 import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './LostDetailPage.styles';
+
+// ✅ 이메일 기반 표기 훅
+import useDisplayProfile from '../../hooks/useDisplayProfile';
+// ✅ 실제 파일 경로: components/Profile/ProfileRow.tsx
+import ProfileRow from '../../components/Profile/ProfileRow';
 
 const POSTS_KEY = 'lost_found_posts_v1';
 const LIKED_MAP_KEY = 'lost_found_liked_map_v1';
@@ -48,35 +54,6 @@ function timeAgo(iso: string) {
   if (h < 24) return `${h}시간 전`;
   const d = Math.floor(h / 24);
   return `${d}일 전`;
-}
-
-const nicknameFromEmail = (email?: string | null) =>
-  email && email.includes('@') ? email.split('@')[0] : null;
-
-async function resolveAuthorDisplayName(post: LostPost): Promise<string> {
-  if (post.authorName && post.authorName.trim()) return post.authorName.trim();
-
-  try {
-    const raw = await AsyncStorage.getItem(POSTS_KEY);
-    const list: LostPost[] = raw ? JSON.parse(raw) : [];
-    const candidate = list.find(
-      p =>
-        (post.authorId && p.authorId && String(p.authorId) === String(post.authorId)) ||
-        (post.authorEmail &&
-          p.authorEmail &&
-          p.authorEmail.toLowerCase() === (post.authorEmail ?? '').toLowerCase())
-    );
-    if (candidate?.authorName && candidate.authorName.trim()) {
-      return candidate.authorName.trim();
-    }
-  } catch (e) {
-    console.log('scan posts for authorName error', e);
-  }
-
-  const fromEmail = nicknameFromEmail(post.authorEmail ?? null);
-  if (fromEmail) return fromEmail;
-
-  return '익명';
 }
 
 export default function LostDetailPage({
@@ -146,22 +123,16 @@ export default function LostDetailPage({
     routeParams: route.params,
   });
 
-  const [authorDisplayName, setAuthorDisplayName] = useState<string>('익명');
-  useEffect(() => {
-    if (!item) return;
-    (async () => {
-      const name = await resolveAuthorDisplayName(item);
-      setAuthorDisplayName(name);
-    })();
-  }, [item?.authorId, item?.authorEmail, item?.authorName, item]);
-
-  const finalAuthorName = useMemo(() => {
-    const n = (authorDisplayName ?? '').trim();
-    if (!n || n === '익명') {
-      return (item?.authorName && item.authorName.trim()) || '채히';
-    }
-    return n;
-  }, [authorDisplayName, item?.authorName]);
+  /** ✅ 프로필 표기: 이메일 우선 조회 → 없으면 게시글 메타 폴백 */
+  const { name: lookupName, dept: lookupDept } = useDisplayProfile(item?.authorEmail ?? null, true);
+  const profileName = useMemo(
+    () => (lookupName || item?.authorName || '사용자'),
+    [lookupName, item?.authorName]
+  );
+  const profileDept = useMemo(
+    () => (lookupDept || item?.authorDept || ''),
+    [lookupDept, item?.authorDept]
+  );
 
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
@@ -169,7 +140,7 @@ export default function LostDetailPage({
   };
 
   const onPressReport = () => {
-    const targetLabel = `${item?.authorDept ?? 'AI학부'} - ${finalAuthorName}`;
+    const targetLabel = `${profileDept || '학부 미설정'} - ${profileName}`;
     navigation.navigate('Report', { targetLabel });
   };
 
@@ -263,7 +234,8 @@ export default function LostDetailPage({
 
         {/* ===== 본문 ===== */}
         <View style={styles.body}>
-          <ProfileRow name={finalAuthorName} dept={item?.authorDept ?? 'AI학부'} />
+          {/* ✅ 이메일 기반 최신 표기값 */}
+          <ProfileRow name={profileName} dept={profileDept} />
 
           <View style={styles.divider} />
 
@@ -314,7 +286,7 @@ export default function LostDetailPage({
           chatAutoNavigateParams={{
             source: 'lost',
             postId: String(item.id),
-            posterNickname: finalAuthorName,
+            posterNickname: profileName,
             postTitle: item.title,
             place: item.location,
             purpose: item.type,
@@ -324,16 +296,12 @@ export default function LostDetailPage({
         />
       )}
 
-      {/* ✅ 관리자/소유자 공통 옵션 모달
-          - 관리자: 삭제만 (showEdit=false)
-          - 소유자: 수정+삭제 (showEdit=true)
-          - 관리자이면서 소유자여도, 정책상 "삭제만"을 강제하려면 showEdit={!isAdmin && isOwner}
-      */}
+      {/* ✅ 관리자/소유자 공통 옵션 모달 */}
       {(isAdmin || isOwner) && (
         <AdminActionSheet
           visible={menuVisible}
           onClose={() => setMenuVisible(false)}
-          showEdit={!isAdmin && isOwner} // 관리자이면 무조건 false → 삭제만
+          showEdit={!isAdmin && isOwner} // 관리자이면 수정 숨김
           onEdit={() => navigation.navigate('LostPost', { mode: 'edit', id: String(item.id) })}
           onDelete={confirmAndDelete}
           editLabel="수정"

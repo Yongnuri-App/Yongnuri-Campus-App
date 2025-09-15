@@ -22,6 +22,7 @@ import usePermissions from '../../hooks/usePermissions';
 import AdminActionSheet from '../../components/Modals/AdminActionSheet/AdminActionSheet';
 import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './GroupBuyDetailPage.styles';
+import useDisplayProfile from '../../hooks/useDisplayProfile';
 
 const POSTS_KEY = 'groupbuy_posts_v1';
 const LIKED_MAP_KEY = 'groupbuy_liked_map_v1';
@@ -42,7 +43,7 @@ type GroupBuyPost = {
   likeCount: number;
   createdAt: string; // ISO
   authorId?: string | number;
-  authorEmail?: string | null;   // (있으면 훅에서도 활용 가능)
+  authorEmail?: string | null;
   authorName?: string;
   authorDept?: string;
 };
@@ -87,7 +88,7 @@ export default function GroupBuyDetailPage({
     confirmCancelText: '취소',
   });
 
-  /** 최초 로드 */
+  // 최초 로드
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -118,7 +119,7 @@ export default function GroupBuyDetailPage({
     };
   }, [id, navigation, syncCount]);
 
-  /** 수정 후 복귀 시 리로드 */
+  // 수정 후 복귀 시 리로드
   useFocusEffect(
     React.useCallback(() => {
       let mounted = true;
@@ -141,7 +142,7 @@ export default function GroupBuyDetailPage({
     }, [id, syncCount])
   );
 
-  /** 권한 파생(관리자/소유자). 관리자 우선 정책은 모달에서 showEdit로 제어 */
+  // 권한 파생
   const { isAdmin, isOwner } = usePermissions({
     authorId: item?.authorId,
     authorEmail: item?.authorEmail ?? null,
@@ -150,8 +151,16 @@ export default function GroupBuyDetailPage({
 
   const timeText = useMemo(() => (item ? timeAgo(item.createdAt) : ''), [item]);
 
-  const profileName = item?.authorName ?? '채희';
-  const profileDept = item?.authorDept ?? 'AI학부';
+  // ✅ 이메일 기반 최신 프로필 표기
+  const { name: lookupName, dept: lookupDept } = useDisplayProfile(item?.authorEmail ?? null, true);
+  const profileName = useMemo(
+    () => (lookupName || item?.authorName || '사용자'),
+    [lookupName, item?.authorName]
+  );
+  const profileDept = useMemo(
+    () => (lookupDept || item?.authorDept || ''),
+    [lookupDept, item?.authorDept]
+  );
 
   const recruitLabel =
     item?.recruit?.mode === 'unlimited' ? '제한 없음' : `${item?.recruit?.count ?? 0}명`;
@@ -163,7 +172,7 @@ export default function GroupBuyDetailPage({
   };
 
   const onPressReport = () => {
-    const targetLabel = `${profileDept} - ${profileName}`;
+    const targetLabel = `${profileDept || '학부 미설정'} - ${profileName}`;
     navigation.navigate('Report', { targetLabel });
   };
 
@@ -190,7 +199,7 @@ export default function GroupBuyDetailPage({
   const thumbUri = images.length > 0 ? images[0] : undefined;
   const recruitText = `현재 모집 인원 ${currentCount}명 (${recruitLabel})`;
 
-  /** 우상단 버튼: 관리자/소유자 ⇒ 옵션(모달), 일반 ⇒ 신고 */
+  // 우상단 버튼
   const RightTopButton = () =>
     isAdmin || isOwner ? (
       <TouchableOpacity
@@ -302,7 +311,7 @@ export default function GroupBuyDetailPage({
         </View>
       </ScrollView>
 
-      {/* ===== 하단 바: 전송 시 채팅방으로 이동 ===== */}
+      {/* ===== 하단 바 ===== */}
       {!isOwner && (
         <DetailBottomBar
           initialLiked={liked}
@@ -325,11 +334,6 @@ export default function GroupBuyDetailPage({
         />
       )}
 
-      {/* ✅ 관리자/작성자 공통 옵션 모달
-          - 관리자: 삭제만 (showEdit=false)
-          - 작성자: 수정+삭제 (showEdit=true)
-          - 둘 다 해당돼도 정책상 관리자 우선 → showEdit={!isAdmin && isOwner}
-      */}
       {(isAdmin || isOwner) && (
         <AdminActionSheet
           visible={menuVisible}

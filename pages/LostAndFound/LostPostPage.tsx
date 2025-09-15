@@ -9,6 +9,7 @@ import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import styles from './LostPostPage.styles';
 import { useImagePicker } from '../../hooks/useImagePicker';
 import { useEditPost, EditAdapters, DefaultGroupBuyForm } from '../../hooks/useEditPost';
+import { getCurrentUserEmail } from '../../utils/currentUser';
 
 type Purpose = 'lost' | 'found';
 interface Props { navigation?: any; }
@@ -27,6 +28,7 @@ async function ensureLocalIdentity() {
     userId = `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     await AsyncStorage.setItem(AUTH_USER_ID_KEY, userId);
   }
+  // 이메일은 표준 세션키에서 읽을 것이라 여기서는 사용하지 않음
   const userEmail = (await AsyncStorage.getItem(AUTH_USER_EMAIL_KEY)) ?? null;
   return { userId, userEmail };
 }
@@ -70,7 +72,7 @@ const lostAdapters: EditAdapters<LostPost, DefaultGroupBuyForm> = {
     content: form.desc.trim(),
     location: form.extra?.place ?? prev.location,
     type: (form.extra?.purpose as Purpose) ?? prev.type,
-    images: form.imagesText
+    images: String(form.imagesText || '')
       .split(',')
       .map(s => s.trim())
       .filter(Boolean),
@@ -120,7 +122,16 @@ const CreateForm: React.FC<{ navigation: any }> = ({ navigation }) => {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
     try {
-      const { userId, userEmail } = await ensureLocalIdentity();
+      // 로컬 사용자 ID (소유자 판별 폴백용)
+      const { userId } = await ensureLocalIdentity();
+      // 현재 로그인 이메일(표준 세션에서)
+      const userEmail = await getCurrentUserEmail();
+      if (!userEmail) {
+        Alert.alert('오류', '로그인이 필요합니다. 다시 로그인해 주세요.');
+        setSubmitting(false);
+        return;
+      }
+
       const newItem: LostPost = {
         id: String(Date.now()),
         type: purpose as Purpose,
@@ -131,10 +142,9 @@ const CreateForm: React.FC<{ navigation: any }> = ({ navigation }) => {
         likeCount: 0,
         createdAt: new Date().toISOString(),
         authorId: userId,
-        authorEmail: userEmail,
-        authorName: '채희',
-        authorDept: 'AI학부',
+        authorEmail: userEmail, // ✅ 핵심: 이메일만 저장 (이름/학부 하드코딩 제거)
       };
+
       const raw = await AsyncStorage.getItem(POSTS_KEY);
       const list: LostPost[] = raw ? JSON.parse(raw) : [];
       list.unshift(newItem);
