@@ -1,4 +1,3 @@
-// pages/Admin/MemberListPage.styles.ts
 import { StyleSheet } from 'react-native';
 
 export default StyleSheet.create({
@@ -24,7 +23,7 @@ export default StyleSheet.create({
   backIcon: {
     width: 20,
     height: 20,
-    resizeMode: 'contain' ,
+    resizeMode: 'contain',
   },
   headerTitle: {
     fontSize: 17,
@@ -57,7 +56,6 @@ export default StyleSheet.create({
   },
 
   listContainer: {
-    paddingHorizontal: 20,
     paddingBottom: 24,
   },
   separator: {
@@ -65,41 +63,37 @@ export default StyleSheet.create({
     backgroundColor: '#EFEFEF',
   },
 
-  /* 아이템 행: 이름 | 학번 | 학과 | (우측) 닉네임 | 신고 횟수 */
+  /* 아이템 행: 이름 | 학번 | 학과 | 닉네임 | 신고 횟수 */
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
   },
+
+  // 각 컬럼은 실제 폭은 .tsx에서 지정, 여기선 타이포만 관리
   name: {
-    width: 70, // 피그마 좌측 컬럼 폭 감각 유지
     fontSize: 14,
     fontWeight: '600',
     color: '#1E1E1E',
   },
   studentId: {
-    width: 90,
     fontSize: 12,
     fontWeight: '500',
     color: '#1E1E1E',
   },
   department: {
-    width: 90,
     fontSize: 12,
     fontWeight: '500',
     color: '#1E1E1E',
   },
   nickname: {
-    width: 96,
-    textAlign: 'right',
+    textAlign: 'left',
     fontSize: 12,
     fontWeight: '500',
     color: '#1E1E1E',
-    marginRight: 12,
   },
   report: {
-    minWidth: 110,
-    textAlign: 'right',
+    textAlign: 'left',
     fontSize: 12,
     fontWeight: '500',
     color: '#1E1E1E',
