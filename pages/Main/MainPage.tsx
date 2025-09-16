@@ -1,21 +1,22 @@
 // pages/Main/MainPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, RefreshControl, Text, View } from 'react-native';
 
 import BottomTabBar, { TabKey } from '../../components/Bottom/BottomTabBar';
 import CategoryChips, { DEFAULT_CATEGORIES } from '../../components/CategoryChips/CategoryChips';
 import FloatingWriteButton from '../../components/FloatingButton/FloatingWriteButton';
 import MainHeader from '../../components/Header/MainHeader';
+import GroupItem from '../../components/ListTile/GroupItem/GroupItem';
 import LostItem from '../../components/ListTile/LostItem/LostItem';
 import MarketItem from '../../components/ListTile/MarketItem/MarketItem';
-import GroupItem from '../../components/ListTile/GroupItem/GroupItem';
 import NoticeItem from '../../components/ListTile/NoticeItem/NoticeItem';
 import styles from './MainPage.styles';
 
 import type { RootStackScreenProps } from '../../types/navigation';
 
+/** AsyncStorage 키 매핑 (탭별) */
 const POSTS_KEY_MAP = {
   market: 'market_posts_v1',
   lost: 'lost_found_posts_v1',
@@ -23,6 +24,9 @@ const POSTS_KEY_MAP = {
   notice: 'notice_posts_v1',
 } as const;
 
+/** ✅ 메인 탭 - 중고거래 리스트 아이템 타입
+ *  - 배지 표기를 위해 saleStatus 필드 추가
+ */
 type MarketListItem = {
   id: string;
   title: string;
@@ -33,6 +37,12 @@ type MarketListItem = {
   images: string[];
   likeCount: number;
   createdAt: string;
+
+  /** ✅ 판매 상태 (채팅에서 변경 → 목록 조회 시 반영)
+   *   - '판매중' | '예약중' | '거래완료'
+   *   - 배지는 '예약중'/'거래완료'일 때만 타이틀 앞에 표시됨
+   */
+  saleStatus?: '판매중' | '예약중' | '거래완료';
 };
 
 type LostListItem = {
@@ -70,11 +80,13 @@ type NoticeListItem = {
   createdAt: string;  // ISO
 };
 
+/** 위치 라벨 → 카테고리 id 매핑 */
 function getCategoryIdFromLocation(location: string): string {
   const hit = DEFAULT_CATEGORIES.find(c => c.label === location);
   return hit ? hit.id : 'all';
 }
 
+/** "n분 전 / n시간 전 / n일 전" 유틸 */
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -86,6 +98,7 @@ function timeAgo(iso: string) {
   return `${d}일 전`;
 }
 
+/** YYYY-MM-DD 포맷터 */
 function formatDateYMD(iso: string) {
   const d = new Date(iso);
   const yyyy = d.getFullYear();
@@ -94,6 +107,7 @@ function formatDateYMD(iso: string) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+/** 공지 종료 여부 */
 function isClosed(isoEnd: string) {
   return new Date(isoEnd).getTime() < Date.now();
 }
@@ -118,6 +132,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.params?.initialTab]);
 
+  /** 탭 변경 핸들러 (채팅 탭은 별도 화면) */
   const handleTabChange = (next: TabKey) => {
     setTab(next);
     if (next === 'chat') {
@@ -126,6 +141,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
     }
   };
 
+  /** AsyncStorage에서 탭별 포스트 로드 */
   const loadPosts = useCallback(async (which: TabKey) => {
     const key = POSTS_KEY_MAP[which as keyof typeof POSTS_KEY_MAP];
     if (!key) return;
@@ -134,6 +150,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
       const raw = await AsyncStorage.getItem(key);
       const list = (raw ? JSON.parse(raw) : []) as any[];
 
+      // 생성일(또는 시작일) 내림차순 정렬
       list.sort(
         (a, b) =>
           new Date(b.createdAt ?? b.startDate).getTime() -
@@ -153,6 +170,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
     }
   }, []);
 
+  /** 탭 포커스마다 재로딩 (채팅에서 상태 변경 후 복귀 시 반영) */
   useFocusEffect(
     useCallback(() => {
       (async () => {
@@ -161,12 +179,14 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
     }, [tab, loadPosts])
   );
 
+  /** 당겨서 새로고침 */
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadPosts(tab);
     setRefreshing(false);
   }, [tab, loadPosts]);
 
+  /** 카테고리 필터링(중고거래/분실물) */
   const filteredMarket = useMemo(() => {
     if (category === 'all') return marketItems;
     return marketItems.filter(it => getCategoryIdFromLocation(it.location) === category);
@@ -179,6 +199,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
 
   const filteredGroup = useMemo(() => groupItems, [groupItems]);
 
+  /** 상세 이동 */
   const handlePressMarketItem = useCallback((id: string) => {
     navigation.navigate('MarketDetail', { id });
   }, [navigation]);
@@ -211,6 +232,8 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
                 likeCount={item.likeCount ?? 0}
                 image={item.images && item.images.length > 0 ? item.images[0] : undefined}
                 onPress={handlePressMarketItem}
+                /** ✅ 상태 배지 표기를 위해 전달 (판매중은 내부에서 표시 X) */
+                saleStatus={item.saleStatus}
               />
             )}
             ListEmptyComponent={

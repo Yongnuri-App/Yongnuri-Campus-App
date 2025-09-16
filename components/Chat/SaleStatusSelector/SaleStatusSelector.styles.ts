@@ -19,7 +19,7 @@ export default StyleSheet.create({
     flexDirection: 'row',       // 텍스트 + 아이콘 가로 정렬
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
+    paddingHorizontal: 11,
   },
   selectorText: {
     fontSize: 13,

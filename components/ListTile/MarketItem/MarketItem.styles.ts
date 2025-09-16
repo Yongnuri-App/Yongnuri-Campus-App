@@ -98,4 +98,9 @@ export default StyleSheet.create({
     color: '#6B7280',
     fontWeight: '600',
   },
+
+  titleRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+},
 });

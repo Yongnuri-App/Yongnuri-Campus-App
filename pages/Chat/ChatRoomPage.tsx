@@ -1,4 +1,5 @@
 // pages/Chat/ChatRoomPage.tsx
+import AsyncStorage from '@react-native-async-storage/async-storage'; // ✅ 메인 캐시 업데이트용
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useCallback, useMemo, useState } from 'react';
@@ -53,6 +54,26 @@ const toApi = (l: SaleStatusLabel): ApiSaleStatus => {
     default:         return 'ON_SALE';
   }
 };
+
+/** ✅ 메인 리스트(조회의 출처인 AsyncStorage) 캐시 업데이트 유틸
+ * - Chat에서 상태를 변경하면 Main으로 돌아왔을 때 배지가 바로 반영되도록
+ * - key: 'market_posts_v1' 내부에서 해당 postId의 saleStatus만 갱신
+ */
+async function updateMarketCacheStatus(postId: string, next: SaleStatusLabel) {
+  try {
+    const KEY = 'market_posts_v1';
+    const raw = await AsyncStorage.getItem(KEY);
+    const list = raw ? JSON.parse(raw) : [];
+
+    const updated = Array.isArray(list)
+      ? list.map((it: any) => (it?.id === postId ? { ...it, saleStatus: next } : it))
+      : list;
+
+    await AsyncStorage.setItem(KEY, JSON.stringify(updated));
+  } catch (e) {
+    console.log('updateMarketCacheStatus error', e);
+  }
+}
 
 /**
  * 채팅방 페이지 (중고거래/분실물/공동구매 공용)
@@ -163,12 +184,23 @@ export default function ChatRoomPage() {
     ]);
   };
 
-  // ===== 판매상태 변경 (라벨 → API enum 매핑 후 서버 호출 예정) =====
-  const handleChangeSaleStatus = (nextLabel: SaleStatusLabel) => {
+  // ===== 판매상태 변경 (라벨 → API enum 매핑 후 서버 호출 예정) + 메인 캐시 반영 =====
+  const handleChangeSaleStatus = async (nextLabel: SaleStatusLabel) => {
+    // 1) UI 즉시 반영(낙관적)
     setSaleStatusLabel(nextLabel);
+
+    // 2) 서버 PATCH (연동 시)
     const apiValue = toApi(nextLabel);
-    // TODO: await MarketRepo.updateStatus(raw.postId, apiValue)
-    // TODO: 성공 시 리스트/상세/채팅 상단 배지/프리뷰 동기화
+    // try {
+    //   await MarketRepo.updateStatus(raw.postId, apiValue);
+    // } catch (e) {
+    //   // 실패 시 롤백할 경우: setSaleStatusLabel(prev => prev); // 별도 이전값 보관 필요
+    // }
+
+    // 3) ✅ 메인 리스트 캐시 업데이트 (배지 표시용)
+    if (raw?.postId) {
+      await updateMarketCacheStatus(raw.postId, nextLabel);
+    }
   };
 
   // ===== 약속잡기 버튼 =====
@@ -274,8 +306,8 @@ export default function ChatRoomPage() {
             {/* 중고거래 + 판매자 + postId가 있을 때만 노출 */}
             {showSaleStatus && (
               <SaleStatusSelector
-                value={saleStatusLabel}                 // ✅ 라벨로 전달
-                onChange={handleChangeSaleStatus}       // ✅ 라벨 수신 → API enum 변환
+                value={saleStatusLabel}           // ✅ 라벨 전달
+                onChange={handleChangeSaleStatus} // ✅ 변경 핸들러
               />
             )}
 

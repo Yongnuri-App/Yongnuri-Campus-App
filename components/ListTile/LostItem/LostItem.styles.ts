@@ -65,8 +65,8 @@ const styles = StyleSheet.create({
   badgeText: {
     fontFamily: 'Inter',
     fontStyle: 'normal',
-    fontWeight: '500',
-    fontSize: 10,
+    fontWeight: '600',
+    fontSize: 11,
     lineHeight: 15,
     color: '#FFFFFF',
     textAlign: 'center',
