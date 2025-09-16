@@ -6,7 +6,6 @@ export default StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    // 피그마 상태바 여백은 헤더 marginTop으로 처리
   },
 
   /* ===== 헤더 ===== */
@@ -18,7 +17,6 @@ export default StyleSheet.create({
     justifyContent: 'space-between',
     paddingTop: Platform.OS === 'ios' ? 8 : 0,
     position: 'relative',
-    // ✅ 헤더를 좀 더 아래로
     marginTop: Platform.OS === 'ios' ? 32 : 12,
   },
   backButton: {
@@ -31,17 +29,15 @@ export default StyleSheet.create({
     width: 18,
     height: 18,
   },
-  // 타이틀을 정확히 중앙에 고정
   headerTitle: {
     position: 'absolute',
     left: 0,
     right: 0,
     textAlign: 'center',
     fontSize: 17,
-    fontWeight: '700', // 좀 더 두껍게
+    fontWeight: '700',
     color: '#1E1E1E',
   },
-  // 오른쪽 공간 확보용(아이콘 크기만큼)
   rightSpacer: {
     width: 25,
     height: 25,
@@ -51,7 +47,11 @@ export default StyleSheet.create({
   scroll: { flex: 1 },
   content: {
     paddingHorizontal: 18,
-    paddingBottom: 24, // 고정 버튼 때문에 실제 여유는 컴포넌트에서 +120
+    paddingBottom: 24,
+  },
+  contentWithBottom: {
+    paddingHorizontal: 18,
+    paddingBottom: 140, // 하단 고정 버튼 여유
   },
 
   /* ===== 공통 섹션 ===== */
@@ -64,7 +64,7 @@ export default StyleSheet.create({
     marginBottom: 8,
   },
 
-  /* ===== 읽기 전용 박스 (신고 할 유저) ===== */
+  /* ===== 읽기 전용 박스 (신고 할 유저, 유형 등) ===== */
   readonlyBox: {
     height: 47,
     borderWidth: 1,
@@ -109,7 +109,7 @@ export default StyleSheet.create({
   /* 드롭다운 메뉴 */
   dim: {
     position: 'absolute',
-    left: -18,  // content padding을 상쇄해 전체 덮도록
+    left: -18,
     right: -18,
     top: -8,
     bottom: 0,
@@ -155,13 +155,42 @@ export default StyleSheet.create({
     fontSize: 14,
     color: '#1E1E1E',
   },
+  readonlyTextArea: {
+    minHeight: 200,
+    borderWidth: 1,
+    borderColor: '#979797',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    justifyContent: 'flex-start',
+  },
+  readonlyParagraph: {
+    fontSize: 14,
+    color: '#1E1E1E',
+  },
 
-  /* ===== 하단 고정 제출 버튼 ===== */
+  /* ===== 사진 썸네일 ===== */
+  thumbWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  thumb: {
+    width: 88,
+    height: 88,
+    borderRadius: 8,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  thumbEmpty: {
+    color: '#979797',
+    fontSize: 13,
+  },
+
+  /* ===== 하단 고정 버튼 ===== */
   fixedSubmitWrap: {
     position: 'absolute',
     left: 18,
     right: 18,
-    // ✅ 버튼을 약간 더 위로
     bottom: 28,
   },
   submitButton: {
@@ -174,6 +203,46 @@ export default StyleSheet.create({
   submitText: {
     fontSize: 14,
     fontWeight: '600',
+    color: '#FFFFFF',
+  },
+
+  /* ===== 관리자 검토 버튼 영역 ===== */
+  reviewActionsWrap: {
+    flexDirection: 'row',
+    justifyContent: 'center',     // 가운데 정렬
+    alignItems: 'center',
+    paddingHorizontal: 0,         // 불필요 패딩 제거 (치우침 방지)
+  },
+  reviewBtnOutline: {
+    width: 177,
+    height: 50,
+    borderRadius: 50,
+    borderWidth: 1,
+    borderColor: '#1E1E1E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 4,          // 버튼 사이 간격
+  },
+  reviewBtnFilled: {
+    width: 177,
+    height: 50,
+    borderRadius: 50,
+    backgroundColor: '#395884',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 4,          // 버튼 사이 간격
+  },
+  reviewBtnTextOutline: {
+    fontWeight: '500',
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#1E1E1E',
+  },
+  reviewBtnTextFilled: {
+    fontWeight: '600',
+    fontSize: 14,
+    lineHeight: 22,
     color: '#FFFFFF',
   },
 });

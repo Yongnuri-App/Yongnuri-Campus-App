@@ -40,8 +40,11 @@ import NoticeDetailPage from './pages/Notice/NoticeDetailPage';
 // ✅ [관리자] 문의하기 공지 설정 페이지
 import InquiryNoticeSettingPage from './pages/Admin/InquiryNoticeSetting/InquiryNoticeSettingPage';
 
-// ✅ [관리자] 회원 정보 목록 페이지 (새로 추가)
+// ✅ [관리자] 회원 정보 목록 페이지
 import MemberListPage from './pages/Admin/MemberList/MemberListPage';
+
+// ✅ [관리자] 신고 관리 목록 페이지 (신규)
+import AdminReportManagePage from './pages/Admin/ReportManage/AdminReportManagePage';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -92,6 +95,9 @@ export default function App() {
 
         {/* ✅ 관리자: 회원 정보 목록 */}
         <Stack.Screen name="AdminMemberList" component={MemberListPage} />
+
+        {/* ✅ 관리자: 신고 관리 목록 */}
+        <Stack.Screen name="AdminReportManage" component={AdminReportManagePage} />
       </Stack.Navigator>
     </NavigationContainer>
   );

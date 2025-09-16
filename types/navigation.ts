@@ -1,3 +1,4 @@
+// types/navigation.ts
 import type {
   NativeStackNavigationProp,
   NativeStackScreenProps,
@@ -16,7 +17,7 @@ type MarketMeta = {
   initialSaleStatus?: SaleStatusApi;
 };
 
-/** ✅ 공용 채팅 파라미터: 중고거래(market) | 분실물(lost) | 공동구매(groupbuy) */
+/** ✅ 공용 채팅 파라미터 */
 export type ChatRoomParams =
   | ({
       source: 'market';
@@ -47,7 +48,6 @@ export type ChatRoomParams =
       initialMessage?: string;
     } & OwnerMeta);
 
-// 네비게이션 타입 정의
 export type RootStackParamList = {
   Loading: undefined;
   Login: undefined;
@@ -59,7 +59,7 @@ export type RootStackParamList = {
   Search: undefined;
   Notification: undefined;
 
-  // 마켓 / 공동구매 / 분실물
+  // 작성/수정
   SellItem: { mode?: 'create' | 'edit'; id?: string };
   GroupBuyRecruit: { mode?: 'create' | 'edit'; id?: string };
   LostPost: { mode?: 'create' | 'edit'; id?: string };
@@ -76,33 +76,43 @@ export type RootStackParamList = {
   MyInquiry: undefined;
   MyWithdraw: undefined;
 
-  // 관리자 게이트/공지 작성
+  // 관리자/공지
   AdminGate: undefined;
   AdminNoticeCreate: undefined;
   NoticeWrite: { mode: 'create' | 'edit'; id?: string } | undefined;
 
-  // 상세 페이지들
+  // 상세
   MarketDetail: { id: string; isOwner?: boolean };
   LostDetail: { id: string; isOwner?: boolean };
   GroupBuyDetail: { id: string; isOwner?: boolean };
   NoticeDetail: { id: string; isAdmin?: boolean };
 
-  Report: { targetLabel?: string };
+  // ✅ 신고하기
+  Report:
+    | {
+        // 작성 모드 (기본)
+        mode?: 'compose';
+        /** 한 줄 라벨로 넘겨도 되고 */
+        targetLabel?: string;
+        /** ◀︎ 기존 코드 호환: 별도로 넘기면 내부에서 "닉네임 - 학과"로 조합 */
+        targetNickname?: string;
+        targetDept?: string;
+        /** ◀︎ 새로 추가: 이메일까지 넘기고 싶을 때 */
+        targetEmail?: string | null;
+      }
+    | {
+        // 관리자 검토 모드
+        mode: 'review';
+        reportId: string;
+      };
 
-  // ✅ 공용 채팅방
+  // 채팅방
   ChatRoom: ChatRoomParams;
 
-  // ✅ 관리자: 문의하기 공지 설정
+  // ✅ 관리자
   AdminInquiryNotice: undefined;
-
-  // ✅ 관리자: 회원 정보 목록 (새로 추가)
   AdminMemberList: undefined;
-};
-
-// ✅ Admin 전용 스택 타입 (AdminGate 내부에서만 사용하고 싶다면)
-export type AdminStackParamList = {
-  AdminPage: undefined;
-  AdminMemberList: undefined;
+  AdminReportManage: undefined;
 };
 
 export type RootStackScreenProps<T extends keyof RootStackParamList> =

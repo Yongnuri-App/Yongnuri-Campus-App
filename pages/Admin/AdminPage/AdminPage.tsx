@@ -19,9 +19,7 @@ export default function AdminPage({ navigation }: RootStackScreenProps<'AdminGat
   // 섹션 이동
   const goNoticeRegister = () => navigation.navigate('AdminNoticeCreate');
   const goInquiryNotice = () => navigation.navigate('AdminInquiryNotice');
-  const goReportManage = () => {
-    // navigation.navigate('AdminReportManage');
-  };
+  const goReportManage = () => navigation.navigate('AdminReportManage'); // ✅ 신고관리 이동
   const goMemberInfo = () => {
     // ✅ 신규: 회원 정보 페이지로 이동
     navigation.navigate('AdminMemberList');
