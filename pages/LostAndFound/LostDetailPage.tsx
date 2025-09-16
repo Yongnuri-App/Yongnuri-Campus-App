@@ -21,6 +21,9 @@ import usePermissions from '../../hooks/usePermissions';
 import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './LostDetailPage.styles';
 
+// ✅ DEV: 분실물 채팅 진입 버튼 (OWNER/GUEST 테스트용)
+import DevLostChatButton from '../../components/Dev/DevLostChatButton';
+
 // ✅ 이메일 기반 표기 훅
 import useDisplayProfile from '../../hooks/useDisplayProfile';
 // ✅ 실제 파일 경로: components/Profile/ProfileRow.tsx
@@ -85,6 +88,7 @@ export default function LostDetailPage({
     confirmCancelText: '취소',
   });
 
+  /** 게시글 로컬 저장소에서 조회 */
   const loadDetail = useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem(POSTS_KEY);
@@ -267,6 +271,25 @@ export default function LostDetailPage({
           </View>
 
           <View style={{ height: 24 }} />
+
+          {/* =========================
+              ✅ DEV: 분실물 채팅 진입 버튼
+              - OWNER/GUEST 시나리오로 ChatRoomPage 이동
+              - DevLostChatButton 내부에서 __DEV__ 체크하므로
+                실서비스 빌드에서는 자동으로 숨김
+             ========================= */}
+          <DevLostChatButton
+            post={{
+              id: String(item.id),
+              title: item.title,
+              imageUri: images[0],
+              place: item.location,
+              purpose: item.type,                 // 'lost' | 'found'
+              posterNickname: profileName,        // 작성자 닉네임
+              authorId: String(item.authorId ?? ''), // ChatRoom 권한 판별용
+              authorEmail: item.authorEmail ?? undefined,
+            }}
+          />
         </View>
       </ScrollView>
 

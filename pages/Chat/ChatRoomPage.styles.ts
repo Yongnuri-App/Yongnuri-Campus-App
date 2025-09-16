@@ -70,7 +70,7 @@ export default StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
-    gap: 6,
+    gap: 5,
     // NOTE: 이전엔 카드 옆에 단독 배치라 marginLeft: 26이 있었음.
     // 액션 행(좌/우)로 재배치했으므로 여백은 래퍼(actionsRow)에서 통일.
     // 필요시 유지해도 되지만, 시각적으로 오른쪽 정렬이 어긋나면 제거 권장.
@@ -82,7 +82,7 @@ export default StyleSheet.create({
     resizeMode: 'contain',
   },
   scheduleBtnText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     color: COLORS.text,
   },

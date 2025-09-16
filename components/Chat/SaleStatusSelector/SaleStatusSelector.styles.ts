@@ -22,7 +22,7 @@ export default StyleSheet.create({
     paddingHorizontal: 14,
   },
   selectorText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     color: COLORS.text,
   },

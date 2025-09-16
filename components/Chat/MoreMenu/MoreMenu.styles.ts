@@ -1,4 +1,3 @@
-// /src/components/Chat/MoreMenu/MoreMenu.styles.ts
 import { StyleSheet } from 'react-native';
 
 const COLORS = {
@@ -16,7 +15,7 @@ export default StyleSheet.create({
     paddingRight: 8,
   },
   menuBox: {
-    width: 160,
+    width: 110,
     backgroundColor: '#fff',
     borderRadius: 8,
     overflow: 'hidden',
@@ -28,10 +27,24 @@ export default StyleSheet.create({
   },
   menuItem: {
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 14,
+  },
+  /** ✅ 아이콘 + 텍스트 가로 정렬 */
+  menuItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    // justifyContent: 'center',
+  },
+  /** ✅ 아이콘 크기 및 여백 */
+  menuIcon: {
+    width: 18,
+    height: 18,
+    marginRight: 8,
+    resizeMode: 'contain',
   },
   menuItemText: {
-    fontSize: 15,
+    fontSize: 16,
+    fontWeight: '500',
     color: COLORS.text,
   },
   menuDivider: {

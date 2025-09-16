@@ -16,14 +16,17 @@ import type { ChatMessage } from '@/types/chat';
 // ✅ 약속잡기 모달
 import AppointmentModal from '@/components/Modal/AppointmentModal';
 
-// 하단 입력 바
+// ✅ 분실물 마감 버튼 (심플 2단계: OPEN/RESOLVED)
+import LostCloseButton, { type LostSimpleStatus } from '@/components/Chat/LostCloseButton/LostCloseButton';
+
+// ✅ 하단 입력 바
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 
 // ✅ 로컬 저장 연동
 import { appendOutboxImage, appendOutboxText, loadMessages } from '@/storage/chatMessagesStore';
 import { updateRoomOnSend /*, markRoomRead*/ } from '@/storage/chatStore';
 
-// ✅ 권한 훅 (판매자 여부 판별용)
+// ✅ 권한 훅 (판매자/작성자 여부 판별용)
 import usePermissions from '@/hooks/usePermissions';
 
 // ✅ 판매 상태 선택 컴포넌트 (한글 라벨 기반)
@@ -114,7 +117,8 @@ const toApi = (l: SaleStatusLabel): ApiSaleStatus => {
  *   · lost     → "장소 + 분실/습득 배지"
  *   · groupbuy → "모집 인원(recruitLabel)"
  *
- * + 추가: 중고거래 && 판매자일 때만 "판매상태 선택"을 약속잡기 버튼 오른쪽에 노출
+ * + 추가: 중고거래 && 판매자일 때만 "판매상태 선택" 노출
+ * + 추가: 분실물 && 작성자일 때만 "마감 처리" 버튼 노출
  */
 export default function ChatRoomPage() {
   const navigation = useNavigation<Nav>();
@@ -172,7 +176,7 @@ export default function ChatRoomPage() {
   // ===== roomId 복구 =====
   const roomId = raw?.roomId ?? deriveRoomIdFromParams(raw);
 
-  // ===== 판매자(작성자) 여부 판별 =====
+  // ===== 작성자 여부 판별 =====
   const { isOwner } = usePermissions({
     authorId: raw?.authorId,
     authorEmail: raw?.authorEmail,
@@ -183,16 +187,22 @@ export default function ChatRoomPage() {
   const [devForceOwner, setDevForceOwner] = useState<boolean | null>(null);
   const effectiveIsOwner = (__DEV__ && devForceOwner !== null) ? devForceOwner : isOwner;
 
-  // ===== 판매상태 라벨 state (UI 표기용) =====
-  // - 네비에서 initialSaleStatus(API enum)가 오면 라벨로 변환하여 초깃값 세팅
+  // ===== 판매상태 라벨 state (UI 표기용, 중고거래 전용) =====
   const [saleStatusLabel, setSaleStatusLabel] = useState<SaleStatusLabel>(
     toLabel(raw?.initialSaleStatus as ApiSaleStatus | undefined)
   );
 
-  // ===== 판매상태 UI 표시 조건 =====
-  const showSaleStatus = isMarket && effectiveIsOwner && !!raw?.postId;
+  // ===== 분실물 마감 상태 (UI/로컬용) =====
+  // - 네비 파라미터 raw?.initialLostStatus 가 있으면 반영, 없으면 OPEN
+  const [lostStatus, setLostStatus] = useState<LostSimpleStatus>(
+    (raw?.initialLostStatus as LostSimpleStatus) ?? 'OPEN'
+  );
 
-  // ===== 판매상태 변경 핸들러 (컴포넌트 → 페이지 → API 매핑) =====
+  // ===== 표시 조건 =====
+  const showSaleStatus = isMarket && effectiveIsOwner && !!raw?.postId;              // 중고거래 판매 상태
+  const showLostClose = isLost && effectiveIsOwner && !!raw?.postId;                 // 분실물 마감 버튼
+
+  // ===== 판매상태 변경 핸들러 (라벨 → API enum 변환, 현재는 UI만) =====
   const handleChangeSaleStatus = useCallback(
     (nextLabel: SaleStatusLabel) => {
       setSaleStatusLabel(nextLabel); // 1) UI 라벨 즉시 반영
@@ -206,6 +216,30 @@ export default function ChatRoomPage() {
     },
     []
   );
+
+  // ===== 분실물 마감 처리 (API 없이 로컬만) =====
+  const handleCloseLost = useCallback(async () => {
+    if (lostStatus === 'RESOLVED') return; // 이미 마감된 경우 방어
+
+    setLostStatus('RESOLVED'); // 1) 화면 상태 즉시 반영
+
+    // 2) 시스템 메시지로도 남겨두면 직관적
+    const sysMsg: ChatMessage = {
+      id: `sys_close_${Date.now()}`,
+      type: 'text',
+      text: '✅ 분실물 상태가 "해결됨"으로 변경되었습니다.',
+      time: formatKoreanTime(),
+      mine: true, // 시스템 메시지 스타일이면 상관없음
+    };
+    setMessages(prev => [...prev, sysMsg]);
+
+    // 3) ChatList 프리뷰 갱신 (선택)
+    if (roomId) {
+      await updateRoomOnSend(roomId, '상태: 해결됨');
+    }
+
+    // TODO: 추후 API 연결 시 여기서 PATCH 호출 후 성공 시 setLostStatus('RESOLVED')
+  }, [lostStatus, roomId]);
 
   // 초기 시딩 중복 방지
   const seededRef = useRef(false);
@@ -281,6 +315,9 @@ export default function ChatRoomPage() {
     const trimmed = text.trim();
     let current: ChatMessage[] | null = null;
 
+    // NOTE: 첨부만 보냈을 때 프리뷰가 사라지는 문제 방지용으로 카운트를 먼저 보관
+    const attachmentCountBeforeSend = attachments.length;
+
     // 1) 이미지 메시지 먼저 저장/표시
     if (attachments.length > 0) {
       for (const uri of attachments) {
@@ -300,8 +337,8 @@ export default function ChatRoomPage() {
     // 3) ChatList 프리뷰 갱신
     if (trimmed) {
       await updateRoomOnSend(roomId, trimmed);
-    } else if (attachments.length > 0) {
-      const label = attachments.length === 1 ? '사진 1장' : `사진 ${attachments.length}장`;
+    } else if (attachmentCountBeforeSend > 0) {
+      const label = attachmentCountBeforeSend === 1 ? '사진 1장' : `사진 ${attachmentCountBeforeSend}장`;
       await updateRoomOnSend(roomId, label);
     }
   };
@@ -400,7 +437,7 @@ export default function ChatRoomPage() {
           </View>
         </View>
 
-        {/* ===== 액션 행: 왼쪽=약속잡기 / 오른쪽=판매상태(조건부) ===== */}
+        {/* ===== 액션 행: 왼쪽=약속잡기 / 오른쪽=판매상태(조건부) + 마감(조건부) ===== */}
         <View style={styles.actionsRow}>
           <View style={styles.actionsLeft}>
             <TouchableOpacity style={styles.scheduleBtn} onPress={handleOpenSchedule}>
@@ -415,6 +452,15 @@ export default function ChatRoomPage() {
               <SaleStatusSelector
                 value={saleStatusLabel}                 // ✅ 라벨로 전달
                 onChange={handleChangeSaleStatus}       // ✅ 라벨로 수신 → API enum 변환
+              />
+            )}
+
+            {/* ✅ 분실물 + 작성자 + postId가 있을 때만: "완료 처리" 버튼 */}
+            {showLostClose && (
+              <LostCloseButton
+                value={lostStatus}           // 'OPEN' | 'RESOLVED'
+                onClose={handleCloseLost}    // 클릭 시 확인 모달 → 이 핸들러 실행
+                readOnly={false}             // 작성자니까 false
               />
             )}
           </View>
@@ -472,7 +518,7 @@ export default function ChatRoomPage() {
       />
 
       {/* ===== 임시 디버그 배지 (개발 모드에서만 보임) ===== */}
-      {__DEV__ && (
+      {/* {__DEV__ && (
         <View style={styles.debugBadge}>
           <Text style={styles.debugText}>source: {String(raw?.source)}</Text>
           <Text style={styles.debugText}>postId: {String(raw?.postId)}</Text>
@@ -484,8 +530,9 @@ export default function ChatRoomPage() {
           <Text style={styles.debugText}>devForceOwner: {String(devForceOwner)}</Text>
           <Text style={styles.debugText}>showSaleStatus: {String(showSaleStatus)}</Text>
           <Text style={styles.debugText}>saleStatusLabel: {String(saleStatusLabel)}</Text>
+          <Text style={styles.debugText}>lostStatus: {String(lostStatus)}</Text>
         </View>
-      )}
+      )} */}
     </View>
   );
 }
