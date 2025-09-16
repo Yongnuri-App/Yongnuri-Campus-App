@@ -148,9 +148,13 @@ export default function MarketDetailPage({
   };
 
   const onPressReport = () => {
-    const targetLabel = `${profileDept} - ${profileName}`;
-    navigation.navigate('Report', { targetLabel });
+    navigation.navigate('Report', {
+      targetNickname: profileName,
+      targetDept: profileDept,
+      targetEmail: item?.authorEmail ?? null,
+    });
   };
+
 
   if (!item) {
     return (

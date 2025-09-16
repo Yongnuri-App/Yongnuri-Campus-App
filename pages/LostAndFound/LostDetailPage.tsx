@@ -144,8 +144,11 @@ export default function LostDetailPage({
   };
 
   const onPressReport = () => {
-    const targetLabel = `${profileDept || '학부 미설정'} - ${profileName}`;
-    navigation.navigate('Report', { targetLabel });
+    navigation.navigate('Report', {
+      targetNickname: profileName,
+      targetDept: profileDept,
+      targetEmail: item?.authorEmail ?? null,
+    });
   };
 
   if (!item) {
