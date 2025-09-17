@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const REPORTS_KEY = 'reports_v1';
 
 type ReportType = '부적절한 콘텐츠' | '사기/스팸' | '욕설/혐오' | '기타';
+type ReportStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 type StoredReport = {
   id: string;
@@ -28,6 +29,7 @@ type StoredReport = {
   images: string[];
   createdAt: string;       // ISO
   reporterEmail?: string | null;
+  status?: ReportStatus;   // ✅ 처리 상태
 };
 
 export default function AdminReportManagePage({
@@ -35,11 +37,21 @@ export default function AdminReportManagePage({
 }: RootStackScreenProps<'AdminReportManage'>) {
   const [reports, setReports] = React.useState<StoredReport[]>([]);
 
+  const normalizeStatus = (s?: ReportStatus): ReportStatus => (s === 'APPROVED' || s === 'REJECTED') ? s : 'PENDING';
+
   const load = React.useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem(REPORTS_KEY);
-      const list: StoredReport[] = raw ? JSON.parse(raw) : [];
-      list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      const listRaw: StoredReport[] = raw ? JSON.parse(raw) : [];
+      // 상태 정규화 + 정렬
+      const list = listRaw.map(r => ({ ...r, status: normalizeStatus(r.status) }));
+      const rank = (st: ReportStatus) => (st === 'PENDING' ? 0 : 1);
+      list.sort((a, b) => {
+        const ra = rank(a.status!);
+        const rb = rank(b.status!);
+        if (ra !== rb) return ra - rb; // PENDING 먼저
+        return (b.createdAt || '').localeCompare(a.createdAt || ''); // 최신순
+      });
       setReports(list);
     } catch (e) {
       console.log('admin report load error', e);
@@ -63,8 +75,11 @@ export default function AdminReportManagePage({
       '익명';
 
     const reason =
-      item.type +
-      (item.content?.trim() ? ` · ${firstLine(item.content)}` : '');
+      item.type + (item.content?.trim() ? ` · ${firstLine(item.content)}` : '');
+
+    const status = item.status || 'PENDING';
+    const showBadge = status !== 'PENDING';
+    const badgeLabel = status === 'APPROVED' ? '인정' : '미인정';
 
     return (
       <TouchableOpacity
@@ -82,6 +97,12 @@ export default function AdminReportManagePage({
             {reason}
           </Text>
         </View>
+
+        {showBadge && (
+          <View style={[styles.statusBadge, status === 'APPROVED' ? styles.badgeApproved : styles.badgeRejected]}>
+            <Text style={styles.statusBadgeText}>{badgeLabel}</Text>
+          </View>
+        )}
 
         <Image
           source={require('../../../assets/images/arrow.png')}

@@ -1,9 +1,11 @@
 // pages/Report/ReportPage.tsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Dimensions,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   Text,
@@ -11,6 +13,8 @@ import {
   TouchableOpacity,
   View,
   Image as RNImage,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
 } from 'react-native';
 import styles from './ReportPage.styles';
 import type { RootStackScreenProps } from '../../types/navigation';
@@ -23,6 +27,8 @@ type ReportType = '부적절한 콘텐츠' | '사기/스팸' | '욕설/혐오' |
 const REPORT_TYPES: ReportType[] = ['부적절한 콘텐츠', '사기/스팸', '욕설/혐오', '기타'];
 
 const REPORTS_KEY = 'reports_v1';
+
+type ReportStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 type StoredReport = {
   id: string;
@@ -37,7 +43,10 @@ type StoredReport = {
   images: string[];
   createdAt: string; // ISO
   reporterEmail?: string | null;
+  status?: ReportStatus; // ✅ 처리 상태
 };
+
+const { width: SCREEN_W } = Dimensions.get('window');
 
 export default function ReportPage({
   navigation,
@@ -55,6 +64,19 @@ export default function ReportPage({
 
   // ---------- review 모드 로드 상태 ----------
   const [loaded, setLoaded] = useState<StoredReport | null>(null);
+
+  // ---------- 이미지 뷰어(모달) ----------
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
+  const hScrollRef = useRef<ScrollView | null>(null);
+  const onThumbPress = (idx: number) => {
+    setViewerIndex(idx);
+    setViewerOpen(true);
+  };
+  const onViewerMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const x = e.nativeEvent.contentOffset.x;
+    setViewerIndex(Math.round(x / SCREEN_W));
+  };
 
   // 입력으로 넘어온 타겟 파라미터(호환 지원)
   const targetLabelParam = (route.params as any)?.targetLabel as string | undefined;
@@ -98,7 +120,7 @@ export default function ReportPage({
         const raw = await AsyncStorage.getItem(REPORTS_KEY);
         const list: StoredReport[] = raw ? JSON.parse(raw) : [];
         const found = list.find((r) => r.id === reviewId) ?? null;
-        setLoaded(found);
+        setLoaded(found || null);
         if (found) {
           setTypeValue(found.type);
           setContent(found.content);
@@ -132,6 +154,7 @@ export default function ReportPage({
         content: content.trim(),
         images,
         createdAt: new Date().toISOString(),
+        status: 'PENDING', // ✅ 기본값
       };
       const raw = await AsyncStorage.getItem(REPORTS_KEY);
       const list: StoredReport[] = raw ? JSON.parse(raw) : [];
@@ -147,9 +170,28 @@ export default function ReportPage({
     }
   };
 
-  // 관리자 버튼(임시)
-  const onPressOutline = () => Alert.alert('알림', '미인정 처리');
-  const onPressFilled = () => Alert.alert('알림', '인정 처리');
+  // ✅ 관리자 처리: 미인정/인정
+  const updateStatus = async (nextStatus: ReportStatus) => {
+    if (!isReview || !reviewId) return;
+    try {
+      const raw = await AsyncStorage.getItem(REPORTS_KEY);
+      const list: StoredReport[] = raw ? JSON.parse(raw) : [];
+      const idx = list.findIndex((r) => r.id === reviewId);
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], status: nextStatus };
+        await AsyncStorage.setItem(REPORTS_KEY, JSON.stringify(list));
+      }
+      Alert.alert('처리 완료', nextStatus === 'APPROVED' ? '인정 처리되었습니다.' : '미인정 처리되었습니다.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    } catch (e) {
+      console.log('report update status error', e);
+      Alert.alert('오류', '처리에 실패했습니다. 다시 시도해주세요.');
+    }
+  };
+
+  const onPressOutline = () => updateStatus('REJECTED');
+  const onPressFilled = () => updateStatus('APPROVED');
 
   return (
     <View style={styles.container}>
@@ -287,11 +329,9 @@ export default function ReportPage({
                   <Text style={styles.thumbEmpty}>첨부된 사진이 없습니다.</Text>
                 ) : (
                   images.map((uri, i) => (
-                    <RNImage
-                      key={`${uri}-${i}`}
-                      source={{ uri }}
-                      style={styles.thumb}
-                    />
+                    <TouchableOpacity key={`${uri}-${i}`} onPress={() => onThumbPress(i)} activeOpacity={0.9}>
+                      <RNImage source={{ uri }} style={styles.thumb} />
+                    </TouchableOpacity>
                   ))
                 )}
               </View>
@@ -332,6 +372,44 @@ export default function ReportPage({
           </View>
         )}
       </KeyboardAvoidingView>
+
+      {/* ✅ 전체화면 이미지 뷰어 */}
+      <Modal visible={viewerOpen} transparent animationType="fade" onRequestClose={() => setViewerOpen(false)}>
+        <View style={styles.viewerWrap}>
+          <TouchableOpacity style={styles.viewerCloseBtn} onPress={() => setViewerOpen(false)} activeOpacity={0.8}>
+            <Image source={require('../../assets/images/close.png')} style={styles.viewerCloseIcon} />
+          </TouchableOpacity>
+
+          <ScrollView
+            ref={hScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            contentOffset={{ x: viewerIndex * SCREEN_W, y: 0 }}
+            onMomentumScrollEnd={onViewerMomentumEnd}
+          >
+            {(images ?? []).map((uri, i) => (
+              <ScrollView
+                key={`${uri}-${i}`}
+                style={{ width: SCREEN_W }}
+                maximumZoomScale={3}
+                minimumZoomScale={1}
+                contentContainerStyle={styles.viewerZoomItem}
+                showsVerticalScrollIndicator={false}
+                showsHorizontalScrollIndicator={false}
+              >
+                <RNImage source={{ uri }} style={styles.viewerImage} resizeMode="contain" />
+              </ScrollView>
+            ))}
+          </ScrollView>
+
+          <View style={styles.viewerIndicator}>
+            <Text style={styles.viewerIndicatorText}>
+              {(viewerIndex + 1)} / {(images ?? []).length || 0}
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

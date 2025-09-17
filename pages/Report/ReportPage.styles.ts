@@ -1,5 +1,7 @@
 // pages/Report/ReportPage.styles.ts
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, StyleSheet, Dimensions } from 'react-native';
+
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 export default StyleSheet.create({
   /* ===== 컨테이너 ===== */
@@ -118,7 +120,7 @@ export default StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    marginTop: 47 + 8, // selectBox 높이 + 간격
+    marginTop: 55, // selectBox(47) + 여백(8)
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E5E7EB',
@@ -166,6 +168,7 @@ export default StyleSheet.create({
   },
   readonlyParagraph: {
     fontSize: 14,
+    lineHeight: 20,
     color: '#1E1E1E',
   },
 
@@ -209,12 +212,13 @@ export default StyleSheet.create({
   /* ===== 관리자 검토 버튼 영역 ===== */
   reviewActionsWrap: {
     flexDirection: 'row',
-    justifyContent: 'center',     // 가운데 정렬
+    justifyContent: 'center', // 가운데 정렬
     alignItems: 'center',
-    paddingHorizontal: 0,         // 불필요 패딩 제거 (치우침 방지)
+    paddingHorizontal: 0,
   },
   reviewBtnOutline: {
-    width: 177,
+    flex: 1,
+    maxWidth: 177,            // 최대 177, 작은 기기에서 자동 축소
     height: 50,
     borderRadius: 50,
     borderWidth: 1,
@@ -222,16 +226,17 @@ export default StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 4,          // 버튼 사이 간격
+    marginHorizontal: 6,      // 버튼 사이 간격
   },
   reviewBtnFilled: {
-    width: 177,
+    flex: 1,
+    maxWidth: 177,            // 최대 177, 작은 기기에서 자동 축소
     height: 50,
     borderRadius: 50,
     backgroundColor: '#395884',
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 4,          // 버튼 사이 간격
+    marginHorizontal: 6,      // 버튼 사이 간격
   },
   reviewBtnTextOutline: {
     fontWeight: '500',
@@ -244,5 +249,48 @@ export default StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
     color: '#FFFFFF',
+  },
+
+  /* ===== 전체화면 이미지 뷰어 ===== */
+  viewerWrap: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  viewerCloseBtn: {
+    position: 'absolute',
+    top: 40,
+    left: 16,
+    zIndex: 20,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerCloseIcon: {
+    width: 20,
+    height: 20,
+    tintColor: '#FFF',
+  },
+  viewerZoomItem: {
+    width: SCREEN_W,
+    height: SCREEN_H,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerImage: {
+    width: SCREEN_W,
+    height: SCREEN_H,
+  },
+  viewerIndicator: {
+    position: 'absolute',
+    bottom: 24,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  viewerIndicatorText: {
+    color: '#FFF',
+    fontSize: 13,
+    opacity: 0.9,
   },
 });

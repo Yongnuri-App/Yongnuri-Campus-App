@@ -1,3 +1,4 @@
+// pages/Admin/ReportManage/AdminReportManagePage.styles.ts
 import { StyleSheet } from 'react-native';
 
 export default StyleSheet.create({
@@ -12,7 +13,7 @@ export default StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
 
-  // 상단 헤더 (뒤로가기 / 타이틀 중앙 / 우측 spacer)
+  // 상단 헤더
   header: {
     height: 52,
     paddingHorizontal: 16,
@@ -30,7 +31,7 @@ export default StyleSheet.create({
   backIcon: {
     width: 20,
     height: 20,
-    tintColor: '#1E1E1E', // 아이콘 색 유지
+    tintColor: '#1E1E1E',
   },
   headerTitle: {
     fontFamily: 'Inter',
@@ -40,10 +41,7 @@ export default StyleSheet.create({
     color: '#1E1E1E',
     textAlign: 'center',
   },
-  rightSpacer: {
-    width: 24,
-    height: 24,
-  },
+  rightSpacer: { width: 24, height: 24 },
 
   // 목록 컨테이너
   listContainer: {
@@ -52,7 +50,7 @@ export default StyleSheet.create({
     paddingBottom: 24,
   },
 
-  // 각 행(닉네임 + 사유 + 화살표)
+  // 각 행
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -76,6 +74,24 @@ export default StyleSheet.create({
     lineHeight: 20,
     color: '#666666',
   },
+
+  // 상태 배지
+  statusBadge: {
+    paddingHorizontal: 10,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  statusBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  badgeApproved: { backgroundColor: '#395884' }, // 인정
+  badgeRejected: { backgroundColor: '#D32F2F' }, // 미인정(레드)
+
   rowArrow: {
     width: 20,
     height: 20,
@@ -98,7 +114,7 @@ export default StyleSheet.create({
     color: '#979797',
   },
 
-  // 하단 핸들(피그마 하단 바)
+  // 하단 핸들
   bottomHandleWrap: {
     position: 'absolute',
     left: 0,
