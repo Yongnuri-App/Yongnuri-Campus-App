@@ -1,3 +1,4 @@
+// pages/Admin/MemberList/MemberListPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -14,9 +15,11 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import styles from './MemberListPage.styles';
 
 const USERS_ALL_KEY = 'users_all_v1';
-const ADMIN_EMAILS = ['admin@yiu.ac.kr']; // 목록에서 제외
+const REPORTS_KEY   = 'reports_v1';
+const ADMIN_EMAILS  = ['admin@yiu.ac.kr']; // 목록/삭제에서 제외
+const BAN_THRESHOLD = 10;                   // 인정 10회 → 자동 탈퇴
 
-// ✅ 컬럼 고정폭(+ 간격)
+// ✅ 컬럼 고정폭(+ 간격) — 네가 지정한 값 유지
 const COL = {
   NAME_W: 70,     // 이름 5글자 감안
   SID_W: 90,      // 학번 기존 폭
@@ -45,13 +48,33 @@ type StoredUser = {
   createdAt?: string;
 };
 
+type ReportType = '부적절한 콘텐츠' | '사기/스팸' | '욕설/혐오' | '기타';
+type ReportStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+type StoredReport = {
+  id: string;
+  target: {
+    email?: string | null; // 가능하면 이메일 기준으로 카운트
+    nickname?: string;
+    dept?: string;
+    label?: string;        // "닉네임 - 학과"
+  };
+  type: ReportType;
+  content: string;
+  images: string[];
+  createdAt: string;       // ISO
+  reporterEmail?: string | null;
+  status?: ReportStatus;   // 관리자에서 처리 시 저장
+};
+
 type Member = {
   id: string; // studentId or email fallback
+  email: string; // 매칭/탈퇴용
   name: string;
   studentId: string;
   department: string;
   nickname: string;
-  reportCount: number; // 현재 0 고정
+  reportCount: number; // ✅ 승인(인정)된 신고 횟수
 };
 
 export default function MemberListPage() {
@@ -59,25 +82,72 @@ export default function MemberListPage() {
   const [query, setQuery] = useState('');
   const [members, setMembers] = useState<Member[]>([]);
 
+  // ====== 유틸: 이메일 정규화 ======
+  const normalizeEmail = (v?: string | null) =>
+    (v || '').trim().toLowerCase();
+
+  // ====== 신고 카운트 집계 (APPROVED만) ======
+  const buildApprovedCountMap = (reports: StoredReport[]) => {
+    const map: Record<string, number> = {};
+    for (const r of reports) {
+      if ((r.status || 'PENDING') !== 'APPROVED') continue;
+      const key = normalizeEmail(r.target?.email);
+      if (!key) continue; // 안전하게: 이메일 있는 케이스만 집계/탈퇴 반영
+      map[key] = (map[key] || 0) + 1;
+    }
+    return map;
+  };
+
+  // ====== 로드 + 자동 탈퇴(정책 반영) ======
   const load = async () => {
     try {
-      const raw = await AsyncStorage.getItem(USERS_ALL_KEY);
-      const users: StoredUser[] = raw ? JSON.parse(raw) : [];
+      const [[, rawUsers], [, rawReports]] = await AsyncStorage.multiGet([
+        USERS_ALL_KEY,
+        REPORTS_KEY,
+      ]);
+      const users: StoredUser[] = rawUsers ? JSON.parse(rawUsers) : [];
+      const reports: StoredReport[] = rawReports ? JSON.parse(rawReports) : [];
+
+      // 승인(인정)된 신고 횟수 집계
+      const approvedMap = buildApprovedCountMap(reports);
 
       // 관리자 제외 + 최신가입순 정렬
       const filtered = users
-        .filter(u => !ADMIN_EMAILS.includes(u.email?.toLowerCase?.() || ''))
+        .filter(u => !ADMIN_EMAILS.includes(normalizeEmail(u.email)))
         .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 
-      const mapped: Member[] = filtered.map(u => ({
-        id: u.studentId && u.studentId.length > 0 ? u.studentId : u.email,
-        name: u.name || '이름없음',
-        studentId: u.studentId || '-', // 아직 미입력 가능
-        department: u.department || '-',
-        nickname: u.nickname || '',
-        reportCount: 0,
-      }));
-      setMembers(mapped);
+      // ✅ 자동 탈퇴 후보: 승인횟수>=10인 이메일
+      const bannedEmails = new Set(
+        filtered
+          .map(u => normalizeEmail(u.email))
+          .filter(email => (approvedMap[email] || 0) >= BAN_THRESHOLD)
+      );
+
+      // ✅ 실제 users_all_v1에서 삭제(탈퇴 반영)
+      let changed = false;
+      const afterBan = users.filter(u => !bannedEmails.has(normalizeEmail(u.email)));
+      if (afterBan.length !== users.length) {
+        changed = true;
+        await AsyncStorage.setItem(USERS_ALL_KEY, JSON.stringify(afterBan));
+      }
+
+      // 화면 표시는 삭제된 후의 목록 기준으로 다시 계산
+      const baseList: StoredUser[] = changed ? afterBan : users;
+
+      const final = baseList
+        .filter(u => !ADMIN_EMAILS.includes(normalizeEmail(u.email)))
+        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+        .map<Member>(u => ({
+          id: u.studentId && u.studentId.length > 0 ? u.studentId : u.email,
+          email: normalizeEmail(u.email),
+          name: u.name || '이름없음',
+          studentId: u.studentId || '-', // 아직 미입력 가능
+          department: u.department || '-',
+          nickname: u.nickname || '',
+          reportCount: approvedMap[normalizeEmail(u.email)] || 0,
+        }));
+
+      setMembers(final);
     } catch (e) {
       console.log('member list load error', e);
       setMembers([]);
@@ -88,7 +158,7 @@ export default function MemberListPage() {
     load();
   }, []);
 
-  // 닉네임 등 변경 후 돌아오면 갱신
+  // 닉네임 등 변경 / 신고 처리 후 복귀 시 갱신
   useFocusEffect(React.useCallback(() => {
     load();
   }, []));
