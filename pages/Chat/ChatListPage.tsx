@@ -154,9 +154,17 @@ export default function ChatListPage({ navigation }: Props) {
       <BottomTabBar
         value={tab}
         onChange={(next) => {
+          // 내부 상태 먼저 동기화 (UI 하이라이트용)
           setTab(next);
-          if (next === 'market') navigation.navigate('Main');
-          if (next === 'chat') navigation.navigate('ChatList');
+
+          // ✅ 채팅 탭: ChatList로 이동(무애니메이션으로 가고싶으면 noAnim 같이 전달)
+          if (next === 'chat') {
+            navigation.replace('ChatList', { noAnim: true }); // or navigation.navigate(...)
+            return;
+          }
+
+          // ✅ 나머지 탭: 모두 Main으로 보내되, initialTab으로 어떤 리스트를 띄울지 지정
+          navigation.replace('Main', { initialTab: next });
         }}
       />
     </View>

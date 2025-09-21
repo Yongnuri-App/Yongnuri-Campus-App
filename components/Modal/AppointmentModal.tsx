@@ -1,13 +1,13 @@
 // components/Appointment/AppointmentModal.tsx
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
-    Image,
-    Modal,
-    Platform,
-    Pressable,
-    Text,
-    TouchableOpacity,
-    View,
+  Image,
+  Modal,
+  Platform,
+  Pressable,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import DatePickerSheet from '../TimePicker/DatePickerSheet';
 import PlacePickerSheet from '../TimePicker/PlacePickerSheet';
@@ -76,10 +76,10 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
   const [tempPlace, setTempPlace] = useState<string>('무도대학');
 
   // 장소만 임시 옵션 유지
-  const placeOptions = useMemo(
-    () => ['정문 앞', '도서관 1층 로비', '학생회관 카페', '체육관 입구'],
-    []
-  );
+  // const placeOptions = useMemo(
+  //   () => ['정문 앞', '도서관 1층 로비', '학생회관 카페', '체육관 입구'],
+  //   []
+  // );
 
   /** 공통: 간단한 토글 선택 UI (임시)
    *  - 실제 구현에서는 ActionSheet/BottomSheet, DatePicker 등으로 교체

@@ -7,6 +7,7 @@ import { RootStackParamList } from './types/navigation';
 
 // 페이지 컴포넌트들
 import ChatListPage from './pages/Chat/ChatListPage';
+import ChatRoomPage from './pages/Chat/ChatRoomPage';
 import GroupBuyDetailPage from './pages/GroupBuy/GroupBuyDetailPage';
 import GroupBuyRecruitPage from './pages/GroupBuy/GroupBuyRecruitPage';
 import LoadingScreen from './pages/Loading/LoadingScreen';
@@ -16,19 +17,18 @@ import LostPostPage from './pages/LostAndFound/LostPostPage';
 import MainPage from './pages/Main/MainPage';
 import MarketDetailPage from './pages/Market/MarketDetailPage';
 import SellItemPage from './pages/Market/SellItemPage';
-import NotificationPage from './pages/Notification/NotificationPage';
-import PasswordResetPage from './pages/PasswordReset/PasswordResetPage';
-import SearchPage from './pages/Search/SearchPage';
-import SignUpPage from './pages/SignUp/SignUpPage';
-import ChatRoomPage from './pages/Chat/ChatRoomPage';
-import ReportPage from './pages/Report/ReportPage';
+import BlockedUsersPage from './pages/My/BlockedUsers/BlockedUsersPage';
+import FavoritesPage from './pages/My/Favorites/MyFavoritesPage';
+import InquiryPage from './pages/My/Inquiry/InquiryPage';
 import MyPagePage from './pages/My/MyPage/MyPage';
 import PersonalInfoPage from './pages/My/PersonalInfo/PersonalInfoPage';
-import FavoritesPage from './pages/My/Favorites/MyFavoritesPage';
-import BlockedUsersPage from './pages/My/BlockedUsers/BlockedUsersPage';
 import TradeHistoryPage from './pages/My/TradeHistory/TradeHistoryPage';
-import InquiryPage from './pages/My/Inquiry/InquiryPage';
 import WithdrawPage from './pages/My/Withdraw/WithdrawPage';
+import NotificationPage from './pages/Notification/NotificationPage';
+import PasswordResetPage from './pages/PasswordReset/PasswordResetPage';
+import ReportPage from './pages/Report/ReportPage';
+import SearchPage from './pages/Search/SearchPage';
+import SignUpPage from './pages/SignUp/SignUpPage';
 
 // ✅ 관리자 페이지(바로 화면으로 등록)
 import AdminPage from './pages/Admin/AdminPage/AdminPage';
@@ -56,7 +56,7 @@ export default function App() {
         <Stack.Screen name="Login" component={LoginPage} />
         <Stack.Screen name="Signup" component={SignUpPage} />
         <Stack.Screen name="PasswordReset" component={PasswordResetPage} />
-        <Stack.Screen name="Main" component={MainPage} />
+        <Stack.Screen name="Main" component={MainPage} options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="Search" component={SearchPage} />
         <Stack.Screen name="Notification" component={NotificationPage} />
 
@@ -69,7 +69,7 @@ export default function App() {
         <Stack.Screen name="LostDetail" component={LostDetailPage} />
 
         {/* 채팅/신고 */}
-        <Stack.Screen name="ChatList" component={ChatListPage} />
+        <Stack.Screen name="ChatList" component={ChatListPage} options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="ChatRoom" component={ChatRoomPage} />
         <Stack.Screen name="Report" component={ReportPage} />
 
