@@ -1,7 +1,6 @@
-// pages/GroupBuy/GroupBuyDetailPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   Alert,
   Dimensions,
@@ -34,10 +33,7 @@ type GroupBuyPost = {
   id: string;
   title: string;
   description: string;
-  recruit: {
-    mode: RecruitMode;
-    count: number | null;
-  };
+  recruit: { mode: RecruitMode; count: number | null };
   applyLink: string;
   images: string[];
   likeCount: number;
@@ -46,6 +42,9 @@ type GroupBuyPost = {
   authorEmail?: string | null;
   authorName?: string;
   authorDept?: string;
+
+  /** ✅ 작성자가 설정하는 실시간 모집 인원 */
+  currentCount?: number;
 };
 
 function timeAgo(iso: string) {
@@ -68,6 +67,7 @@ export default function GroupBuyDetailPage({
   const [item, setItem] = useState<GroupBuyPost | null>(null);
   const [index, setIndex] = useState(0);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const hScrollRef = useRef<ScrollView | null>(null);
 
   const { liked, syncCount, setLikedPersisted } = useLike({
@@ -88,61 +88,38 @@ export default function GroupBuyDetailPage({
     confirmCancelText: '취소',
   });
 
-  // 최초 로드
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(POSTS_KEY);
-        const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
-        const found = list.find((p) => String(p.id) === String(id)) ?? null;
-        if (!mounted) return;
+  const loadDetail = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(POSTS_KEY);
+      const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
+      const found = list.find((p) => String(p.id) === String(id)) ?? null;
 
-        setItem(found);
-        if (!found) {
-          Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
-            { text: '확인', onPress: () => navigation.goBack() },
-          ]);
-          return;
-        }
-        syncCount(found.likeCount ?? 0);
-      } catch (e) {
-        if (!mounted) return;
-        console.log('groupbuy detail load error', e);
-        Alert.alert('오류', '게시글을 불러오지 못했어요.', [
+      setItem(found);
+      if (!found) {
+        Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
           { text: '확인', onPress: () => navigation.goBack() },
         ]);
+        return;
       }
-    })();
-    return () => {
-      mounted = false;
-    };
+      syncCount(found.likeCount ?? 0);
+    } catch (e) {
+      console.log('groupbuy detail load error', e);
+      Alert.alert('오류', '게시글을 불러오지 못했어요.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    }
   }, [id, navigation, syncCount]);
 
-  // 수정 후 복귀 시 리로드
+  useEffect(() => {
+    loadDetail();
+  }, [loadDetail]);
+
   useFocusEffect(
-    React.useCallback(() => {
-      let mounted = true;
-      (async () => {
-        try {
-          const raw = await AsyncStorage.getItem(POSTS_KEY);
-          const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
-          const found = list.find((p) => String(p.id) === String(id)) ?? null;
-          if (!mounted) return;
-          setItem(found);
-          if (found) syncCount(found.likeCount ?? 0);
-        } catch (e) {
-          if (!mounted) return;
-          console.log('groupbuy detail reload error', e);
-        }
-      })();
-      return () => {
-        mounted = false;
-      };
-    }, [id, syncCount])
+    useCallback(() => {
+      loadDetail();
+    }, [loadDetail])
   );
 
-  // 권한 파생
   const { isAdmin, isOwner } = usePermissions({
     authorId: item?.authorId,
     authorEmail: item?.authorEmail ?? null,
@@ -162,15 +139,13 @@ export default function GroupBuyDetailPage({
     [lookupDept, item?.authorDept]
   );
 
-  const recruitLabel =
-    item?.recruit?.mode === 'unlimited' ? '제한 없음' : `${item?.recruit?.count ?? 0}명`;
-  const currentCount = 0; // TODO: API 연동 시 실제 현재 인원으로 대체
-
+  // ===== 이미지 스와이프 인덱스 =====
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
+  // ===== 신고 / 신청 =====
   const onPressReport = () => {
     navigation.navigate('Report', {
       targetNickname: profileName,
@@ -178,7 +153,6 @@ export default function GroupBuyDetailPage({
       targetEmail: item?.authorEmail ?? null,
     });
   };
-
   const onPressApply = () => {
     if (!item?.applyLink) {
       Alert.alert('안내', '신청 링크가 없습니다.');
@@ -188,6 +162,84 @@ export default function GroupBuyDetailPage({
       ? item.applyLink
       : `https://${item.applyLink}`;
     Linking.openURL(url).catch(() => Alert.alert('오류', '링크를 열 수 없습니다.'));
+  };
+
+  // ===== 현재 모집 인원: 소유자만 드롭다운으로 수정 =====
+  const maxCount = useMemo<number>(() => {
+    if (!item) return 0;
+    const limit = item.recruit?.mode === 'limited' ? (item.recruit?.count ?? 0) : 99;
+    return Math.max(0, limit);
+  }, [item?.recruit?.mode, item?.recruit?.count]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const totalLabel =
+    item?.recruit?.mode === 'limited'
+      ? `(${item?.recruit?.count ?? 0}명)`
+      : '(제한 없음)';
+
+  const onSelectCount = async (n: number) => {
+    setPickerOpen(false);
+    setItem((prev) => (prev ? { ...prev, currentCount: n } : prev));
+    try {
+      const raw = await AsyncStorage.getItem(POSTS_KEY);
+      const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
+      const idx = list.findIndex((p) => String(p.id) === String(id));
+      if (idx >= 0) {
+        list[idx].currentCount = n;
+        await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(list));
+      }
+    } catch (e) {
+      console.log('save currentCount error', e);
+      Alert.alert('오류', '모집 인원을 저장하지 못했어요.');
+    }
+  };
+
+  const CurrentCountControl = () => {
+    const value = item?.currentCount ?? 0;
+
+    if (!isOwner) {
+      // 일반 사용자: 숫자만 출력
+      return (
+        <View style={styles.countStaticWrap}>
+          <Text style={styles.countStaticText}>{value}</Text>
+        </View>
+      );
+    }
+
+    // 작성자: 드롭다운
+    const options = Array.from({ length: maxCount + 1 }, (_, i) => i);
+
+    return (
+      <View style={styles.countPickerWrap}>
+        <TouchableOpacity
+          onPress={() => setPickerOpen((v) => !v)}
+          activeOpacity={0.9}
+          style={styles.countPickerButton}
+        >
+          <Text style={styles.countPickerValue}>{value}</Text>
+          <Image
+            source={require('../../assets/images/down.png')}
+            style={styles.countPickerIcon}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
+
+        {pickerOpen && (
+          <View style={styles.countDropdown}>
+            <ScrollView style={{ maxHeight: 180 }} showsVerticalScrollIndicator>
+              {options.map((n) => (
+                <TouchableOpacity
+                  key={n}
+                  style={styles.countOption}
+                  onPress={() => onSelectCount(n)}
+                >
+                  <Text style={styles.countOptionText}>{n}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+      </View>
+    );
   };
 
   if (!item) {
@@ -200,9 +252,7 @@ export default function GroupBuyDetailPage({
 
   const images = Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
   const thumbUri = images.length > 0 ? images[0] : undefined;
-  const recruitText = `현재 모집 인원 ${currentCount}명 (${recruitLabel})`;
 
-  // 우상단 버튼
   const RightTopButton = () =>
     isAdmin || isOwner ? (
       <TouchableOpacity
@@ -230,7 +280,7 @@ export default function GroupBuyDetailPage({
     <View style={styles.container}>
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={[styles.contentContainer, { paddingBottom: 140 }]}
+        contentContainerStyle={[styles.contentContainer, { paddingBottom: 160 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -283,6 +333,7 @@ export default function GroupBuyDetailPage({
 
           <View style={styles.divider} />
 
+          {/* 제목 + 신청 버튼 */}
           <View style={styles.titleRow}>
             <Text style={styles.title} numberOfLines={2}>
               {item.title}
@@ -293,7 +344,12 @@ export default function GroupBuyDetailPage({
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.recruitLine}>{recruitText}</Text>
+          {/* ✅ 현재 모집 인원 라인 */}
+          <View style={styles.recruitLineRow}>
+            <Text style={styles.recruitLineLabel}>현재 모집 인원</Text>
+            <CurrentCountControl />
+            <Text style={styles.recruitLineSuffix}>명 {totalLabel}</Text>
+          </View>
 
           <Text style={styles.time}>{timeText}</Text>
 
@@ -331,7 +387,10 @@ export default function GroupBuyDetailPage({
             postId: id,
             authorNickname: profileName,
             postTitle: item.title,
-            recruitLabel: recruitText,
+            recruitLabel:
+              item.recruit?.mode === 'limited'
+                ? `현재 모집 인원 ${item.currentCount ?? 0}명 (${item.recruit?.count ?? 0}명)`
+                : `현재 모집 인원 ${item.currentCount ?? 0}명 (제한 없음)`,
             postImageUri: thumbUri,
           }}
         />

@@ -48,7 +48,7 @@ async function ensureLocalIdentity() {
     userId = `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     await AsyncStorage.setItem(AUTH_USER_ID_KEY, userId);
   }
-  // 이메일은 여기서 쓰지 않음(구키일 수 있음). 단지 userId만 확보.
+  // 이메일은 구키일 수 있으므로 여기서는 읽기만
   const userEmail = (await AsyncStorage.getItem(AUTH_USER_EMAIL_KEY)) ?? null;
   return { userId, userEmail };
 }
@@ -71,7 +71,7 @@ type MarketPost = {
 
 const SellItemPage: React.FC<Props> = ({ navigation }) => {
   const route = useRoute<any>();
-  const modeParam = route.params?.mode as 'create' | 'edit' | undefined; // ✅ 오타 수정 (the → const)
+  const modeParam = route.params?.mode as 'create' | 'edit' | undefined;
   const editId = route.params?.id as string | undefined;
   const isEdit = modeParam === 'edit' && !!editId;
 
@@ -131,6 +131,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
             price: priceNum,
             location: String(form?.extra?.location ?? '').trim(),
             images: imgs,
+            // authorId / authorEmail은 유지 (prev에 이미 있음)
           };
         },
         validate: (form: any) => {
@@ -176,7 +177,11 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
     if (!title.trim()) return false;
     if (!desc.trim()) return false;
     if (mode === null) return false;
-    if (mode === 'sell' && !priceRaw.trim()) return false;
+    if (mode === 'sell') {
+      if (!priceRaw.trim()) return false;
+      const pn = Number(priceRaw);
+      if (!Number.isFinite(pn) || pn <= 0) return false;
+    }
     if (!location.trim()) return false;
     return true;
   }, [title, desc, mode, priceRaw, location]);
@@ -241,8 +246,9 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
     try {
       // ✅ 로컬 사용자 식별자(UID) 확보
       const { userId } = await ensureLocalIdentity();
-      // ✅ 세션에서 현재 로그인 이메일(소문자) 확보 (표준키)
-      const userEmail = await getCurrentUserEmail();
+      // ✅ 세션에서 현재 로그인 이메일(소문자 정규화) 확보
+      const userEmailRaw = await getCurrentUserEmail();
+      const userEmail = userEmailRaw ? userEmailRaw.trim().toLowerCase() : null;
 
       if (!userEmail) {
         Alert.alert('오류', '로그인이 필요합니다. 다시 로그인해 주세요.');
@@ -270,9 +276,9 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
         images: payload.images,
         likeCount: 0,
         createdAt: new Date().toISOString(),
-        authorId: userId,
-        authorEmail: userEmail, // ✅ 핵심: 이메일만 저장
-        // authorName / authorDept 하드코딩 제거
+        authorId: userId,          // ✅ 기기 고유 ID
+        authorEmail: userEmail,    // ✅ 이메일 우선 판별용 (소문자)
+        // authorName / authorDept는 프로필 조회 시 폴백
       };
 
       const raw = await AsyncStorage.getItem(POSTS_KEY);
@@ -291,6 +297,7 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
       setLocation('');
 
       // ✅ 스택 재구성: Main(목록-중고거래) + MarketDetail(방금 글)
+      //    네 네비게이터에서 상세 라우트 이름이 'MarketDetail'인지 확인!
       navigation.dispatch(
         CommonActions.reset({
           index: 1,

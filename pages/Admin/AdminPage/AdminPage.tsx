@@ -1,3 +1,4 @@
+// pages/Admin/AdminPage/AdminPage.tsx
 import React from 'react';
 import {
   Image,
@@ -11,19 +12,18 @@ import styles from './AdminPage.styles';
 import type { RootStackScreenProps } from '../../../types/navigation';
 import { clearIsAdmin } from '../../../utils/auth';
 
-export default function AdminPage({ navigation }: RootStackScreenProps<'AdminGate'>) {
-  // 상단 아이콘 동작
+export default function AdminPage({
+  navigation,
+}: RootStackScreenProps<'AdminGate'>) {
+  // 상단 아이콘
   const onPressAlarm = () => navigation.navigate('Notification');
   const onPressSearch = () => navigation.navigate('Search');
 
   // 섹션 이동
-  const goNoticeRegister = () => navigation.navigate('AdminNoticeCreate');
+  const goAllNotice = () => navigation.navigate('AdminAllNotice'); // ✅ 추가
   const goInquiryNotice = () => navigation.navigate('AdminInquiryNotice');
-  const goReportManage = () => navigation.navigate('AdminReportManage'); // ✅ 신고관리 이동
-  const goMemberInfo = () => {
-    // ✅ 신규: 회원 정보 페이지로 이동
-    navigation.navigate('AdminMemberList');
-  };
+  const goReportManage = () => navigation.navigate('AdminReportManage');
+  const goMemberInfo = () => navigation.navigate('AdminMemberList');
 
   const onLogout = async () => {
     await clearIsAdmin();
@@ -32,13 +32,11 @@ export default function AdminPage({ navigation }: RootStackScreenProps<'AdminGat
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* iOS Status Bar 영역 모사 (피그마 44px) */}
       <View style={styles.statusBar} />
 
       {/* 헤더 */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>관리자페이지</Text>
-
         <View style={styles.headerRight}>
           <TouchableOpacity
             style={styles.headerIconBtn}
@@ -63,12 +61,13 @@ export default function AdminPage({ navigation }: RootStackScreenProps<'AdminGat
         </View>
       </View>
 
+      {/* 콘텐츠 */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
       >
-        {/* 인사 */}
+        {/* 인사말 */}
         <View style={styles.greetingWrap}>
           <View style={styles.greetingTextCol}>
             <Text style={styles.greeting}>관리자님 안녕하세요!</Text>
@@ -76,21 +75,27 @@ export default function AdminPage({ navigation }: RootStackScreenProps<'AdminGat
           </View>
         </View>
 
-        {/* 상단 구분선 */}
         <View style={styles.dividerTop} />
-
-        {/* 섹션: 관리 */}
         <Text style={styles.sectionCaption}>관리</Text>
 
-        <TouchableOpacity style={styles.row} onPress={goNoticeRegister} activeOpacity={0.85}>
-          <Text style={styles.rowText}>공지사항 등록</Text>
+        {/* ✅ 전체 공지사항 → AllNoticePage 이동 */}
+        <TouchableOpacity
+          style={styles.row}
+          activeOpacity={0.85}
+          onPress={goAllNotice}
+        >
+          <Text style={styles.rowText}>전체 공지사항</Text>
           <Image
             source={require('../../../assets/images/arrow.png')}
             style={styles.rowArrow}
           />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.row} onPress={goInquiryNotice} activeOpacity={0.85}>
+        <TouchableOpacity
+          style={styles.row}
+          onPress={goInquiryNotice}
+          activeOpacity={0.85}
+        >
           <Text style={styles.rowText}>문의하기 공지 설정</Text>
           <Image
             source={require('../../../assets/images/arrow.png')}
@@ -98,7 +103,11 @@ export default function AdminPage({ navigation }: RootStackScreenProps<'AdminGat
           />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.row} onPress={goReportManage} activeOpacity={0.85}>
+        <TouchableOpacity
+          style={styles.row}
+          onPress={goReportManage}
+          activeOpacity={0.85}
+        >
           <Text style={styles.rowText}>신고 관리</Text>
           <Image
             source={require('../../../assets/images/arrow.png')}
@@ -106,13 +115,14 @@ export default function AdminPage({ navigation }: RootStackScreenProps<'AdminGat
           />
         </TouchableOpacity>
 
-        {/* 가운데 구분선 */}
         <View style={styles.dividerMid} />
-
-        {/* 섹션: 정보 */}
         <Text style={styles.sectionCaption}>정보</Text>
 
-        <TouchableOpacity style={styles.row} onPress={goMemberInfo} activeOpacity={0.85}>
+        <TouchableOpacity
+          style={styles.row}
+          onPress={goMemberInfo}
+          activeOpacity={0.85}
+        >
           <Text style={styles.rowText}>회원 정보</Text>
           <Image
             source={require('../../../assets/images/arrow.png')}
@@ -120,7 +130,11 @@ export default function AdminPage({ navigation }: RootStackScreenProps<'AdminGat
           />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.row} onPress={onLogout} activeOpacity={0.85}>
+        <TouchableOpacity
+          style={styles.row}
+          onPress={onLogout}
+          activeOpacity={0.85}
+        >
           <Text style={styles.rowText}>로그아웃</Text>
           <Image
             source={require('../../../assets/images/arrow.png')}

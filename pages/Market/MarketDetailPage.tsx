@@ -84,6 +84,15 @@ export default function MarketDetailPage({
   const [menuVisible, setMenuVisible] = useState(false);
   const hScrollRef = useRef<ScrollView | null>(null);
 
+
+    /** 좋아요 훅 */
+  const { liked, syncCount } = useLike({
+    itemId: id,
+    likedMapKey: LIKED_MAP_KEY,
+    postsKey: POSTS_KEY,
+    initialCount: 0,
+  });
+
   /** ✅ 상세 로드 */
   const loadItem = useCallback(async () => {
     try {
@@ -106,7 +115,7 @@ export default function MarketDetailPage({
         { text: '확인', onPress: () => navigation.goBack() },
       ]);
     }
-  }, [id, navigation]);
+  }, [id, navigation, syncCount]);
 
   useEffect(() => {
     const unsub = navigation.addListener('focus', () => loadItem());
@@ -116,14 +125,6 @@ export default function MarketDetailPage({
   useEffect(() => {
     loadItem();
   }, [loadItem]);
-
-  /** 좋아요 훅 */
-  const { liked, syncCount } = useLike({
-    itemId: id,
-    likedMapKey: LIKED_MAP_KEY,
-    postsKey: POSTS_KEY,
-    initialCount: 0,
-  });
 
   /** 삭제 훅 */
   const { confirmAndDelete } = useDeletePost({

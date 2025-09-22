@@ -1,11 +1,10 @@
+// App.tsx
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React from 'react';
 
-// 네비게이션 타입 정의
 import { RootStackParamList } from './types/navigation';
 
-// 페이지 컴포넌트들
 import ChatListPage from './pages/Chat/ChatListPage';
 import ChatRoomPage from './pages/Chat/ChatRoomPage';
 import GroupBuyDetailPage from './pages/GroupBuy/GroupBuyDetailPage';
@@ -30,33 +29,41 @@ import ReportPage from './pages/Report/ReportPage';
 import SearchPage from './pages/Search/SearchPage';
 import SignUpPage from './pages/SignUp/SignUpPage';
 
-// ✅ 관리자 페이지(바로 화면으로 등록)
+// 관리자
 import AdminPage from './pages/Admin/AdminPage/AdminPage';
 
-// ✅ 공지 상세 + 작성/수정
-import AdminNoticeCreatePage from './pages/Admin/NoticeCreate/NoticeCreatePage';
+// 공지 상세/작성
+import AdminNoticeCreatePage from './pages/Notice/NoticeCreatePage';
 import NoticeDetailPage from './pages/Notice/NoticeDetailPage';
 
-// ✅ [관리자] 문의하기 공지 설정 페이지
+// [관리자] 문의하기 공지 설정 / 회원정보 / 신고관리
 import InquiryNoticeSettingPage from './pages/Admin/InquiryNoticeSetting/InquiryNoticeSettingPage';
-
-// ✅ [관리자] 회원 정보 목록 페이지
 import MemberListPage from './pages/Admin/MemberList/MemberListPage';
-
-// ✅ [관리자] 신고 관리 목록 페이지 (신규)
 import AdminReportManagePage from './pages/Admin/ReportManage/AdminReportManagePage';
+
+// ✅ [관리자] 전체 공지 목록 & 등록 (신규)
+import AllNoticePage from './pages/Admin/AdminPage/AllNotice/AllNoticePage';
+import AllNoticeCreatePage from './pages/Admin/AdminPage/AllNotice/AllNoticeCreatePage';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   return (
     <NavigationContainer>
-      <Stack.Navigator initialRouteName="Loading" screenOptions={{ headerShown: false }}>
+      <Stack.Navigator
+        initialRouteName="Loading"
+        screenOptions={{ headerShown: false }}
+      >
         <Stack.Screen name="Loading" component={LoadingScreen} />
         <Stack.Screen name="Login" component={LoginPage} />
         <Stack.Screen name="Signup" component={SignUpPage} />
         <Stack.Screen name="PasswordReset" component={PasswordResetPage} />
-        <Stack.Screen name="Main" component={MainPage} options={{ headerShown: false, animation: 'none' }} />
+
+        <Stack.Screen
+          name="Main"
+          component={MainPage}
+          options={{ headerShown: false, animation: 'none' }}
+        />
         <Stack.Screen name="Search" component={SearchPage} />
         <Stack.Screen name="Notification" component={NotificationPage} />
 
@@ -69,7 +76,11 @@ export default function App() {
         <Stack.Screen name="LostDetail" component={LostDetailPage} />
 
         {/* 채팅/신고 */}
-        <Stack.Screen name="ChatList" component={ChatListPage} options={{ headerShown: false, animation: 'none' }} />
+        <Stack.Screen
+          name="ChatList"
+          component={ChatListPage}
+          options={{ headerShown: false, animation: 'none' }}
+        />
         <Stack.Screen name="ChatRoom" component={ChatRoomPage} />
         <Stack.Screen name="Report" component={ReportPage} />
 
@@ -98,6 +109,10 @@ export default function App() {
 
         {/* ✅ 관리자: 신고 관리 목록 */}
         <Stack.Screen name="AdminReportManage" component={AdminReportManagePage} />
+
+        {/* ✅ 관리자: 전체 공지 목록 & 등록 */}
+        <Stack.Screen name="AdminAllNotice" component={AllNoticePage} />
+        <Stack.Screen name="AdminAllNoticeCreate" component={AllNoticeCreatePage} />
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -1,9 +1,7 @@
 // components/FloatingButton/FloatingWriteButton.tsx
-import type { NavigationProp } from "@react-navigation/native";
 import { useNavigation } from "@react-navigation/native";
 import React from "react";
 import { Image, Platform, Text, TouchableOpacity, View } from "react-native";
-import { RootStackParamList } from "../../types/navigation";
 import { TabKey } from "../Bottom/BottomTabBar";
 import styles from "./FloatingWriteButton.styles";
 
@@ -20,25 +18,27 @@ export default function FloatingWriteButton({
   disabled = false,
   onPressOverride,
 }: Props) {
-  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  // 🔧 타입 느슨화로 TS 오류 제거 (여기 버튼은 여러 스택에서 재사용)
+  const navigation = useNavigation<any>();
 
   const handlePress = () => {
     if (onPressOverride) return onPressOverride();
 
     switch (activeTab) {
       case "market":
-        navigation.navigate("SellItem");           // 기존 그대로
+        navigation.navigate("SellItem");
         break;
       case "lost":
-        navigation.navigate("LostPost");     // 분실물 작성 화면으로 이동
+        navigation.navigate("LostPost");
         break;
-      case "chat":
-        break;
-      case 'group':
+      case "group":
         navigation.navigate("GroupBuyRecruit");
         break;
       case "notice":
+        // ✅ 관리자용: 공지사항 등록 페이지로 이동
+        navigation.navigate("AdminNoticeCreate");
         break;
+      case "chat":
       default:
         break;
     }
@@ -55,7 +55,11 @@ export default function FloatingWriteButton({
       hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
     >
       <View style={styles.contentRow}>
-        <Image source={require("../../assets/images/plus.png")} style={styles.icon} resizeMode="contain" />
+        <Image
+          source={require("../../assets/images/plus.png")}
+          style={styles.icon}
+          resizeMode="contain"
+        />
         <Text style={styles.label}>글쓰기</Text>
       </View>
     </TouchableOpacity>

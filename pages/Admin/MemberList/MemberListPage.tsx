@@ -1,6 +1,6 @@
 // pages/Admin/MemberList/MemberListPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   SafeAreaView,
   View,
@@ -19,7 +19,7 @@ const REPORTS_KEY   = 'reports_v1';
 const ADMIN_EMAILS  = ['admin@yiu.ac.kr']; // 목록/삭제에서 제외
 const BAN_THRESHOLD = 10;                   // 인정 10회 → 자동 탈퇴
 
-// ✅ 컬럼 고정폭(+ 간격) — 네가 지정한 값 유지
+// ✅ 컬럼 고정폭(+ 간격)
 const COL = {
   NAME_W: 70,     // 이름 5글자 감안
   SID_W: 90,      // 학번 기존 폭
@@ -77,29 +77,29 @@ type Member = {
   reportCount: number; // ✅ 승인(인정)된 신고 횟수
 };
 
+/* ──────────────────────────────
+   모듈 스코프 유틸 (의존성 경고 방지)
+────────────────────────────── */
+const normalizeEmail = (v?: string | null) => (v || '').trim().toLowerCase();
+
+const buildApprovedCountMap = (reports: StoredReport[]) => {
+  const map: Record<string, number> = {};
+  for (const r of reports) {
+    if ((r.status || 'PENDING') !== 'APPROVED') continue;
+    const key = normalizeEmail(r.target?.email);
+    if (!key) continue; // 안전하게: 이메일 있는 케이스만 집계/탈퇴 반영
+    map[key] = (map[key] || 0) + 1;
+  }
+  return map;
+};
+
 export default function MemberListPage() {
   const navigation = useNavigation<any>();
   const [query, setQuery] = useState('');
   const [members, setMembers] = useState<Member[]>([]);
 
-  // ====== 유틸: 이메일 정규화 ======
-  const normalizeEmail = (v?: string | null) =>
-    (v || '').trim().toLowerCase();
-
-  // ====== 신고 카운트 집계 (APPROVED만) ======
-  const buildApprovedCountMap = (reports: StoredReport[]) => {
-    const map: Record<string, number> = {};
-    for (const r of reports) {
-      if ((r.status || 'PENDING') !== 'APPROVED') continue;
-      const key = normalizeEmail(r.target?.email);
-      if (!key) continue; // 안전하게: 이메일 있는 케이스만 집계/탈퇴 반영
-      map[key] = (map[key] || 0) + 1;
-    }
-    return map;
-  };
-
   // ====== 로드 + 자동 탈퇴(정책 반영) ======
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const [[, rawUsers], [, rawReports]] = await AsyncStorage.multiGet([
         USERS_ALL_KEY,
@@ -116,14 +116,14 @@ export default function MemberListPage() {
         .filter(u => !ADMIN_EMAILS.includes(normalizeEmail(u.email)))
         .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 
-      // ✅ 자동 탈퇴 후보: 승인횟수>=10인 이메일
+      // 자동 탈퇴 후보: 승인횟수>=10인 이메일
       const bannedEmails = new Set(
         filtered
           .map(u => normalizeEmail(u.email))
           .filter(email => (approvedMap[email] || 0) >= BAN_THRESHOLD)
       );
 
-      // ✅ 실제 users_all_v1에서 삭제(탈퇴 반영)
+      // 실제 users_all_v1에서 삭제(탈퇴 반영)
       let changed = false;
       const afterBan = users.filter(u => !bannedEmails.has(normalizeEmail(u.email)));
       if (afterBan.length !== users.length) {
@@ -152,18 +152,21 @@ export default function MemberListPage() {
       console.log('member list load error', e);
       setMembers([]);
     }
-  };
-
-  useEffect(() => {
-    load();
   }, []);
 
-  // 닉네임 등 변경 / 신고 처리 후 복귀 시 갱신
-  useFocusEffect(React.useCallback(() => {
+  // 최초 진입 시 로드
+  useEffect(() => {
     load();
-  }, []));
+  }, [load]);
 
-  // ✅ 검색 대상: 학번, 이름, 학과, 닉네임
+  // 포커스 복귀 시 로드
+  useFocusEffect(
+    React.useCallback(() => {
+      load();
+    }, [load])
+  );
+
+  // 검색: 학번, 이름, 학과, 닉네임
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return members;
@@ -254,11 +257,10 @@ export default function MemberListPage() {
         />
       </View>
 
-      {/* ===== 리스트: 가로 스크롤 + 세로 플랫리스트 ===== */}
+      {/* 리스트: 가로 스크롤 + 세로 플랫리스트 */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        // 좌/우 패딩: 우측 여백을 줄이기 위해 8dp로 축소
         contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}
       >
         <View style={{ width: TOTAL_WIDTH }}>

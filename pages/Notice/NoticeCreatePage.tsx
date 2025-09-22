@@ -1,4 +1,3 @@
-// pages/Admin/NoticeCreate/NoticeCreatePage.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CommonActions, useRoute, RouteProp, useNavigation } from '@react-navigation/native';
@@ -13,11 +12,11 @@ import {
   Image,
 } from 'react-native';
 
-import type { RootStackParamList } from '../../../types/navigation';
-import PhotoPicker from '../../../components/PhotoPicker/PhotoPicker';
-import DatePickerSheet from '../../../components/TimePicker/DatePickerSheet';
+import type { RootStackParamList } from '../../types/navigation';
+import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
+import DatePickerSheet from '../../components/TimePicker/DatePickerSheet';
 import styles from './NoticeCreatePage.styles';
-import { useImagePicker } from '../../../hooks/useImagePicker';
+import { useImagePicker } from '../../hooks/useImagePicker';
 
 type NoticeWriteRoute = RouteProp<RootStackParamList, 'AdminNoticeCreate' | 'NoticeWrite'>;
 
@@ -124,17 +123,18 @@ export default function NoticeCreatePage() {
 
       await AsyncStorage.setItem(NOTICE_KEY, JSON.stringify(list));
 
-      // 초기화 후 메인 공지 탭으로 이동
+      // 초기화 후 메인 탭으로 이동
       setTitle('');
       setDesc('');
       setApplyUrl('');
       setImages([]);
       setApplyDate(null);
 
+      // ⚠️ types 기준으로 존재하는 탭으로 넘기자. (notice 탭이 없다면 market 등으로)
       navigation.dispatch(
         CommonActions.reset({
           index: 0,
-          routes: [{ name: 'Main', params: { initialTab: 'notice' } }],
+          routes: [{ name: 'Main', params: { initialTab: 'market' } }],
         })
       );
     } catch (e: any) {
@@ -148,7 +148,7 @@ export default function NoticeCreatePage() {
       {/* 헤더 */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Image source={require('../../../assets/images/back.png')} style={styles.backIcon} />
+          <Image source={require('../../assets/images/back.png')} style={styles.backIcon} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{mode === 'edit' ? '공지 수정' : '공지 등록'}</Text>
         <View style={{ width: 24 }} />
@@ -165,8 +165,8 @@ export default function NoticeCreatePage() {
         <PhotoPicker
           images={images}
           max={MAX}
-          onAddPress={openAdd}     // ✅ 훅에서 제공
-          onRemoveAt={removeAt}    // ✅ 훅에서 제공
+          onAddPress={openAdd}
+          onRemoveAt={removeAt}
         />
 
         {/* 제목 */}
@@ -200,7 +200,7 @@ export default function NoticeCreatePage() {
           <Text style={styles.dateText}>
             {applyDate ? formatKoreanDate(applyDate) : '날짜를 선택하세요'}
           </Text>
-          <Image source={require('../../../assets/images/down.png')} style={styles.chevronIcon} />
+          <Image source={require('../../assets/images/down.png')} style={styles.chevronIcon} />
         </TouchableOpacity>
 
         {/* 모집 신청 링크 */}

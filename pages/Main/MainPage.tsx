@@ -13,6 +13,7 @@ import LostItem from '../../components/ListTile/LostItem/LostItem';
 import MarketItem from '../../components/ListTile/MarketItem/MarketItem';
 import NoticeItem from '../../components/ListTile/NoticeItem/NoticeItem';
 import styles from './MainPage.styles';
+import { getIsAdmin } from '../../utils/auth';
 
 import type { RootStackScreenProps } from '../../types/navigation';
 
@@ -37,11 +38,6 @@ type MarketListItem = {
   images: string[];
   likeCount: number;
   createdAt: string;
-
-  /** ✅ 판매 상태 (채팅에서 변경 → 목록 조회 시 반영)
-   *   - '판매중' | '예약중' | '거래완료'
-   *   - 배지는 '예약중'/'거래완료'일 때만 타이틀 앞에 표시됨
-   */
   saleStatus?: '판매중' | '예약중' | '거래완료';
 };
 
@@ -125,12 +121,49 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
   const [noticeItems, setNoticeItems] = useState<NoticeListItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
+  // ✅ 관리자 여부
+  const [isAdmin, setIsAdmin] = useState(false);
+
   // 외부 reset 등으로 initialTab이 바뀌면 동기화
   useEffect(() => {
     const next = route?.params?.initialTab as TabKey | undefined;
     if (next && next !== tab) setTab(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.params?.initialTab]);
+
+  // ✅ 최초 마운트 시 관리자 플래그 로드
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const flag = await getIsAdmin();
+        if (mounted) setIsAdmin(!!flag);
+      } catch {
+        if (mounted) setIsAdmin(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // ✅ 포커스될 때마다 관리자 플래그 재확인(로그인/로그아웃 직후 반영)
+  useFocusEffect(
+    useCallback(() => {
+      let canceled = false;
+      (async () => {
+        try {
+          const flag = await getIsAdmin();
+          if (!canceled) setIsAdmin(!!flag);
+        } catch {
+          if (!canceled) setIsAdmin(false);
+        }
+      })();
+      return () => {
+        canceled = true;
+      };
+    }, [])
+  );
 
   /** 탭 변경 핸들러 (채팅 탭은 별도 화면) */
   const handleTabChange = (next: TabKey) => {
@@ -232,7 +265,6 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
                 likeCount={item.likeCount ?? 0}
                 image={item.images && item.images.length > 0 ? item.images[0] : undefined}
                 onPress={handlePressMarketItem}
-                /** ✅ 상태 배지 표기를 위해 전달 (판매중은 내부에서 표시 X) */
                 saleStatus={item.saleStatus}
               />
             )}
@@ -324,7 +356,6 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
                 status={isClosed(item.endDate) ? 'closed' : 'open'}
                 image={item.images?.[0]}
                 onPress={() => {
-                  // ✅ 다른 탭들과 동일하게 바로 상세로 이동
                   navigation.navigate('NoticeDetail', { id: item.id });
                 }}
               />
@@ -353,7 +384,13 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
       </View>
 
       <BottomTabBar value={tab} onChange={handleTabChange} />
-      {tab !== 'notice' && <FloatingWriteButton activeTab={tab} />}
+
+      {/* ✅ 글쓰기 버튼 노출 규칙
+          - market/lost/group: 항상 노출
+          - notice: 관리자일 때만 노출 */}
+      {(((tab !== 'notice') as boolean) || (tab === 'notice' && isAdmin)) && (
+        <FloatingWriteButton activeTab={tab} />
+      )}
     </View>
   );
 }

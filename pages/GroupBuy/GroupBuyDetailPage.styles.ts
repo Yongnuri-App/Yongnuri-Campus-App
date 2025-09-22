@@ -101,4 +101,71 @@ export default StyleSheet.create({
   /* 로딩 */
   fallback: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },
   fallbackText: { color: '#797979' },
+
+  /* ====== 현재 모집 인원 라인 & 컨트롤 ====== */
+  recruitLineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  recruitLineLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#7A7A7A',
+    marginRight: 10,
+  },
+  recruitLineSuffix: {
+    marginLeft: 8,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#7A7A7A',
+  },
+
+  /* 작성자(소유자): 드롭다운 */
+  countPickerWrap: { position: 'relative' },
+  countPickerButton: {
+    minWidth: 60,
+    height: 30,
+    paddingHorizontal: 10,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#C8C8C8',
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  countPickerValue: { fontSize: 15, fontWeight: '600', color: '#1E1E1E' },
+  countPickerIcon: { width: 20, height: 20, marginLeft: 8, tintColor: '#7A7A7A' },
+  countDropdown: {
+    position: 'absolute',
+    top: 46,
+    left: 0,
+    width: 120,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E5E5',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    zIndex: 20,
+  },
+  countOption: { paddingVertical: 10, paddingHorizontal: 14 },
+  countOptionText: { fontSize: 16, color: '#1E1E1E' },
+
+  /* 일반 사용자: 정적 박스 */
+  countStaticWrap: {
+    minWidth: 30,
+    height: 20,
+    paddingHorizontal: 14,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#E1E1E1',
+    backgroundColor: '#F7F7F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countStaticText: { fontSize: 15, fontWeight: '500', color: '#1E1E1E' },
 });

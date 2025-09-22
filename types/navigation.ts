@@ -27,7 +27,8 @@ export type ChatRoomParams =
       productPrice: number;
       productImageUri?: string;
       initialMessage?: string;
-    } & OwnerMeta & MarketMeta)
+    } & OwnerMeta &
+      MarketMeta)
   | ({
       source: 'lost';
       postId: string;
@@ -90,18 +91,13 @@ export type RootStackParamList = {
   // ✅ 신고하기
   Report:
     | {
-        // 작성 모드 (기본)
         mode?: 'compose';
-        /** 한 줄 라벨로 넘겨도 되고 */
         targetLabel?: string;
-        /** ◀︎ 기존 코드 호환: 별도로 넘기면 내부에서 "닉네임 - 학과"로 조합 */
         targetNickname?: string;
         targetDept?: string;
-        /** ◀︎ 새로 추가: 이메일까지 넘기고 싶을 때 */
         targetEmail?: string | null;
       }
     | {
-        // 관리자 검토 모드
         mode: 'review';
         reportId: string;
       };
@@ -113,10 +109,15 @@ export type RootStackParamList = {
   AdminInquiryNotice: undefined;
   AdminMemberList: undefined;
   AdminReportManage: undefined;
+
+  // ✅ 추가: 전체 공지 목록 / 등록
+  AdminAllNotice: undefined;
+  AdminAllNoticeCreate: undefined; // << 추가
 };
 
-export type RootStackScreenProps<T extends keyof RootStackParamList> =
-  NativeStackScreenProps<RootStackParamList, T>;
+export type RootStackScreenProps<
+  T extends keyof RootStackParamList,
+> = NativeStackScreenProps<RootStackParamList, T>;
 
 export type RootStackNavigationProp =
   NativeStackNavigationProp<RootStackParamList>;
