@@ -9,6 +9,7 @@ import { updatePostLikeCountInList } from '@/repositories/marketRepo';
 import { upsertRoomOnOpen } from '@/storage/chatStore';
 import type { ChatCategory } from '@/types/chat';
 import type { RootStackScreenProps } from '@/types/navigation';
+import { getLocalIdentity } from '@/utils/localIdentity'; // ✅ 현재 로그인 사용자 식별 불러오기
 import { getProfileByEmail, toDisplayName } from '@/utils/session'; // ✅ 이메일 기반 프로필 조회/표시 유틸
 import { loadJson, saveJson } from '@/utils/storage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -66,6 +67,13 @@ function timeAgo(iso: string) {
   return `${d}일 전`;
 }
 
+/** ✅ roomId 생성(게시글 + seller + buyer 조합으로 안정 생성) */
+const norm = (s?: string | number | null) =>
+  (s == null ? '' : String(s)).trim().toLowerCase();
+function buildMarketRoomId(postId: string, sellerKey: string | number | null | undefined, buyerKey: string | number | null | undefined) {
+  return `m_${postId}__s_${norm(sellerKey)}__b_${norm(buyerKey)}`;
+}
+
 /**
  * MarketDetailPage
  * - 상세 정보 표시
@@ -84,8 +92,7 @@ export default function MarketDetailPage({
   const [menuVisible, setMenuVisible] = useState(false);
   const hScrollRef = useRef<ScrollView | null>(null);
 
-
-    /** 좋아요 훅 */
+  /** 좋아요 훅 */
   const { liked, syncCount } = useLike({
     itemId: id,
     likedMapKey: LIKED_MAP_KEY,
@@ -182,6 +189,24 @@ export default function MarketDetailPage({
     })();
   }, [item]);
 
+  /** ✅ 현재 로그인 사용자(=잠재적 구매자) 정보 */
+  const [meEmail, setMeEmail] = useState<string | null>(null);
+  const [meId, setMeId] = useState<string | null>(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { userEmail, userId } = await getLocalIdentity();
+        setMeEmail(userEmail ?? null);
+        setMeId(userId ?? null);
+        // 디버그 확인용
+        // console.log('[DETAIL] meEmail, meId =', userEmail, userId);
+      } catch {
+        setMeEmail(null);
+        setMeId(null);
+      }
+    })();
+  }, []);
+
   /** 가격 표기 */
   const priceDisplay = useMemo(() => {
     if (!item) return '';
@@ -244,6 +269,17 @@ export default function MarketDetailPage({
       </TouchableOpacity>
     );
   };
+
+  // ✅ 공통 파생: seller(작성자) / buyer(현재 로그인 사용자) / roomId
+  const sellerIdKey = item.authorId != null ? String(item.authorId) : null;
+  const sellerEmailKey = item.authorEmail ?? null;
+  const roomId = buildMarketRoomId(
+    String(item.id),
+    // seller key: 이메일 우선 → 없으면 id
+    sellerEmailKey || sellerIdKey,
+    // buyer key: 이메일 우선 → 없으면 id
+    meEmail || meId
+  );
 
   return (
     <View style={styles.container}>
@@ -328,24 +364,26 @@ export default function MarketDetailPage({
         </View>
       </ScrollView>
 
-      {/* ✅ DEV: 판매자 강제 채팅 진입 버튼 (배포 제외) */}
+      {/* ✅ DEV: 판매자 강제 채팅 진입 버튼 (배포 제외)
+          - 주의: 판매자 플로우에선 '구매자(opponent)'가 필요하므로,
+                  실제 테스트는 구매자 기기에서 하단 버튼(채팅하기)로 들어와 주세요. */}
       {__DEV__ && isOwner && (
         <TouchableOpacity
           style={styles.devOpenChatBtn}
           onPress={async () => {
-            // 1) 방 메타 구성
+            // 1) 방 메타 구성 (기존 로직 유지)
             const category: ChatCategory = 'market';
             const nickname = authorNickname; // ✅ 통일된 닉네임 사용
-            const roomId = `market-${String(item.id)}-${nickname}`;
+            const legacyRoomId = `market-${String(item.id)}-${nickname}`;
             const productTitle = item.title;
             const productPrice = item.mode === 'donate' ? 0 : Number(item.price ?? 0);
             const productImageUri =
               Array.isArray(images) && images.length > 0 ? images[0] : undefined;
 
-            // 2) ChatList에 즉시 보이도록 upsert
-            const preview = 'DEV: 판매자 진입 테스트'; // 리스트 미리보기 문구
+            // 2) ChatList에 즉시 보이도록 upsert (기존 유지)
+            const preview = 'DEV: 판매자 진입 테스트';
             await upsertRoomOnOpen({
-              roomId,
+              roomId: legacyRoomId,
               category,
               nickname, // ✅ 리스트 카드에 노출될 닉네임
               productTitle,
@@ -357,9 +395,8 @@ export default function MarketDetailPage({
                 params: {
                   source: 'market',
                   postId: String(item.id),
-                  sellerNickname: nickname, // ✅ 정식 키
-                  // ⬇️ 백워드 호환(과거 코드가 nickname 키를 읽는 경우)
-                  // @ts-expect-error - compatibility field for legacy ChatRoom code
+                  sellerNickname: nickname,
+                  // @ts-expect-error - 레거시 호환
                   nickname,
 
                   productTitle,
@@ -379,13 +416,12 @@ export default function MarketDetailPage({
               },
             });
 
-            // 3) ChatRoom으로 이동 (원본 파라미터 그대로)
+            // 3) ChatRoom으로 이동 (레거시 DEV 경로 — opponent 미설정 주의)
             navigation.navigate('ChatRoom', {
               source: 'market',
               postId: String(item.id),
-              sellerNickname: nickname, // ✅ 정식 키
-              // ⬇️ 백워드 호환: 과거 코드에서 nickname만 읽는 경우 대비
-              // @ts-expect-error - compatibility field for legacy ChatRoom code
+              sellerNickname: nickname,
+              // @ts-expect-error - 레거시 호환
               nickname,
 
               productTitle,
@@ -395,6 +431,9 @@ export default function MarketDetailPage({
               authorEmail: item.authorEmail ?? null,
               initialSaleStatus: item.status ?? 'ON_SALE',
               initialMessage: preview,
+
+              // ⚠️ DEV 버튼은 opponent(구매자)가 없어 거래완료 저장 테스트엔 부적합.
+              // 실제 시나리오는 아래 하단 바(구매자 플로우)로 테스트해 주세요.
             });
           }}
           accessibilityRole="button"
@@ -424,25 +463,43 @@ export default function MarketDetailPage({
               return { ...prev, likeCount: nextCount };
             });
           }}
-          /** ✅ ChatRoom으로 넘어갈 때 작성자 메타 + 초기 판매상태를 함께 전달 */
+          /** ✅ ChatRoom으로 넘어갈 때 opponent/buyer/seller/roomId까지 함께 전달 */
           chatAutoNavigateParams={{
+            // 필수
             source: 'market',
             postId: String(item.id),
-            sellerNickname: authorNickname, // ✅ 통일된 닉네임
-            // ⬇️ 백워드 호환: 과거 ChatRoom 코드 대비
-            // @ts-expect-error - compatibility field for legacy ChatRoom code
-            nickname: authorNickname,
-
             productTitle: item.title,
             productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0),
             productImageUri: Array.isArray(images) && images.length > 0 ? images[0] : undefined,
 
-            // ✅ 판매자 판별용 메타
+            // 초기 상태/생성시각
+            initialSaleStatus: item.status ?? 'ON_SALE',
+            postCreatedAt: item.createdAt,
+
+            // ✅ seller(작성자)
+            sellerId: item.authorId != null ? String(item.authorId) : undefined,
+            sellerEmail: item.authorEmail ?? undefined,
+            sellerNickname: authorNickname,
+
+            // ✅ buyer(현재 로그인 사용자)
+            buyerId: meId ?? undefined,
+            buyerEmail: meEmail ?? undefined,
+
+            // ✅ opponent = 판매자(작성자) — "현재 로그인 사용자"의 상대
+            opponentId: item.authorId != null ? String(item.authorId) : undefined,
+            opponentEmail: item.authorEmail ?? undefined,
+            opponentNickname: authorNickname,
+
+            // (선택) 상대 추가 메타
+            opponentDept: authorDeptLabel || undefined,
+            opponentAvatarUri: undefined,
+
+            // ✅ roomId 안정 생성(동일 조합이면 항상 동일)
+            roomId,
+
+            // ✅ 판매자 판별 메타(레거시 호환)
             authorId: item.authorId,
             authorEmail: item.authorEmail ?? null,
-
-            // ✅ 판매상태 초기값(선택)
-            initialSaleStatus: item.status ?? 'ON_SALE',
           }}
         />
       )}

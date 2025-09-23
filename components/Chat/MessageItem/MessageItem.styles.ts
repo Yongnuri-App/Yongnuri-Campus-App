@@ -95,4 +95,28 @@ export default StyleSheet.create({
     borderRadius: 8,
     padding: 2,
   },
+
+  /** ✅ 시스템 메시지(문의사항과 동일한 필 배지) */
+  systemWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+  systemPill: {
+    maxWidth: '85%',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: '#F1F3F5', // 라이트 그레이
+  },
+  systemText: {
+    fontSize: 12,
+    color: '#6B7280', // 중간 그레이
+    textAlign: 'center',
+  },
+  systemTime: {
+    marginTop: 4,
+    fontSize: 11,
+    color: '#A1A1AA',
+  },
 });

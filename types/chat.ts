@@ -2,15 +2,29 @@
 
 /**
  * 채팅에서 공통으로 쓰이는 타입 정의
- * - ⚠️ ChatRoom으로 네비게이션할 때 넘기던 "기존 파라미터 형태"를 보존하기 위해
- *   ChatRoomSummary.origin 에 원본 params 를 그대로 저장할 수 있게 확장했습니다.
- * - ✅ 판매자 전용 UI 노출을 위해 market 원본 파라미터에 authorId/authorEmail/initialSaleStatus 등을 추가했습니다.
+ * - ✅ 메시지 보낸 사람 식별을 위해 senderEmail(우선) / senderId(폴백) 필드를 추가
+ * - ✅ 시스템 메시지(type: 'system')를 정식 지원
+ * - ⚠️ 기존 UI 호환을 위해 mine? 필드는 유지하되, 로직 판정은 senderEmail/senderId로 수행 권장
  */
+
+/** 채팅 메시지 공통 베이스 */
+export type ChatMessageBase = {
+  id: string;
+  time: string; // ISO
+
+  /** ✅ 보낸 사람 메타: 이메일 우선, 없으면 id (표시/소유 판정에 사용) */
+  senderEmail?: string | null;
+  senderId?: string | null;
+
+  /** ⛳️ (레거시) UI용 힌트 — 가능하면 런타임에서 계산해서 주입하세요 */
+  mine?: boolean;
+};
 
 /** 채팅 메시지 */
 export type ChatMessage =
-  | { id: string; type: 'text'; text: string; time: string; mine?: boolean }
-  | { id: string; type: 'image'; uri: string; time: string; mine?: boolean };
+  | (ChatMessageBase & { type: 'text'; text: string })
+  | (ChatMessageBase & { type: 'image'; uri: string })
+  | (ChatMessageBase & { type: 'system'; text: string });
 
 /** 채팅 카테고리 (리스트 칩 필터와 연동) */
 export type ChatCategory = 'market' | 'lost' | 'group';

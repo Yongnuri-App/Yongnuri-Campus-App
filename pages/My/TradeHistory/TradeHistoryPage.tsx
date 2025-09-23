@@ -1,26 +1,29 @@
 // pages/My/TradeHistory/TradeHistoryPage.tsx
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  FlatList,
   Image,
   SafeAreaView,
   Text,
   TouchableOpacity,
   View,
-  FlatList,
 } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
 
 import CategoryTabs, { CategoryTab } from '../../../components/CategoryTabs/CategoryTabs';
-import MarketItem from '../../../components/ListTile/MarketItem/MarketItem';
-import LostItem from '../../../components/ListTile/LostItem/LostItem';
 import GroupItem from '../../../components/ListTile/GroupItem/GroupItem';
+import LostItem from '../../../components/ListTile/LostItem/LostItem';
+import MarketItem from '../../../components/ListTile/MarketItem/MarketItem';
 import styles from './TradeHistoryPage.styles';
 
 // ✅ Repo & Identity
+import groupRepo, { type GroupPost } from '../../../repositories/posts/asyncStorage/GroupRepo';
+import lostRepo, { type LostPost } from '../../../repositories/posts/asyncStorage/LostRepo';
 import marketRepo, { type MarketPost } from '../../../repositories/posts/asyncStorage/MarketRepo';
-import lostRepo,   { type LostPost   } from '../../../repositories/posts/asyncStorage/LostRepo';
-import groupRepo,  { type GroupPost  } from '../../../repositories/posts/asyncStorage/GroupRepo';
 import { getLocalIdentity } from '../../../utils/localIdentity';
+
+// ✅ '거래완료' 스냅샷 저장소(구매 내역은 여기서 읽어옴)
+import marketTradeRepo, { type MarketTradeRecord } from '../../../repositories/trades/MarketTradeRepo';
 
 const TABS: CategoryTab[] = [
   { key: 'market', label: '중고거래' },
@@ -31,7 +34,7 @@ const TABS: CategoryTab[] = [
 const FILTERS_BY_TAB: Record<string, { key: string; label: string }[]> = {
   market: [
     { key: 'sell', label: '판매' },
-    { key: 'buy',  label: '구매' },
+    { key: 'buy',  label: '구매' }, // ✅ 구매 탭: marketTradeRepo에서 조회
   ],
   lost: [
     { key: 'found',     label: '습득' },
@@ -85,28 +88,44 @@ function timeAgo(ts?: string | number): string {
 export default function TradeHistoryPage() {
   const navigation = useNavigation<any>();
 
+  // 상단 탭/필터 상태
   const [activeTab, setActiveTab] = useState<string>('market');
   const defaultFilter = FILTERS_BY_TAB[activeTab][0].key;
   const [filter, setFilter] = useState<string>(defaultFilter);
 
+  // 공통 상태
   const [loading, setLoading] = useState(false);
   const [myEmail, setMyEmail] = useState<string | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
 
-  const [marketMine, setMarketMine]   = useState<MarketPost[]>([]);
-  const [lostMine, setLostMine]       = useState<LostPost[]>([]);
-  const [groupMine, setGroupMine]     = useState<GroupPost[]>([]);
+  // 각 탭별 데이터 상태
+  const [marketMine, setMarketMine]       = useState<MarketPost[]>([]);           // 중고거래/판매(내 글)
+  const [marketBought, setMarketBought]   = useState<MarketTradeRecord[]>([]);    // 중고거래/구매(거래완료 스냅샷)
+  const [lostMine, setLostMine]           = useState<LostPost[]>([]);
+  const [groupMine, setGroupMine]         = useState<GroupPost[]>([]);
 
   const filtersForTab = useMemo(() => FILTERS_BY_TAB[activeTab] ?? [], [activeTab]);
 
+  // 탭/필터 플래그
   const isMarketSell     = activeTab === 'market' && filter === 'sell';
+  const isMarketBuy      = activeTab === 'market' && filter === 'buy';
   const isLost           = activeTab === 'lost';
   const isLostFound      = isLost && filter === 'found';
   const isLostLost       = isLost && filter === 'lost';
-  const isLostRetrieved  = isLost && filter === 'retrieved'; // 빈 상태
+  const isLostRetrieved  = isLost && filter === 'retrieved';
   const isGroup          = activeTab === 'group';
   const isGroupRegister  = isGroup && filter === 'register';
-  const isGroupApply     = isGroup && filter === 'apply';     // 빈 상태
+  const isGroupApply     = isGroup && filter === 'apply';
+
+  // ----------------------- DEBUG 0-A 시작 -----------------------
+  // 구매 탭일 때, 현재 사용자의 식별자(이메일/ID)가 무엇인지 확인 로그
+  useEffect(() => {
+    if (isMarketBuy) {
+      console.log('[BUY TAB] getLocalIdentity => myEmail, myId =', myEmail, myId);
+      // 참고: 둘 다 비어있으면 구매 탭 필터가 작동 안 하므로 로그인/세션 확인 필요
+    }
+  }, [isMarketBuy, myEmail, myId]);
+  // ----------------------- DEBUG 0-A 끝 -------------------------
 
   const onChangeTab = (next: string) => {
     setActiveTab(next);
@@ -120,7 +139,7 @@ export default function TradeHistoryPage() {
     setMyEmail(userEmail ? normEmail(userEmail) : null);
   }, []);
 
-  /** 중고거래: 내 글만 */
+  /** 중고거래: 내가 쓴 글(판매 탭) */
   const loadMarketMine = useCallback(async () => {
     if (!isMarketSell) return;
     setLoading(true);
@@ -135,10 +154,27 @@ export default function TradeHistoryPage() {
       mine.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setMarketMine(mine);
     } catch (e) {
-      console.warn('TradeHistory market load error:', e);
+      console.warn('TradeHistory market sell load error:', e);
       setMarketMine([]);
     } finally { setLoading(false); }
   }, [isMarketSell, myEmail, myId]);
+
+  /** ✅ 중고거래: 내가 '구매'한 거래완료 목록(구매 탭) — marketTradeRepo에서 조회 */
+  const loadMarketBought = useCallback(async () => {
+    if (!isMarketBuy) return;
+    setLoading(true);
+    try {
+      const list = await marketTradeRepo.listByBuyer({
+        buyerEmail: myEmail,
+        buyerId: myId,
+      });
+      // trade 스냅샷은 이미 createdAt(거래완료 시각) 기준으로 정렬 저장됨
+      setMarketBought(list);
+    } catch (e) {
+      console.warn('TradeHistory market buy load error:', e);
+      setMarketBought([]);
+    } finally { setLoading(false); }
+  }, [isMarketBuy, myEmail, myId]);
 
   /** 분실물: 내 글만 + type 필터 */
   const loadLostMine = useCallback(async () => {
@@ -187,34 +223,54 @@ export default function TradeHistoryPage() {
     } finally { setLoading(false); }
   }, [isGroupRegister, myEmail, myId]);
 
-  /** 최초 로드 */
+  /** 최초 로드: 내 계정 식별자 저장 */
   useEffect(() => {
     loadIdentity();
   }, [loadIdentity]);
 
-  /** 탭/필터 변경에 반응 */
+  /** 탭/필터 변경에 반응하여 각 목록 로드 */
   useEffect(() => {
-    if (isMarketSell) {
-      loadMarketMine();
+    if (activeTab === 'market') {
+      if (isMarketSell) {
+        loadMarketMine();
+        setMarketBought([]);
+      } else if (isMarketBuy) {
+        loadMarketBought();
+        setMarketMine([]);
+      }
+      // 다른 탭 데이터 비우기
       setLostMine([]); setGroupMine([]);
-    } else if (isLost) {
-      loadLostMine();
-      setMarketMine([]); setGroupMine([]);
-    } else if (isGroup) {
-      if (isGroupRegister) loadGroupMine(); else setGroupMine([]); // 신청은 비움
-      setMarketMine([]); setLostMine([]);
-    } else {
-      setMarketMine([]); setLostMine([]); setGroupMine([]);
+      return;
     }
-  }, [isMarketSell, isLost, isGroup, isGroupRegister, filter, loadMarketMine, loadLostMine, loadGroupMine]);
 
-  /** 화면 복귀 시 갱신 */
+    if (isLost) {
+      loadLostMine();
+      setMarketMine([]); setMarketBought([]); setGroupMine([]);
+      return;
+    }
+
+    if (isGroup) {
+      if (isGroupRegister) loadGroupMine(); else setGroupMine([]); // 신청은 비움
+      setMarketMine([]); setMarketBought([]); setLostMine([]);
+      return;
+    }
+
+    // 기타 방어적 초기화
+    setMarketMine([]); setMarketBought([]); setLostMine([]); setGroupMine([]);
+  }, [
+    activeTab, filter,
+    isMarketSell, isMarketBuy, isLost, isGroup, isGroupRegister,
+    loadMarketMine, loadMarketBought, loadLostMine, loadGroupMine,
+  ]);
+
+  /** 화면 복귀 시 갱신 (탭/필터 유지한 채 최신화) */
   useFocusEffect(
     useCallback(() => {
       if (isMarketSell) loadMarketMine();
-      if (isLost) loadLostMine();
+      if (isMarketBuy)  loadMarketBought();
+      if (isLost)       loadLostMine();
       if (isGroupRegister) loadGroupMine();
-    }, [isMarketSell, isLost, isGroupRegister, loadMarketMine, loadLostMine, loadGroupMine])
+    }, [isMarketSell, isMarketBuy, isLost, isGroupRegister, loadMarketMine, loadMarketBought, loadLostMine, loadGroupMine])
   );
 
   /* ---------- UI ---------- */
@@ -233,10 +289,12 @@ export default function TradeHistoryPage() {
     </View>
   );
 
+  // 네비게이션 헬퍼
   const goMarketDetail = (id: string) => navigation.navigate('MarketDetail', { id });
   const goLostDetail   = (id: string) => navigation.navigate('LostDetail', { id });
   const goGroupDetail  = (id: string) => navigation.navigate('GroupBuyDetail', { id });
 
+  // 중고거래/판매 렌더러 (내가 올린 글)
   const renderMarketItem = ({ item }: { item: MarketPost }) => {
     const firstImage = Array.isArray(item.images) && item.images.length > 0 ? item.images[0] : undefined;
     const saleStatus = mapSaleStatus(item as any);
@@ -255,6 +313,24 @@ export default function TradeHistoryPage() {
     );
   };
 
+  // ✅ 중고거래/구매 렌더러 (거래완료 스냅샷)
+  const renderBoughtItem = ({ item }: { item: MarketTradeRecord }) => {
+    const subtitle = `거래완료 · ${timeAgo(item.createdAt)}`;
+    return (
+      <MarketItem
+        id={item.postId} // 상세는 원글 id로 진입
+        title={item.title}
+        subtitle={subtitle}
+        price={item.price != null ? toKPrice(item.price) : '가격없음'}
+        likeCount={0}
+        image={item.image}
+        saleStatus={'거래완료'}
+        onPress={goMarketDetail}
+      />
+    );
+  };
+
+  // 분실물 렌더러
   const renderLostItem = ({ item }: { item: LostPost }) => {
     const firstImage = Array.isArray(item.images) && item.images.length > 0 ? item.images[0] : undefined;
     const subtitle = `${timeAgo(item.createdAt)}`;
@@ -270,6 +346,7 @@ export default function TradeHistoryPage() {
     );
   };
 
+  // 공동구매 렌더러
   const renderGroupItem = ({ item }: { item: GroupPost }) => {
     const firstImage = Array.isArray(item.images) && item.images.length > 0 ? item.images[0] : undefined;
     const timeText = timeAgo(item.createdAt);
@@ -288,18 +365,35 @@ export default function TradeHistoryPage() {
     );
   };
 
+  // 컨텐츠 스위치
   const renderContent = () => {
-    if (isMarketSell) {
-      return marketMine.length === 0 ? <EmptyState /> : (
-        <FlatList
-          data={marketMine}
-          keyExtractor={(it) => it.id}
-          renderItem={renderMarketItem}
-          contentContainerStyle={styles.contentContainer}
-          showsVerticalScrollIndicator={false}
-        />
-      );
+    // 중고거래
+    if (activeTab === 'market') {
+      if (isMarketSell) {
+        return marketMine.length === 0 ? <EmptyState /> : (
+          <FlatList
+            data={marketMine}
+            keyExtractor={(it) => it.id}
+            renderItem={renderMarketItem}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+          />
+        );
+      }
+      if (isMarketBuy) {
+        return marketBought.length === 0 ? <EmptyState /> : (
+          <FlatList
+            data={marketBought}
+            keyExtractor={(it) => it.id} // trade-id (postId__buyerKey)
+            renderItem={renderBoughtItem}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+          />
+        );
+      }
     }
+
+    // 분실물
     if (isLost) {
       if (isLostRetrieved) return <EmptyState />; // 회수: 현재 비워둠
       return lostMine.length === 0 ? <EmptyState /> : (
@@ -312,9 +406,10 @@ export default function TradeHistoryPage() {
         />
       );
     }
+
+    // 공동구매
     if (isGroup) {
       if (isGroupApply) return <EmptyState />; // 신청: 추후 구매자 내역 연결
-      // 등록
       return groupMine.length === 0 ? <EmptyState /> : (
         <FlatList
           data={groupMine}
@@ -325,6 +420,7 @@ export default function TradeHistoryPage() {
         />
       );
     }
+
     return <EmptyState />;
   };
 
