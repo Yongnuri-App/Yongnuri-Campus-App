@@ -11,9 +11,9 @@ export default StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 60,
-    paddingBottom: 22,
+    paddingHorizontal: 20,
+    paddingTop: 58,
+    paddingBottom: 18,
   },
   title: {
     fontWeight: '700',
