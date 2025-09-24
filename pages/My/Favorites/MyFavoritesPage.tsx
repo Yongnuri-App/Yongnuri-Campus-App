@@ -17,8 +17,9 @@ import LostItem from '../../../components/ListTile/LostItem/LostItem';
 import GroupItem from '../../../components/ListTile/GroupItem/GroupItem';
 import NoticeItem from '../../../components/ListTile/NoticeItem/NoticeItem';
 import styles from './MyFavoritesPage.styles';
+import { getIdentityScope } from '../../../utils/localIdentity';
 
-/* ===== 저장소 키 ===== */
+/* ===== 저장소 키 (베이스) ===== */
 const MARKET_POSTS_KEY = 'market_posts_v1';
 const MARKET_LIKED_MAP_KEY = 'market_liked_map_v1';
 
@@ -30,6 +31,8 @@ const GROUP_LIKED_MAP_KEY = 'groupbuy_liked_map_v1';
 
 const NOTICE_POSTS_KEY = 'notice_posts_v1';
 const NOTICE_LIKED_MAP_KEY = 'notice_liked_map_v1';
+
+const perUser = (base: string, id: string | null) => (id ? `${base}__id:${id}` : base);
 
 /* ===== 타입 ===== */
 type MarketPost = {
@@ -121,18 +124,29 @@ export default function MyFavoritesPage() {
   const navigation = useNavigation<any>();
   const [activeTab, setActiveTab] = useState<string>('market');
 
+  const [identity, setIdentity] = useState<string | null>(null);
+
   // 관심목록 상태
   const [marketFavs, setMarketFavs] = useState<MarketPost[]>([]);
   const [lostFavs, setLostFavs] = useState<LostPost[]>([]);
   const [groupFavs, setGroupFavs] = useState<GroupBuyPost[]>([]);
   const [noticeFavs, setNoticeFavs] = useState<NoticePost[]>([]);
 
-  /* ===== 로더들 ===== */
+  // 현재 로그인/기기 식별자 로드
+  useEffect(() => {
+    (async () => {
+      const id = await getIdentityScope(); // email(소문자) 우선, 없으면 기기ID
+      setIdentity(id);
+    })();
+  }, []);
+
+  /* ===== 로더들 (개인화된 liked_map 키로 읽기) ===== */
   const loadMarketFavorites = useCallback(async () => {
+    if (identity === undefined) return; // 초기 로딩 중
     try {
       const [rawPosts, rawLikedMap] = await Promise.all([
         AsyncStorage.getItem(MARKET_POSTS_KEY),
-        AsyncStorage.getItem(MARKET_LIKED_MAP_KEY),
+        AsyncStorage.getItem(perUser(MARKET_LIKED_MAP_KEY, identity)),
       ]);
       const posts: MarketPost[] = rawPosts ? JSON.parse(rawPosts) : [];
       const likedMap: Record<string, boolean> = rawLikedMap ? JSON.parse(rawLikedMap) : {};
@@ -141,13 +155,14 @@ export default function MyFavoritesPage() {
       console.log('load market favorites error', e);
       setMarketFavs([]);
     }
-  }, []);
+  }, [identity]);
 
   const loadLostFavorites = useCallback(async () => {
+    if (identity === undefined) return;
     try {
       const [rawPosts, rawLikedMap] = await Promise.all([
         AsyncStorage.getItem(LOST_POSTS_KEY),
-        AsyncStorage.getItem(LOST_LIKED_MAP_KEY),
+        AsyncStorage.getItem(perUser(LOST_LIKED_MAP_KEY, identity)),
       ]);
       const posts: LostPost[] = rawPosts ? JSON.parse(rawPosts) : [];
       const likedMap: Record<string, boolean> = rawLikedMap ? JSON.parse(rawLikedMap) : {};
@@ -156,13 +171,14 @@ export default function MyFavoritesPage() {
       console.log('load lost favorites error', e);
       setLostFavs([]);
     }
-  }, []);
+  }, [identity]);
 
   const loadGroupFavorites = useCallback(async () => {
+    if (identity === undefined) return;
     try {
       const [rawPosts, rawLikedMap] = await Promise.all([
         AsyncStorage.getItem(GROUP_POSTS_KEY),
-        AsyncStorage.getItem(GROUP_LIKED_MAP_KEY),
+        AsyncStorage.getItem(perUser(GROUP_LIKED_MAP_KEY, identity)),
       ]);
       const posts: GroupBuyPost[] = rawPosts ? JSON.parse(rawPosts) : [];
       const likedMap: Record<string, boolean> = rawLikedMap ? JSON.parse(rawLikedMap) : {};
@@ -171,13 +187,14 @@ export default function MyFavoritesPage() {
       console.log('load group favorites error', e);
       setGroupFavs([]);
     }
-  }, []);
+  }, [identity]);
 
   const loadNoticeFavorites = useCallback(async () => {
+    if (identity === undefined) return;
     try {
       const [rawPosts, rawLikedMap] = await Promise.all([
         AsyncStorage.getItem(NOTICE_POSTS_KEY),
-        AsyncStorage.getItem(NOTICE_LIKED_MAP_KEY),
+        AsyncStorage.getItem(perUser(NOTICE_LIKED_MAP_KEY, identity)),
       ]);
       const posts: NoticePost[] = rawPosts ? JSON.parse(rawPosts) : [];
       const likedMap: Record<string, boolean> = rawLikedMap ? JSON.parse(rawLikedMap) : {};
@@ -186,25 +203,27 @@ export default function MyFavoritesPage() {
       console.log('load notice favorites error', e);
       setNoticeFavs([]);
     }
-  }, []);
+  }, [identity]);
 
   /* 포커스 복귀 시 탭별 로딩 */
   useFocusEffect(
     React.useCallback(() => {
+      if (!identity) return; // 아직 아이덴티티 없음
       if (activeTab === 'market') loadMarketFavorites();
       if (activeTab === 'lost')   loadLostFavorites();
       if (activeTab === 'group')  loadGroupFavorites();
       if (activeTab === 'notice') loadNoticeFavorites();
-    }, [activeTab, loadMarketFavorites, loadLostFavorites, loadGroupFavorites, loadNoticeFavorites])
+    }, [identity, activeTab, loadMarketFavorites, loadLostFavorites, loadGroupFavorites, loadNoticeFavorites])
   );
 
   /* 최초 진입/탭 변경 시 로딩 */
   useEffect(() => {
+    if (!identity) return;
     if (activeTab === 'market') loadMarketFavorites();
     if (activeTab === 'lost')   loadLostFavorites();
     if (activeTab === 'group')  loadGroupFavorites();
     if (activeTab === 'notice') loadNoticeFavorites();
-  }, [activeTab, loadMarketFavorites, loadLostFavorites, loadGroupFavorites, loadNoticeFavorites]);
+  }, [identity, activeTab, loadMarketFavorites, loadLostFavorites, loadGroupFavorites, loadNoticeFavorites]);
 
   /* ===== 네비게이션 핸들러 ===== */
   const onPressBack = () => navigation.goBack();
