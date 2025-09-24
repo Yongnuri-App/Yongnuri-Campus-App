@@ -197,13 +197,22 @@ export default function MarketDetailPage({
   };
 
   /** 신고 화면으로 이동 */
-  const onPressReport = () => {
+  const onPressReport = React.useCallback(() => {
+    if (!item) return; // ← 안전 가드
+
     navigation.navigate('Report', {
+      mode: 'compose',
       targetNickname: authorNickname,
       targetDept: authorDeptLabel || undefined,
-      targetEmail: item?.authorEmail ?? null,
+      targetEmail: item.authorEmail ?? null,
+
+      // ✅ 삭제/알림용 메타
+      targetPostId: String(item.id),
+      targetStorageKey: POSTS_KEY,   // 'market_posts_v1'
+      targetPostTitle: item.title,
+      targetKind: 'market',
     });
-  };
+  }, [item, navigation, authorNickname, authorDeptLabel]);
 
   if (!item) {
     return (

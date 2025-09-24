@@ -1,69 +1,98 @@
-import { useNavigation } from '@react-navigation/native';
-import React, { useMemo } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import React, { useCallback, useState } from 'react';
 import { FlatList, Image, Text, TouchableOpacity, View } from 'react-native';
+import AlarmItem from '../../components/ListTile/alarmItem/alarmItem';
 import styles from './NotificationPage.styles';
-
-/**
- * 샘플 알림 데이터
- * - 추후 서버 API 연동 시, createdAt, read 여부, 링크 이동 정보 등을 포함하면 좋아요.
- */
-const SAMPLE_NOTICES = [
-  { id: 'n1', title: '새로운 채팅이 도착했어요', time: '방금 전', unread: true },
-  { id: 'n2', title: '관심 상품에 가격 변동이 있어요', time: '1시간 전', unread: true },
-  { id: 'n3', title: '운영 공지: 점검 안내 (8/25 02:00)', time: '어제', unread: false },
-  { id: 'n4', title: '거래 약속이 곧 시작돼요 (오후 3:00)', time: '어제', unread: false },
-];
+import { getIdentityScope } from '../../utils/localIdentity';
+import {
+  loadBroadcast,
+  loadUserAlarms,
+  mergeSortAlarms,
+  seenKeyByIdentity,
+  AlarmRow,
+} from '../../utils/alarmStorage';
 
 export default function NotificationPage() {
-  const navigation = useNavigation();
-  // 실제로는 서버에서 페이징/무한스크롤 + 읽음 상태 업데이트를 하게 될 것
-  const notices = useMemo(() => SAMPLE_NOTICES, []);
+  const navigation = useNavigation<any>();
+  const [alarms, setAlarms] = useState<AlarmRow[]>([]);
+  const [threshold, setThreshold] = useState<string | null>(null);
 
-  const renderItem = ({ item }: { item: typeof SAMPLE_NOTICES[number] }) => (
-    <TouchableOpacity style={styles.itemContainer} activeOpacity={0.7}>
-      {/* 왼쪽: 상태 점(미읽음 표시 대체) */}
-      <View style={[styles.dot, item.unread ? styles.dotUnread : styles.dotRead]} />
+  const load = useCallback(async () => {
+    // 1) 사용자 식별(이메일 우선)
+    const identity = await getIdentityScope();
+    if (!identity) {
+      setAlarms([]);
+      setThreshold(null);
+      return;
+    }
+    const seenKey = seenKeyByIdentity(identity);
 
-      {/* 가운데: 제목/시간 */}
-      <View style={styles.itemContent}>
-        <Text style={styles.itemTitle} numberOfLines={1}>
-          {item.title}
-        </Text>
-        <View style={styles.metaRow}>
-          <Image
-            source={require('../../assets/images/time.png')}
-            style={styles.metaIcon}
-          />
-          <Text style={styles.itemTime}>{item.time}</Text>
-        </View>
-      </View>
-    </TouchableOpacity>
+    // 2) 공지 + 개인알림 로드 후 병합
+    const [broadcast, personal] = await Promise.all([
+      loadBroadcast(),
+      loadUserAlarms(identity),
+    ]);
+    const merged = mergeSortAlarms(broadcast, personal);
+    setAlarms(merged);
+
+    // 3) 저장된 마지막 열람 시각 가져와 하이라이트 판단
+    const saved = (await AsyncStorage.getItem(seenKey)) || null;
+    setThreshold(saved);
+
+    // 4) 최신 시각으로 마커 갱신
+    const latest = merged[0]?.createdAt ?? null;
+    if (latest && (!saved || new Date(latest) > new Date(saved))) {
+      await AsyncStorage.setItem(seenKey, latest);
+    } else if (!saved && !latest) {
+      await AsyncStorage.setItem(seenKey, new Date().toISOString());
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const renderItem = useCallback(
+    ({ item }: { item: AlarmRow }) => {
+      const t = threshold ? new Date(threshold) : null;
+      const isNew = t ? new Date(item.createdAt) > t : true;
+      return (
+        <AlarmItem
+          title={item.title}
+          description={item.description}
+          createdAt={item.createdAt}
+          highlight={isNew}
+          reportIcon={!!item.reportIcon}   
+        />
+      );
+    },
+    [threshold]
   );
 
   return (
     <View style={styles.container}>
-      {/* 뒤로가기 + 제목 */}
+      {/* 헤더 */}
       <View style={styles.header}>
-        {/* 왼쪽: 뒤로가기 버튼 */}
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Image
+          <Image
             source={require('../../assets/images/back.png')}
             style={styles.backIcon}
             resizeMode="contain"
-            />
+          />
         </TouchableOpacity>
-
-        {/* 가운데: 타이틀 (절대 위치로 화면 기준 중앙) */}
         <Text style={styles.headerTitle}>알림</Text>
-        </View>
+      </View>
 
-      {/* 알람 리스트 */}
       <FlatList
-        data={notices}
+        data={alarms}
         keyExtractor={(it) => it.id}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+            <Text style={{ color: '#757575' }}>알림이 없어요.</Text>
+          </View>
+        }
       />
     </View>
   );

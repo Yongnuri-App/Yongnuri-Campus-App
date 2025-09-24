@@ -42,8 +42,8 @@ import MemberListPage from './pages/Admin/MemberList/MemberListPage';
 import AdminReportManagePage from './pages/Admin/ReportManage/AdminReportManagePage';
 
 // ✅ [관리자] 전체 공지 목록 & 등록 (신규)
-import AllNoticePage from './pages/Admin/AdminPage/AllNotice/AllNoticePage';
-import AllNoticeCreatePage from './pages/Admin/AdminPage/AllNotice/AllNoticeCreatePage';
+import AllNoticeCreatePage from './pages/Admin/AllNotice/AllNoticeCreatePage';
+import AllNoticePage from './pages/Admin/AllNotice/AllNoticePage';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -110,9 +110,28 @@ export default function App() {
         {/* ✅ 관리자: 신고 관리 목록 */}
         <Stack.Screen name="AdminReportManage" component={AdminReportManagePage} />
 
-        {/* ✅ 관리자: 전체 공지 목록 & 등록 */}
-        <Stack.Screen name="AdminAllNotice" component={AllNoticePage} />
-        <Stack.Screen name="AdminAllNoticeCreate" component={AllNoticeCreatePage} />
+        {/* ✅ 관리자: 전체 공지 목록 & 등록
+            - iOS 스와이프 백 제스처 확실히 활성화 */}
+        <Stack.Screen
+          name="AdminAllNotice"
+          component={AllNoticePage}
+          options={{
+            headerShown: false,
+            animation: 'slide_from_right',
+            gestureEnabled: true,
+            fullScreenGestureEnabled: true, // iOS: 화면 어디서나 스와이프 백
+          }}
+        />
+        <Stack.Screen
+          name="AdminAllNoticeCreate"
+          component={AllNoticeCreatePage}
+          options={{
+            headerShown: false,
+            animation: 'slide_from_right',
+            gestureEnabled: true,
+            fullScreenGestureEnabled: true,
+          }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );
