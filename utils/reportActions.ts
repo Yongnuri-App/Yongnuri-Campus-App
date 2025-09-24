@@ -2,7 +2,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { normEmail } from './localIdentity';
 import { addUserAlarm } from './alarmStorage';
-import { makeReportApprovedTemplate, makeReportRejectedTemplate } from './alarmTemplates';
+import {
+  makeReportApprovedTemplate,
+  makeReportRejectedTemplate,
+  makeReportWarn5Template,
+  makeReportWarn9Template,
+} from './alarmTemplates';
 
 // ===== 타입 =====
 export type ReportType = '부적절한 콘텐츠' | '사기/스팸' | '욕설/혐오' | '기타';
@@ -30,7 +35,7 @@ export type StoredReport = {
   status?: ReportStatus;
 };
 
-// ===== 저장소 키(앱에 맞춰 필요시 수정) =====
+// ===== 저장소 키 =====
 export const REPORTS_KEY = 'reports_v1';
 export const MARKET_KEY = 'market_posts_v1';
 export const LOST_KEY = 'lost_found_posts_v1';
@@ -71,7 +76,7 @@ async function tryDeleteInKey(storageKey: string, postId: string): Promise<boole
       return false;
     }
 
-    // 2) 객체에 list/items로 들어있는 구조도 지원
+    // 2) 객체 형태(list/items 보유)
     if (data && typeof data === 'object') {
       const keys = ['list', 'items'];
       for (const k of keys) {
@@ -97,23 +102,13 @@ async function deleteTargetPostIfPossible(report: StoredReport): Promise<boolean
   const pid = report?.target?.postId;
   if (!pid) return false;
 
-  // 1) 우선순위 후보 리스트 만들기
   const candidates: string[] = [];
-
-  // (1) 신고에 storageKey가 명시되어 있으면 최우선
   if (report?.target?.storageKey) candidates.push(report.target.storageKey);
-
-  // (2) kind가 있으면 맵핑 키 추가
   const fromKind = report?.target?.kind && KIND_TO_KEY[report.target.kind];
   if (fromKind) candidates.push(fromKind);
-
-  // (3) 보수적으로 모든 후보도 포함
   candidates.push(MARKET_KEY, LOST_KEY, GROUPBUY_KEY, NOTICE_KEY);
 
-  // 중복 제거
   const uniq = Array.from(new Set(candidates));
-
-  // 2) 순차 시도
   for (const key of uniq) {
     const ok = await tryDeleteInKey(key, pid);
     if (ok) return true;
@@ -135,37 +130,67 @@ async function updateReportStatus(reportId: string, newStatus: ReportStatus): Pr
 
 // ===== 퍼블릭 API =====
 
-// ✅ 승인: 글 삭제 + 작성자 개인 알림(신고 아이콘 포함)
+// ✅ 승인: 글 삭제 + 작성자 알림 + 누적 경고(5회/9회)
 export async function approveReport(reportId: string) {
   const updated = await updateReportStatus(reportId, 'APPROVED');
   if (!updated) throw new Error('신고 데이터를 찾을 수 없습니다.');
 
-  // 1) 삭제 시도
+  // 글 삭제 시도
   await deleteTargetPostIfPossible(updated);
 
-  // 2) 작성자에게 개인 알림 발송
+  // 작성자에게 '인정' 결과 알림
   const identity = normEmail(updated?.target?.email || '');
   if (identity) {
     const now = new Date().toISOString();
-
-    // 템플릿에서 title/description + reportIcon 추출
     const tpl = makeReportApprovedTemplate({
       postTitle: updated?.target?.postTitle || updated?.target?.label,
       reasonType: updated.type,
     });
-
     await addUserAlarm(identity, {
       id: uniqId('alarm'),
       title: tpl.title,
       description: tpl.description,
       createdAt: now,
-      reportIcon: tpl.reportIcon === true, // ← 아이콘 플래그 저장
+      reportIcon: tpl.reportIcon === true,
     });
+
+    // ✅ 누적 승인 횟수 계산(해당 사용자)
+    const rawAll = await AsyncStorage.getItem(REPORTS_KEY);
+    const all: StoredReport[] = rawAll ? JSON.parse(rawAll) : [];
+    const approvedCount = all.filter(
+      r => (r.status || 'PENDING') === 'APPROVED' &&
+           normEmail(r.target?.email || '') === identity
+    ).length;
+
+    // ✅ 5회 경고
+    if (approvedCount === 5) {
+      const w5 = makeReportWarn5Template();
+      await addUserAlarm(identity, {
+        id: uniqId('alarm'),
+        title: w5.title,
+        description: w5.description,
+        createdAt: new Date().toISOString(),
+        reportIcon: w5.reportIcon === true,
+      });
+    }
+
+    // ✅ 9회 경고
+    if (approvedCount === 9) {
+      const w9 = makeReportWarn9Template();
+      await addUserAlarm(identity, {
+        id: uniqId('alarm'),
+        title: w9.title,
+        description: w9.description,
+        createdAt: new Date().toISOString(),
+        reportIcon: w9.reportIcon === true,
+      });
+    }
   }
+
   return true;
 }
 
-// ❇️ 반려: (옵션) 작성자에게 결과 알림(신고 아이콘 포함)
+// ❇️ 반려: (옵션) 작성자에게 결과 알림
 export async function rejectReport(reportId: string) {
   const updated = await updateReportStatus(reportId, 'REJECTED');
   if (!updated) throw new Error('신고 데이터를 찾을 수 없습니다.');
@@ -173,17 +198,15 @@ export async function rejectReport(reportId: string) {
   const identity = normEmail(updated?.target?.email || '');
   if (identity) {
     const now = new Date().toISOString();
-
     const tpl = makeReportRejectedTemplate({
       postTitle: updated?.target?.postTitle || updated?.target?.label,
     });
-
     await addUserAlarm(identity, {
       id: uniqId('alarm'),
       title: tpl.title,
       description: tpl.description,
       createdAt: now,
-      reportIcon: tpl.reportIcon === true, // ← 아이콘 플래그 저장
+      reportIcon: tpl.reportIcon === true,
     });
   }
   return true;
