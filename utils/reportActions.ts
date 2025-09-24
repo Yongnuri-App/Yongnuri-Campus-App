@@ -8,6 +8,7 @@ import {
   makeReportWarn5Template,
   makeReportWarn9Template,
 } from './alarmTemplates';
+import { USERS_ALL_KEY } from './session'; // ✅ 10회 탈퇴 시 users_all_v1에서 삭제
 
 // ===== 타입 =====
 export type ReportType = '부적절한 콘텐츠' | '사기/스팸' | '욕설/혐오' | '기타';
@@ -116,6 +117,17 @@ async function deleteTargetPostIfPossible(report: StoredReport): Promise<boolean
   return false;
 }
 
+// ✅ 10회 도달 시 users_all_v1에서 해당 이메일 제거(자동 탈퇴)
+async function removeUserImmediately(emailNorm: string): Promise<boolean> {
+  if (!emailNorm) return false;
+  const raw = await AsyncStorage.getItem(USERS_ALL_KEY);
+  const list: any[] = raw ? JSON.parse(raw) : [];
+  const next = list.filter((u: any) => (u?.email || '').toLowerCase() !== emailNorm);
+  if (next.length === list.length) return false; // 이미 없음
+  await AsyncStorage.setItem(USERS_ALL_KEY, JSON.stringify(next));
+  return true;
+}
+
 // 보고서 상태 갱신
 async function updateReportStatus(reportId: string, newStatus: ReportStatus): Promise<StoredReport | null> {
   const raw = await AsyncStorage.getItem(REPORTS_KEY);
@@ -130,7 +142,7 @@ async function updateReportStatus(reportId: string, newStatus: ReportStatus): Pr
 
 // ===== 퍼블릭 API =====
 
-// ✅ 승인: 글 삭제 + 작성자 알림 + 누적 경고(5회/9회)
+// ✅ 승인: 글 삭제 + 작성자 알림 + 누적 경고(5회/9회) + 10회 즉시 탈퇴
 export async function approveReport(reportId: string) {
   const updated = await updateReportStatus(reportId, 'APPROVED');
   if (!updated) throw new Error('신고 데이터를 찾을 수 없습니다.');
@@ -158,8 +170,9 @@ export async function approveReport(reportId: string) {
     const rawAll = await AsyncStorage.getItem(REPORTS_KEY);
     const all: StoredReport[] = rawAll ? JSON.parse(rawAll) : [];
     const approvedCount = all.filter(
-      r => (r.status || 'PENDING') === 'APPROVED' &&
-           normEmail(r.target?.email || '') === identity
+      r =>
+        (r.status || 'PENDING') === 'APPROVED' &&
+        normEmail(r.target?.email || '') === identity
     ).length;
 
     // ✅ 5회 경고
@@ -184,6 +197,13 @@ export async function approveReport(reportId: string) {
         createdAt: new Date().toISOString(),
         reportIcon: w9.reportIcon === true,
       });
+    }
+
+    // ✅ 10회: 즉시 자동 탈퇴 (users_all_v1에서 제거)
+    if (approvedCount >= 10) {
+      await removeUserImmediately(identity);
+      // (선택) 개인 알림/세션 정리는 각 디바이스에서 별도 처리하도록 두고,
+      // 여기서는 계정 데이터만 제거해 시스템 레벨 '탈퇴' 상태를 반영.
     }
   }
 
