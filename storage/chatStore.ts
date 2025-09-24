@@ -1,9 +1,10 @@
-// /src/storage/chatStore.ts
 // -----------------------------------------------------------
 // 채팅방 요약 저장/로드 모듈 (AsyncStorage 기반)
 // - ChatListPage 가 이 저장소를 읽어 방 목록을 그림
 // - 상세 → 채팅 진입 시 upsertRoomOnOpen() 으로 방을 생성/갱신
 // - 전송/수신 직후 updateRoomOnSend() 로 최근 메시지/시간을 갱신
+// - ❗ 동일 맥락(카테고리+게시글+참여자)으로 들어오면 기존 roomId 재사용
+//   (origin.source가 'groupbuy'여도 'group'과 동일 스레드로 인식)
 // -----------------------------------------------------------
 
 import type {
@@ -14,6 +15,7 @@ import type {
 import { loadJson, saveJson } from '@/utils/storage';
 
 const CHAT_ROOMS_KEY = 'chat_rooms_v1';
+const THREAD_INDEX_KEY = 'chat_thread_index_v1'; // 스레드키→roomId 매핑 인덱스
 
 /** 내부: 미리보기 텍스트를 너무 길면 잘라서 한 줄 유지 */
 function clipPreview(s: string, max = 80): string {
@@ -40,10 +42,96 @@ async function persist(rooms: ChatRoomSummary[]) {
   await saveJson(CHAT_ROOMS_KEY, rooms);
 }
 
+/** 내부: 스레드 인덱스 로드/저장 */
+async function loadThreadIndex(): Promise<Record<string, string>> {
+  return loadJson<Record<string, string>>(THREAD_INDEX_KEY, {});
+}
+async function saveThreadIndex(index: Record<string, string>) {
+  await saveJson(THREAD_INDEX_KEY, index);
+}
+
+/** 문자열 정규화(공백 제거+소문자) */
+function norm(x: unknown): string {
+  return (x ?? '').toString().trim().toLowerCase();
+}
+
+/** ✅ source 동의어 정규화: 'groupbuy' → 'group' 등 */
+function canonSource(x: unknown): string {
+  const v = norm(x);
+  if (!v) return '';
+  if (v === 'groupbuy' || v === 'group_buy' || v === 'group-buy' || v === 'group_buying') {
+    return 'group';
+  }
+  return v;
+}
+
+/**
+ * ❗ 동일 대화 맥락을 식별하는 "스레드 키" 생성
+ *  - source/category: 'market' | 'lost' | 'group' (origin.source가 'groupbuy'여도 'group'으로 간주)
+ *  - 게시글 식별자: postId/productId/boardId(프로젝트 필드명에 맞게 우선순위 부여)
+ *  - 참여자: 이메일/ID 중 존재하는 값 2개를 사전순으로 결합(순서 불변)
+ */
+function makeThreadKey(originParams: any): string | null {
+  if (!originParams) return null;
+
+  // ✅ source 우선, 없으면 category 사용 → 그리고 정규화
+  const source = canonSource(originParams.source ?? originParams.category);
+  const postId = (originParams.postId ?? originParams.productId ?? originParams.boardId ?? '').toString();
+  if (!source || !postId) return null;
+
+  // 참여자 후보(존재하는 것만)
+  const p1 = norm(
+    originParams.sellerEmail ??
+      originParams.authorEmail ??
+      originParams.sellerId ??
+      originParams.authorId
+  );
+  const p2 = norm(
+    originParams.buyerEmail ??
+      originParams.opponentEmail ??
+      originParams.userEmail ??
+      originParams.userId ??
+      originParams.opponentId
+  );
+
+  const participants = [p1, p2].filter(Boolean).sort().join('#'); // 순서 무관
+  return `${source}::${postId}::${participants}`;
+}
+
+/** 주어진 네비 파라미터와 동일 맥락의 기존 방이 있으면 roomId 반환 */
+export async function findExistingRoomIdByContext(originParams: any): Promise<string | null> {
+  const key = makeThreadKey(originParams);
+  if (!key) return null;
+
+  // 1) 인덱스에서 먼저 찾기(가장 빠름)
+  const index = await loadThreadIndex();
+  if (index[key]) return index[key];
+
+  // 2) 방 목록에서 백업 탐색(인덱스 누락 대비)
+  const rooms = await loadChatRooms();
+  for (const r of rooms) {
+    const k = makeThreadKey(r.origin?.params);
+    if (k && k === key) {
+      return r.roomId;
+    }
+  }
+  return null;
+}
+
+/**
+ * (선택) 상세 진입 시, 제안된 roomId를 기존 방의 roomId로 바꿔줌
+ * - 기존 방이 있으면 그 roomId를 반환, 없으면 제안된 roomId 반환
+ */
+export async function resolveRoomIdForOpen(originParams: any, proposedRoomId: string): Promise<string> {
+  const existed = await findExistingRoomIdByContext(originParams);
+  return existed ?? proposedRoomId;
+}
+
 /**
  * 상세 → 채팅 진입 시 방 생성/갱신
  * - preview: 리스트에 바로 보일 최근 메시지(선택; 있으면 lastMessage/lastTs 갱신)
  * - origin : 최초 상세에서 ChatRoom으로 넘겼던 "원본 네비 파라미터" 보관(선택)
+ * - ❗ 동일 스레드가 이미 있으면 roomId가 달라도 "기존 방"을 갱신(중복 생성 방지)
  */
 export async function upsertRoomOnOpen(params: {
   roomId: string;
@@ -53,11 +141,24 @@ export async function upsertRoomOnOpen(params: {
   productPrice?: number;
   productImageUri?: string;
   preview?: string;            // 리스트 미리보기(선택)
-  origin?: ChatRoomOrigin;     // ✅ 원본 네비 파라미터 보관(선택)
+  origin?: ChatRoomOrigin;     // 원본 네비 파라미터 보관(선택)
 }) {
   const rooms = await loadChatRooms();
-  const idx = rooms.findIndex(r => r.roomId === params.roomId);
   const now = Date.now();
+
+  // 1) 스레드키 계산 (origin.source가 'groupbuy'여도 내부적으로 'group'으로 처리)
+  const tKey = makeThreadKey(params.origin?.params);
+
+  // 2) 우선 roomId로 찾기
+  let idx = rooms.findIndex(r => r.roomId === params.roomId);
+
+  // 3) 스레드키로 기존 방 재탐색(중복 생성 방지)
+  if (tKey) {
+    const sameThreadIdx = rooms.findIndex(r => makeThreadKey(r.origin?.params) === tKey);
+    if (sameThreadIdx !== -1) {
+      idx = sameThreadIdx; // ✅ roomId 달라도 같은 맥락이면 기존 방 갱신
+    }
+  }
 
   if (idx === -1) {
     // 신규 방 생성
@@ -71,11 +172,18 @@ export async function upsertRoomOnOpen(params: {
       productTitle: params.productTitle,
       productPrice: params.productPrice,
       productImageUri: params.productImageUri,
-      origin: params.origin, // ✅ 최초 진입 시 원본 파라미터 저장
+      origin: params.origin,
     };
     rooms.unshift(base);
+
+    // 인덱스 갱신
+    if (tKey) {
+      const index = await loadThreadIndex();
+      index[tKey] = params.roomId;
+      await saveThreadIndex(index);
+    }
   } else {
-    // 기존 방 갱신: 메타는 최신화
+    // 기존 방 갱신
     const prev = rooms[idx];
     const next: ChatRoomSummary = {
       ...prev,
@@ -84,16 +192,22 @@ export async function upsertRoomOnOpen(params: {
       productTitle: params.productTitle ?? prev.productTitle,
       productPrice: params.productPrice ?? prev.productPrice,
       productImageUri: params.productImageUri ?? prev.productImageUri,
-      origin: params.origin ?? prev.origin, // ✅ 기존 보관값 유지, 새 값이 오면 교체
+      origin: params.origin ?? prev.origin,
     };
 
-    // preview 가 들어온 경우에만 최근 메시지/시간 갱신
     if (params.preview && params.preview.trim().length > 0) {
       next.lastMessage = clipPreview(params.preview);
       next.lastTs = now;
     }
 
     rooms[idx] = next;
+
+    // 인덱스 보정(기존 방의 roomId가 최종 canonical)
+    if (tKey) {
+      const index = await loadThreadIndex();
+      index[tKey] = rooms[idx].roomId;
+      await saveThreadIndex(index);
+    }
   }
 
   await persist(rooms);
@@ -103,7 +217,7 @@ export async function upsertRoomOnOpen(params: {
 async function updateRoomPreviewImpl(roomId: string, preview: string, lastTs?: number) {
   const rooms = await loadChatRooms();
   const idx = rooms.findIndex(r => r.roomId === roomId);
-  if (idx === -1) return; // 방 요약이 아직 없으면 무시(상세→채팅에서 upsert로 생성하는 것이 정상 흐름)
+  if (idx === -1) return; // 방 요약이 아직 없으면 무시
 
   rooms[idx] = {
     ...rooms[idx],

@@ -2,8 +2,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'; // ✅ 메인 캐시 업데이트용
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Image, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Image, Text, TouchableOpacity, View } from 'react-native';
 import type { RootStackParamList } from '../../types/navigation';
 import styles from './ChatRoomPage.styles';
 
@@ -33,6 +33,9 @@ import marketTradeRepo from '@/repositories/trades/MarketTradeRepo';
 
 // ✅ 하단 입력 바
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
+
+// ✅ 방 요약 저장/갱신 유틸 (미리보기 최신화 핵심)
+import { updateRoomOnSend, upsertRoomOnOpen } from '@/storage/chatStore';
 
 // 아이콘 (상단 카드 버튼)
 const calendarIcon = require('../../assets/images/calendar.png');
@@ -75,6 +78,32 @@ async function updateMarketCacheStatus(postId: string, next: SaleStatusLabel) {
   }
 }
 
+/** ✅ time을 숫자(ms)로 정규화 */
+function toMs(t: unknown): number {
+  if (typeof t === 'number') return t;
+  if (typeof t === 'string') return Number(new Date(t));
+  if (t instanceof Date) return Number(t);
+  return Date.now();
+}
+
+/** ✅ 미리보기 문자열 생성: 메시지 타입별 라벨링 */
+function buildPreviewFromMessage(m: any): string {
+  switch (m?.type) {
+    case 'text':
+      return (m?.text ?? '').toString();
+    case 'image':
+      if (typeof m?.count === 'number' && m.count > 1) return `📷 사진 ${m.count}장`;
+      if (Array.isArray(m?.imageUris) && m.imageUris.length > 1) return `📷 사진 ${m.imageUris.length}장`;
+      return '📷 사진';
+    case 'appointment':
+      return '📅 약속 제안';
+    case 'system':
+      return (m?.text ?? '시스템 알림').toString();
+    default:
+      return (m?.text ?? String(m?.type ?? '')).toString();
+  }
+}
+
 export default function ChatRoomPage() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<any>();
@@ -86,7 +115,7 @@ export default function ChatRoomPage() {
   // ===== 분기 플래그 =====
   const isLost = raw?.source === 'lost';
   const isMarket = raw?.source === 'market';
-  const isGroupBuy = raw?.source === 'groupbuy';
+  const isGroupBuy = raw?.source === 'groupbuy'; // UI용 플래그 (원본 파라미터 유지)
 
   // ===== 헤더 타이틀 =====
   const headerTitle: string = isMarket
@@ -112,7 +141,8 @@ export default function ChatRoomPage() {
   const recruitLabel: string = isGroupBuy ? raw?.recruitLabel ?? '' : '';
 
   // ===== roomId / 최초 인입 문구 =====
-  const roomId = raw?.roomId ?? deriveRoomIdFromParams(raw);
+  const fallbackRoomId = raw?.roomId ?? deriveRoomIdFromParams(raw);
+  const [roomId, setRoomId] = useState<string | null>(fallbackRoomId ?? null);
   const initialMessage: string | undefined = raw?.initialMessage;
 
   // ===== 작성자 여부 판별 =====
@@ -134,9 +164,7 @@ export default function ChatRoomPage() {
         const { userEmail, userId } = await getLocalIdentity();
         setMyEmail(userEmail ?? null);
         setMyId(userId ?? null);
-        // ----------------------- DEBUG 0-B-1 시작 -----------------------
         console.log('[ME] getLocalIdentity =>', userEmail, userId);
-        // ----------------------- DEBUG 0-B-1 끝 -------------------------
       } catch {
         setMyEmail(null);
         setMyId(null);
@@ -149,16 +177,16 @@ export default function ChatRoomPage() {
     toLabel(raw?.initialSaleStatus as ApiSaleStatus | undefined)
   );
 
-  // ===== 채팅 로직 =====
+  // ===== 채팅 로직 (roomId가 해석된 후에만 구동) =====
   const {
     messages, setMessages,
     attachments, extraBottomPad,
     loadAndSeed, addAttachments, removeAttachmentAt, send, pushSystemAppointment
-  } = useChatRoom(roomId, initialMessage);
+  } = useChatRoom(roomId ?? '', initialMessage);
 
   // ===== 분실물 마감 훅 =====
   const { lostStatus, handleCloseLost } = useLostClose({
-    roomId,
+    roomId: roomId ?? '',
     initial: (raw?.initialLostStatus as 'OPEN' | 'RESOLVED') ?? 'OPEN',
     pushMessage: (msg) => setMessages(prev => [...prev, msg]),
   });
@@ -181,19 +209,18 @@ export default function ChatRoomPage() {
       raw?.opponentNickname ??
       raw?.sellerNickname ??
       raw?.authorNickname ??
-      headerTitle;
+      (headerTitle || '닉네임');
 
     if (!idLike || !nameLike) return null;
 
     return {
-      id: String(idLike), // 이메일 또는 사용자 ID 등
+      id: String(idLike),
       name: String(nameLike),
       dept: raw?.opponentDept ?? raw?.department ?? undefined,
       avatarUri: raw?.opponentAvatarUri ?? raw?.avatarUri ?? undefined,
     };
   }, [raw, headerTitle]);
 
-  // opponentEmail 별도로 추출(가능하면 이메일을 우선 사용)
   const opponentEmail: string | null = useMemo(() => {
     return (raw?.opponentEmail ?? raw?.buyerEmail ?? null) || null;
   }, [raw?.opponentEmail, raw?.buyerEmail]);
@@ -290,7 +317,6 @@ export default function ChatRoomPage() {
         buyerId = null;
       }
 
-      // ----------------------- DEBUG 0-B-2 시작 -----------------------
       console.log('[SAVE TRADE PARAMS]', {
         postId: raw?.postId,
         title: cardTitle,
@@ -302,7 +328,6 @@ export default function ChatRoomPage() {
         buyerId,
         postCreatedAt: raw?.postCreatedAt ?? raw?.createdAt ?? undefined,
       });
-      // ----------------------- DEBUG 0-B-2 끝 -------------------------
 
       if (!buyerEmail && !buyerId) {
         Alert.alert('오류', '구매자 정보를 확인할 수 없어 거래완료를 기록하지 않았어요.');
@@ -340,12 +365,72 @@ export default function ChatRoomPage() {
     raw?.productPrice, raw?.postCreatedAt, raw?.createdAt, raw?.sellerEmail, raw?.sellerId
   ]);
 
-  const handleOpenSchedule = () => setOpen(true);
+  /** ✅ 최초 진입 시, 방 요약(upsert) 보장 */
+  useEffect(() => {
+    if (!roomId) return;
+    (async () => {
+      try {
+        await upsertRoomOnOpen({
+          roomId,
+          category: isMarket ? 'market' : isLost ? 'lost' : 'group',
+          nickname: headerTitle ?? '닉네임',
+          productTitle: isMarket ? raw?.productTitle : undefined,
+          productPrice: isMarket ? raw?.productPrice : undefined,
+          productImageUri: isMarket ? raw?.productImageUri : undefined,
+          preview: initialMessage, // 선택
+          origin: {
+            source: isMarket ? 'market' : isLost ? 'lost' : 'groupbuy', // 타입상 'groupbuy' 유지
+            params: raw, // 네비 원본 파라미터
+          },
+        });
+      } catch (e) {
+        console.log('upsertRoomOnOpen error', e);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId]);
 
+  /** ✅ 최초 진입 시 initialMessage 자동 전송 (기존 방이어도 보냄)
+   * - Detail 화면에서 입력한 첫 메시지가 route.params.initialMessage로 전달됨
+   * - 동일 화면에서 중복 전송 방지용 키(ref)로 한 번만 수행
+   */
+  const initialKickRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!roomId) return;
+    const msg = (raw?.initialMessage ?? '').toString().trim();
+    if (!msg) return;
+
+    const key = `${roomId}|${msg}`;
+    if (initialKickRef.current === key) return; // 중복 방지
+    initialKickRef.current = key;
+
+    // 실제 전송
+    send(msg);
+  }, [roomId, raw?.initialMessage, send]);
+
+  /** ✅ 최신 메시지가 바뀔 때마다 미리보기/시간을 저장소에 반영 */
+  const lastSyncedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!roomId || !Array.isArray(messages) || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    const key = `${String(last?.id ?? '')}-${String(last?.time ?? '')}`;
+    if (!last?.id && !last?.time) return;
+    if (lastSyncedRef.current === key) return;
+    lastSyncedRef.current = key;
+
+    const preview = buildPreviewFromMessage(last);
+    const ts = toMs(last?.time);
+    updateRoomOnSend(roomId, preview, ts).catch((e) => {
+      console.log('updateRoomOnSend error', e);
+    });
+  }, [messages, roomId]);
+
+  // ===== roomId 가드(필요시) =====
   if (!roomId) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <Text>채팅방 정보를 찾을 수 없어요.</Text>
+        <ActivityIndicator />
+        <Text style={{ marginTop: 8 }}>채팅방을 준비하고 있어요…</Text>
       </View>
     );
   }
@@ -394,7 +479,7 @@ export default function ChatRoomPage() {
 
         <View style={styles.actionsRow}>
           <View style={styles.actionsLeft}>
-            <TouchableOpacity style={styles.scheduleBtn} onPress={handleOpenSchedule}>
+            <TouchableOpacity style={styles.scheduleBtn} onPress={() => setOpen(true)}>
               <Image source={calendarIcon} style={styles.calendarIcon} />
               <Text style={styles.scheduleBtnText}>약속잡기</Text>
             </TouchableOpacity>
@@ -404,9 +489,8 @@ export default function ChatRoomPage() {
             {showSaleStatus && (
               <SaleStatusSelector
                 value={saleStatusLabel}
-                onChange={handleChangeSaleStatus}     // 상태 라벨/캐시 업데이트
-                onCompleteTrade={recordTradeCompletion} // ✅ 거래완료 스냅샷 저장 트리거
-                // confirmOnComplete 기본 true (필요 시 false로 끌 수 있음)
+                onChange={handleChangeSaleStatus}
+                onCompleteTrade={recordTradeCompletion}
               />
             )}
             {showLostClose && (
@@ -437,8 +521,8 @@ export default function ChatRoomPage() {
         <DetailBottomBar
           variant="chat"
           placeholder="메세지를 입력해주세요."
-          onPressSend={send}
-          onAddImages={addAttachments}
+          onPressSend={send}          // useChatRoom가 messages를 갱신 → 위 useEffect가 미리보기 저장
+          onAddImages={addAttachments} // 이미지도 동일하게 반영
           attachmentsCount={attachments.length}
         />
       )}
@@ -457,6 +541,7 @@ export default function ChatRoomPage() {
         partnerNickname={headerTitle}
         onClose={() => setOpen(false)}
         onSubmit={({ date, time, place }) => {
+          // 시스템 메시지를 추가 → messages 변경 → 미리보기 저장
           pushSystemAppointment(date ?? '', time ?? '', place ?? '');
           setOpen(false);
         }}
