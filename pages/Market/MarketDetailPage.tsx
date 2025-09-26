@@ -6,8 +6,7 @@ import { useDeletePost } from '@/hooks/useDeletePost';
 import { useLike } from '@/hooks/useLike';
 import usePermissions from '@/hooks/usePermissions';
 import { updatePostLikeCountInList } from '@/repositories/marketRepo';
-import { resolveRoomIdForOpen, upsertRoomOnOpen } from '@/storage/chatStore'; // ✅ 기존 방 재사용
-import type { ChatCategory } from '@/types/chat';
+import { resolveRoomIdForOpen } from '@/storage/chatStore'; // ✅ 기존 방 재사용
 import type { RootStackScreenProps } from '@/types/navigation';
 import { getLocalIdentity } from '@/utils/localIdentity';
 import { getProfileByEmail, toDisplayName } from '@/utils/session';
@@ -157,13 +156,11 @@ export default function MarketDetailPage({
   });
 
   /**
-   * ✅ 닉네임/학과 표시 상태
+   * ✅ 닉네임/학과 표시 상태(판매자/작성자)
    * - 이메일 기반 프로필 조회 → (없으면) authorName/authorDept → (그래도 없으면) '익명'
-   * - 한 번 계산한 값을 화면/신고/채팅 파라미터에서 일관되게 사용
    */
   const [authorNickname, setAuthorNickname] = useState<string>('익명');
   const [authorDeptLabel, setAuthorDeptLabel] = useState<string>('');
-
   useEffect(() => {
     (async () => {
       if (!item) return;
@@ -209,6 +206,27 @@ export default function MarketDetailPage({
     })();
   }, []);
 
+  /** ✅ 내 닉네임(구매자/문의자 이름) — 판매자 화면 헤더에 보여주려면 필요 */
+  const [myNickname, setMyNickname] = useState<string>('사용자');
+  useEffect(() => {
+    (async () => {
+      const email = (meEmail || '').trim();
+      if (!email) {
+        setMyNickname('사용자');
+        return;
+      }
+      try {
+        const prof = await getProfileByEmail(email);
+        const nick =
+          toDisplayName({ name: prof?.name, nickname: prof?.nickname }, true) ||
+          '사용자';
+        setMyNickname(nick);
+      } catch {
+        setMyNickname('사용자');
+      }
+    })();
+  }, [meEmail]);
+
   /** 가격 표기 */
   const priceDisplay = useMemo(() => {
     if (!item) return '';
@@ -245,7 +263,9 @@ export default function MarketDetailPage({
     if (!item) return '';
     return buildMarketRoomId(
       String(item.id),
+      // seller key: 이메일 우선 → 없으면 id
       sellerEmailKey || sellerIdKey,
+      // buyer key: 이메일 우선 → 없으면 id
       meEmail || meId
     );
   }, [item, sellerEmailKey, sellerIdKey, meEmail, meId]);
@@ -262,7 +282,8 @@ export default function MarketDetailPage({
       sellerEmail: sellerEmailKey ?? undefined,
       sellerId: sellerIdKey ?? undefined,
       buyerEmail: meEmail ?? undefined,
-      opponentEmail: meEmail ?? undefined, // 보강
+      buyerId: meId ?? undefined, // 보강
+      opponentEmail: meEmail ?? undefined, // 보강(과거 필드 호환)
 
       // === ChatRoom UI에 쓰이는 부가 파라미터 ===
       sellerNickname: authorNickname,
@@ -271,13 +292,18 @@ export default function MarketDetailPage({
       productImageUri: firstImage,
       initialSaleStatus: item.status ?? 'ON_SALE',
       postCreatedAt: item.createdAt,
+
+      // 구매자(나)의 닉네임도 함께 전달 → 판매자 화면에서 상대 이름 표시용
+      buyerNickname: myNickname,
     };
   }, [
     item,
     sellerEmailKey,
     sellerIdKey,
     meEmail,
+    meId,
     authorNickname,
+    myNickname,
   ]);
 
   /** 동일 맥락의 기존 채팅방이 있으면 그 roomId로 재사용 */
@@ -431,68 +457,6 @@ export default function MarketDetailPage({
         </View>
       </ScrollView>
 
-      {/* ✅ DEV: 판매자 강제 채팅 진입 버튼 (배포 제외) */}
-      {__DEV__ && isOwner && (
-        <TouchableOpacity
-          style={styles.devOpenChatBtn}
-          onPress={async () => {
-            // (DEV) 판매자 관점: opponent(구매자) 없음. 실서비스 플로우와 무관.
-            const category: ChatCategory = 'market';
-            const nickname = authorNickname;
-            const legacyRoomId = `market-${String(item.id)}-${nickname}`;
-            const productTitle = item.title;
-            const productPrice =
-              item.mode === 'donate' ? 0 : Number(item.price ?? 0);
-            const productImageUri =
-              Array.isArray(images) && images.length > 0 ? images[0] : undefined;
-
-            const preview = 'DEV: 판매자 진입 테스트';
-            await upsertRoomOnOpen({
-              roomId: legacyRoomId,
-              category,
-              nickname,
-              productTitle,
-              productPrice,
-              productImageUri,
-              preview,
-              origin: {
-                source: 'market',
-                params: {
-                  source: 'market',
-                  postId: String(item.id),
-                  sellerNickname: nickname,
-                  productTitle,
-                  productPrice,
-                  productImageUri,
-                  authorId: item.authorId,
-                  authorEmail: item.authorEmail ?? null,
-                  initialSaleStatus: item.status ?? 'ON_SALE',
-                  initialMessage: preview,
-                },
-              },
-            });
-
-            navigation.navigate('ChatRoom', {
-              source: 'market',
-              postId: String(item.id),
-              sellerNickname: nickname,
-              productTitle,
-              productPrice,
-              productImageUri,
-              authorId: item.authorId,
-              authorEmail: item.authorEmail ?? null,
-              initialSaleStatus: item.status ?? 'ON_SALE',
-              initialMessage: preview,
-            } as any);
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="DEV: 채팅 열기(판매자)"
-          activeOpacity={0.9}
-        >
-          <Text style={styles.devOpenChatText}>DEV: 채팅 열기(판매자)</Text>
-        </TouchableOpacity>
-      )}
-
       {/* ===== 하단 고정 바 ===== */}
       {/* ✅ 작성자 본인이라면 상세에서 채팅 시작을 숨김 */}
       {!isOwner && (
@@ -520,8 +484,8 @@ export default function MarketDetailPage({
           }}
           /**
            * ✅ ChatRoom으로 넘어갈 때 필요한 모든 파라미터 전달
-           *  - 주의: 스프레드에 `?? {}`를 섞지 말 것 (속성이 optional로 추론됨)
-           *  - 아래처럼 "명시적으로" 구성해 `source: 'market'`를 항상 포함
+           *  - `source: 'market'`는 항상 명시 (리터럴 유지)
+           *  - 동일 맥락 방 재사용을 위해 buyerId/buyerEmail/buyerNickname도 전달
            */
           chatAutoNavigateParams={{
             // ---- 필수(마켓 스키마) ----
@@ -540,6 +504,11 @@ export default function MarketDetailPage({
             roomId: resolvedRoomId || proposedRoomId,
             postCreatedAt: item.createdAt,
             sellerNickname: authorNickname,
+
+            // ✅ 구매자(나) 정보 — 판매자 화면에서 상대 닉네임 표시에 필요
+            buyerId: meId ?? undefined,
+            buyerEmail: meEmail ?? undefined,
+            buyerNickname: myNickname,
 
             // 상대(=판매자) 정보 — 현재 로그인 사용자의 상대
             opponentId: item.authorId != null ? String(item.authorId) : undefined,

@@ -1,4 +1,8 @@
 // /pages/Chat/ChatListPage.tsx
+// (변경점)
+// - enterRoom 폴백 경로에서 sellerNickname / buyerNickname 힌트 전달
+//   → ChatRoom이 상대 닉네임 계산 시 소스 확장으로 누락 방지
+
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useMemo, useState } from 'react';
 import { FlatList, Image, Text, TouchableOpacity, View } from 'react-native';
@@ -8,7 +12,6 @@ import CategoryChips, { CategoryItem } from '../../components/CategoryChips/Cate
 import HeaderIcons from '../../components/Header/HeaderIcons';
 import styles from './ChatListPage.styles';
 
-// ✅ utils/storage.ts 헬퍼를 사용하는 chatStore
 import { loadChatRooms, markRoomRead } from '@/storage/chatStore';
 import type { ChatCategory, ChatRoomSummary } from '@/types/chat';
 
@@ -20,7 +23,10 @@ const CHAT_CATEGORIES: CategoryItem[] = [
 ];
 
 const timeAgo = (ts: number) => {
-  const diff = Date.now() - ts;
+  const now = Date.now();
+  const base = Number.isFinite(ts) ? ts : now;
+  const diff = now - base;
+  if (diff < 0) return '방금 전';
   const m = Math.floor(diff / 60000);
   if (m < 1) return '방금 전';
   if (m < 60) return `${m}분 전`;
@@ -42,36 +48,47 @@ export default function ChatListPage({ navigation }: Props) {
       let mounted = true;
       (async () => {
         const data = await loadChatRooms();
-        if (mounted) setRooms(data);
+        if (mounted) setRooms(Array.isArray(data) ? data : []);
       })();
-      return () => {
-        mounted = false;
-      };
+      return () => { mounted = false; };
     }, [])
   );
 
   const filtered = useMemo(() => {
-    if (chip === 'all') return rooms;
-    return rooms.filter(r => r.category === (chip as ChatCategory));
+    const list = chip === 'all' ? rooms : rooms.filter(r => r.category === (chip as ChatCategory));
+    return [...list].sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
   }, [chip, rooms]);
 
   const enterRoom = async (room: ChatRoomSummary) => {
     await markRoomRead(room.roomId);
 
     if (room.origin?.params) {
-      // ✅ 원본 네비 파라미터 그대로 사용 (키 이름/형태 유지)
-      navigation.navigate('ChatRoom', room.origin.params as any);
+      navigation.navigate('ChatRoom', {
+        ...room.origin.params,
+        roomId: room.roomId,
+      });
       return;
     }
 
-    // (폴백) 원본이 없을 때만 최소 정보로 진입
+    // ✅ 폴백: 닉네임/아이디 힌트 최대한 전파
     navigation.navigate('ChatRoom', {
       roomId: room.roomId,
+      source: room.category === 'group' ? 'groupbuy' : room.category,
       category: room.category,
       nickname: room.nickname,
       productTitle: room.productTitle,
       productPrice: room.productPrice,
       productImageUri: room.productImageUri,
+
+      // ⬇️ 있으면 전달 (타입에 옵션 필드로 두면 안전)
+      sellerNickname: (room as any).sellerNickname,
+      buyerNickname: (room as any).buyerNickname,
+
+      sellerEmail: room.sellerEmail,
+      sellerId: room.sellerId,
+      place: room.place,
+      purpose: room.purpose,
+      recruitLabel: room.recruitLabel,
     });
   };
 
@@ -81,7 +98,6 @@ export default function ChatListPage({ navigation }: Props) {
       activeOpacity={0.8}
       onPress={() => enterRoom(item)}
     >
-      {/* 아바타 */}
       <View style={styles.avatar}>
         {item.avatarUri ? (
           <Image source={{ uri: item.avatarUri }} style={{ width: 44, height: 44, borderRadius: 22 }} />
@@ -94,11 +110,10 @@ export default function ChatListPage({ navigation }: Props) {
         )}
       </View>
 
-      {/* 텍스트 영역 */}
       <View style={styles.chatTexts}>
         <View style={styles.rowTop}>
           <Text style={styles.nickname} numberOfLines={1}>
-            {item.nickname}
+            {item.nickname || '상대방'}
           </Text>
           <Text style={styles.time}>
             {item.lastTs ? timeAgo(item.lastTs) : ''}
@@ -109,20 +124,17 @@ export default function ChatListPage({ navigation }: Props) {
         </Text>
       </View>
 
-      {/* 안읽음 표시 */}
       {item.unreadCount > 0 && <View style={styles.unreadDot} />}
     </TouchableOpacity>
   );
 
   return (
     <View style={styles.container}>
-      {/* 헤더 */}
       <View style={styles.header}>
         <Text style={styles.title}>채팅</Text>
         <HeaderIcons />
       </View>
 
-      {/* 카테고리 칩 */}
       <CategoryChips
         value={chip}
         onChange={setChip}
@@ -130,7 +142,6 @@ export default function ChatListPage({ navigation }: Props) {
         containerStyle={{ marginTop: 4, marginBottom: 8 }}
       />
 
-      {/* 리스트 */}
       <FlatList
         data={filtered}
         keyExtractor={(it) => it.roomId}
@@ -150,20 +161,14 @@ export default function ChatListPage({ navigation }: Props) {
         showsVerticalScrollIndicator={false}
       />
 
-      {/* 하단 탭바 */}
       <BottomTabBar
         value={tab}
         onChange={(next) => {
-          // 내부 상태 먼저 동기화 (UI 하이라이트용)
           setTab(next);
-
-          // ✅ 채팅 탭: ChatList로 이동(무애니메이션으로 가고싶으면 noAnim 같이 전달)
           if (next === 'chat') {
-            navigation.replace('ChatList', { noAnim: true }); // or navigation.navigate(...)
+            navigation.replace('ChatList', { noAnim: true });
             return;
           }
-
-          // ✅ 나머지 탭: 모두 Main으로 보내되, initialTab으로 어떤 리스트를 띄울지 지정
           navigation.replace('Main', { initialTab: next });
         }}
       />

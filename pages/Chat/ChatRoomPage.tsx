@@ -1,4 +1,10 @@
 // pages/Chat/ChatRoomPage.tsx
+// (변경점)
+// - pickOtherNickname() 유틸로 상대 닉네임 계산 통일
+// - 내 아이덴티티 로드 완료 후(upsert 시점 보정) 방 요약 생성/갱신
+// - headerTitle 변경 시 chatStore.nickname 동기화 (updateRoomOnSendSmart에 nickname 전달)
+// - buyer/seller 닉네임 소스 확장(writerNickname 등)
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -7,7 +13,6 @@ import { ActivityIndicator, Alert, Image, Text, TouchableOpacity, View } from 'r
 import type { RootStackParamList } from '../../types/navigation';
 import styles from './ChatRoomPage.styles';
 
-// 공통 컴포넌트
 import AttachmentBar from '@/components/Chat/AttachmentBar/AttachmentBar';
 import ChatHeader from '@/components/Chat/ChatHeader/ChatHeader';
 import LostCloseButton from '@/components/Chat/LostCloseButton/LostCloseButton';
@@ -16,32 +21,23 @@ import MoreMenu from '@/components/Chat/MoreMenu/MoreMenu';
 import SaleStatusSelector, { type SaleStatusLabel } from '@/components/Chat/SaleStatusSelector/SaleStatusSelector';
 import AppointmentModal from '@/components/Modal/AppointmentModal';
 
-// 권한 훅
-import usePermissions from '@/hooks/usePermissions';
-
-// 채팅 로직 훅 & 분실물 마감 훅
 import useChatRoom from '@/hooks/useChatRoom';
 import useLostClose from '@/hooks/useLostClose';
+import usePermissions from '@/hooks/usePermissions';
 
-// 유틸
 import { blockUser, isBlockedUser, type BlockedUser } from '@/utils/blocked';
 import { deriveRoomIdFromParams } from '@/utils/chatId';
 import { getLocalIdentity } from '@/utils/localIdentity';
 
-// 거래완료 스냅샷 저장소
 import marketTradeRepo from '@/repositories/trades/MarketTradeRepo';
-
-// 하단 입력 바
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 
-// ✅ 방 요약 저장/갱신 유틸
 import { updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
 
 const calendarIcon = require('../../assets/images/calendar.png');
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'ChatRoom'>;
 
-/** 판매상태 매핑 */
 type ApiSaleStatus = 'ON_SALE' | 'RESERVED' | 'SOLD';
 const toLabel = (s?: ApiSaleStatus): SaleStatusLabel => {
   switch (s) {
@@ -60,67 +56,81 @@ const toApi = (l: SaleStatusLabel): ApiSaleStatus => {
   }
 };
 
-async function updateMarketCacheStatus(postId: string, next: SaleStatusLabel) {
-  try {
-    const KEY = 'market_posts_v1';
-    const raw = await AsyncStorage.getItem(KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    const updated = Array.isArray(list)
-      ? list.map((it: any) => (it?.id === postId ? { ...it, saleStatus: next } : it))
-      : list;
-    await AsyncStorage.setItem(KEY, JSON.stringify(updated));
-  } catch (e) {
-    console.log('updateMarketCacheStatus error', e);
+// ---------- 유틸: 상대 닉네임 결정 ----------
+function pickOtherNickname(opts: {
+  meEmail?: string | null;
+  meId?: string | null;
+  isOwner: boolean;
+  sellerEmail?: string;
+  buyerEmail?: string;
+  sellerId?: string | number;
+  buyerId?: string | number;
+  sellerName?: string;
+  buyerName?: string;
+  opponentNickname?: string;
+}) {
+  const toL = (v?: string | null) => (v ?? '').trim().toLowerCase();
+  const toS = (v?: string | number) => (v == null ? '' : String(v));
+  const {
+    meEmail, meId, isOwner,
+    sellerEmail, buyerEmail, sellerId, buyerId,
+    sellerName, buyerName, opponentNickname,
+  } = opts;
+
+  const amSeller =
+    isOwner ||
+    (!!meEmail && !!sellerEmail && toL(meEmail) === toL(sellerEmail)) ||
+    (!!meId && !!sellerId && toS(meId) === toS(sellerId));
+  const amBuyer =
+    (!!meEmail && !!buyerEmail && toL(meEmail) === toL(buyerEmail)) ||
+    (!!meId && !!buyerId && toS(meId) === toS(buyerId));
+
+  if (amSeller) {
+    if (buyerName) return buyerName;
+    if (opponentNickname && opponentNickname !== sellerName) return opponentNickname;
+    return '상대방';
   }
+  if (amBuyer) {
+    if (sellerName) return sellerName;
+    if (opponentNickname && opponentNickname !== buyerName) return opponentNickname;
+    return '상대방';
+  }
+  if (sellerName && sellerName !== buyerName) return sellerName;
+  return buyerName || opponentNickname || '상대방';
 }
 
-/** time → ms */
 function toMs(t: unknown): number {
   if (typeof t === 'number') return t;
   if (typeof t === 'string') return Number(new Date(t));
   if (t instanceof Date) return Number(t);
   return Date.now();
 }
-
-/** 프리뷰 라벨링 */
 function buildPreviewFromMessage(m: any): string {
   switch (m?.type) {
-    case 'text':
-      return (m?.text ?? '').toString();
+    case 'text': return (m?.text ?? '').toString();
     case 'image':
       if (typeof m?.count === 'number' && m.count > 1) return `📷 사진 ${m.count}장`;
       if (Array.isArray(m?.imageUris) && m.imageUris.length > 1) return `📷 사진 ${m.imageUris.length}장`;
       return '📷 사진';
-    case 'appointment':
-      return '📅 약속 제안';
-    case 'system':
-      return (m?.text ?? '시스템 알림').toString();
-    default:
-      return (m?.text ?? String(m?.type ?? '')).toString();
+    case 'appointment': return '📅 약속 제안';
+    case 'system': return (m?.text ?? '시스템 알림').toString();
+    default: return (m?.text ?? String(m?.type ?? '')).toString();
   }
 }
+const toLower = (s?: unknown) => (s == null ? '' : String(s)).trim().toLowerCase();
+const toStr   = (v?: unknown) => (v == null ? '' : String(v));
 
 export default function ChatRoomPage() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<any>();
   const raw = (route.params ?? {}) as any;
 
-  // 약속 모달
   const [open, setOpen] = useState(false);
 
-  // 플래그
   const isLost = raw?.source === 'lost';
   const isMarket = raw?.source === 'market';
   const isGroupBuy = raw?.source === 'groupbuy';
 
-  // 헤더 타이틀
-  const headerTitle: string = isMarket
-    ? raw?.sellerNickname ?? '닉네임'
-    : isLost
-    ? raw?.posterNickname ?? '닉네임'
-    : raw?.authorNickname ?? '닉네임';
-
-  // 카드 데이터
   const cardTitle: string = isMarket ? (raw?.productTitle ?? '게시글 제목') : (raw?.postTitle ?? '게시글 제목');
   const cardImageUri: string | undefined = isMarket ? raw?.productImageUri : raw?.postImageUri;
 
@@ -136,12 +146,10 @@ export default function ChatRoomPage() {
   const purposeBadge: string = isLost ? (raw?.purpose === 'lost' ? '분실' : '습득') : '';
   const recruitLabel: string = isGroupBuy ? raw?.recruitLabel ?? '' : '';
 
-  // roomId / initialMessage
   const proposedId = raw?.roomId ?? deriveRoomIdFromParams(raw);
-  const [roomId, setRoomId] = useState<string | null>(proposedId ?? null);
+  const [roomId] = useState<string | null>(proposedId ?? null);
   const initialMessage: string | undefined = raw?.initialMessage;
 
-  // 권한
   const { isOwner } = usePermissions({
     authorId: raw?.authorId,
     authorEmail: raw?.authorEmail,
@@ -150,7 +158,6 @@ export default function ChatRoomPage() {
   const [devForceOwner, setDevForceOwner] = useState<boolean | null>(null);
   const effectiveIsOwner = (__DEV__ && devForceOwner !== null) ? devForceOwner : isOwner;
 
-  // 내 아이덴티티
   const [myEmail, setMyEmail] = useState<string | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
   useEffect(() => {
@@ -165,20 +172,51 @@ export default function ChatRoomPage() {
       }
     })();
   }, []);
+  const identityReady = (myEmail !== null || myId !== null); // ✅ 아이덴티티 로드 시점 플래그
 
-  // 판매 상태
+  // 상대/내 식별 값
+  const sellerEmail = raw?.sellerEmail ?? raw?.authorEmail ?? undefined;
+  const buyerEmail  = raw?.buyerEmail  ?? raw?.opponentEmail ?? raw?.userEmail ?? undefined;
+  const sellerId = raw?.sellerId ?? raw?.authorId ?? undefined;
+  const buyerId  = raw?.buyerId  ?? raw?.opponentId ?? raw?.userId ?? undefined;
+
+  // 닉네임 소스 확장
+  const sellerName =
+    raw?.sellerNickname ??
+    raw?.posterNickname ??
+    raw?.authorNickname ??
+    raw?.writerNickname ??   // ⬅️ 추가
+    raw?.nickname ??         // 레거시
+    '';
+  const buyerName =
+    raw?.buyerNickname ??
+    raw?.userNickname ??
+    raw?.opponentBuyerNickname ?? // ⬅️ 추가 (혹시 존재 시)
+    '';
+
+  // ✅ 헤더 타이틀: 항상 "상대 닉네임"
+  const headerTitle: string = useMemo(() => {
+    return pickOtherNickname({
+      meEmail: myEmail,
+      meId: myId,
+      isOwner: effectiveIsOwner,
+      sellerEmail, buyerEmail,
+      sellerId, buyerId,
+      sellerName, buyerName,
+      opponentNickname: raw?.opponentNickname,
+    });
+  }, [myEmail, myId, effectiveIsOwner, sellerEmail, buyerEmail, sellerId, buyerId, sellerName, buyerName, raw?.opponentNickname]);
+
   const [saleStatusLabel, setSaleStatusLabel] = useState<SaleStatusLabel>(
     toLabel(raw?.initialSaleStatus as ApiSaleStatus | undefined)
   );
 
-  // 채팅 로직
   const {
     messages, setMessages,
     attachments, extraBottomPad,
     loadAndSeed, addAttachments, removeAttachmentAt, send, pushSystemAppointment
   } = useChatRoom(roomId ?? '');
 
-  // 분실물 마감
   const { lostStatus, handleCloseLost } = useLostClose({
     roomId: roomId ?? '',
     initial: (raw?.initialLostStatus as 'OPEN' | 'RESOLVED') ?? 'OPEN',
@@ -188,38 +226,24 @@ export default function ChatRoomPage() {
   const showSaleStatus = isMarket && effectiveIsOwner && !!raw?.postId;
   const showLostClose = isLost && effectiveIsOwner && !!raw?.postId;
 
-  // 상대 정보
   const opponent = useMemo<BlockedUser | null>(() => {
     const idLike =
-      raw?.opponentId ??
-      raw?.sellerId ??
-      raw?.authorId ??
-      raw?.userId ??
-      raw?.opponentEmail ??
-      raw?.sellerEmail ??
-      raw?.authorEmail;
-
-    const nameLike =
-      raw?.opponentNickname ??
-      raw?.sellerNickname ??
-      raw?.authorNickname ??
-      headerTitle;
-
+      raw?.opponentId ?? raw?.sellerId ?? raw?.authorId ?? raw?.userId ??
+      raw?.opponentEmail ?? raw?.sellerEmail ?? raw?.authorEmail;
+    const nameLike = headerTitle || raw?.opponentNickname || sellerName || buyerName;
     if (!idLike || !nameLike) return null;
-
     return {
       id: String(idLike),
       name: String(nameLike),
       dept: raw?.opponentDept ?? raw?.department ?? undefined,
       avatarUri: raw?.opponentAvatarUri ?? raw?.avatarUri ?? undefined,
     };
-  }, [raw, headerTitle]);
+  }, [raw, headerTitle, sellerName, buyerName]);
 
   const opponentEmail: string | null = useMemo(() => {
     return (raw?.opponentEmail ?? raw?.buyerEmail ?? null) || null;
   }, [raw?.opponentEmail, raw?.buyerEmail]);
 
-  // 차단 여부
   const [isBlocked, setIsBlocked] = useState(false);
   useEffect(() => {
     (async () => {
@@ -237,7 +261,6 @@ export default function ChatRoomPage() {
     })();
   }, [opponent?.id]);
 
-  // 메뉴
   const [menuVisible, setMenuVisible] = useState(false);
   const handleReport = () => {
     setMenuVisible(false);
@@ -274,16 +297,24 @@ export default function ChatRoomPage() {
     );
   };
 
-  // 판매상태 변경
   const handleChangeSaleStatus = async (nextLabel: SaleStatusLabel) => {
     setSaleStatusLabel(nextLabel);
     const apiValue = toApi(nextLabel);
     if (raw?.postId) {
-      await updateMarketCacheStatus(raw.postId, nextLabel);
+      try {
+        const KEY = 'market_posts_v1';
+        const rawList = await AsyncStorage.getItem(KEY);
+        const list = rawList ? JSON.parse(rawList) : [];
+        const updated = Array.isArray(list)
+          ? list.map((it: any) => (it?.id === raw.postId ? { ...it, saleStatus: nextLabel } : it))
+          : list;
+        await AsyncStorage.setItem(KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.log('updateMarketCacheStatus error', e);
+      }
     }
   };
 
-  // 거래완료 스냅샷
   const recordTradeCompletion = useCallback(async () => {
     try {
       if (!isMarket || !raw?.postId) return;
@@ -291,16 +322,16 @@ export default function ChatRoomPage() {
       const meEmailNorm = (myEmail ?? '').trim().toLowerCase();
       const meIdStr = (myId ?? '').toString();
 
-      let buyerEmail = (raw?.buyerEmail ?? raw?.opponentEmail ?? null);
-      let buyerId = buyerEmail ? null : (opponent?.id ? String(opponent.id) : null);
+      let buyerEmailX = (raw?.buyerEmail ?? raw?.opponentEmail ?? null);
+      let buyerIdX = buyerEmailX ? null : (opponent?.id ? String(opponent.id) : null);
 
-      const buyerEmailNorm = (buyerEmail ?? '').trim().toLowerCase();
+      const buyerEmailNorm = (buyerEmailX ?? '').trim().toLowerCase();
       if (buyerEmailNorm && meEmailNorm && buyerEmailNorm === meEmailNorm) {
-        buyerEmail = null;
-        buyerId = buyerId ?? (raw?.buyerId ? String(raw.buyerId) : null);
+        buyerEmailX = null;
+        buyerIdX = buyerIdX ?? (raw?.buyerId ? String(raw.buyerId) : null);
       }
-      if (!buyerEmail && buyerId && meIdStr && buyerId === meIdStr) {
-        buyerId = null;
+      if (!buyerEmailX && buyerIdX && meIdStr && buyerIdX === meIdStr) {
+        buyerIdX = null;
       }
 
       await marketTradeRepo.upsert({
@@ -310,8 +341,8 @@ export default function ChatRoomPage() {
         image: cardImageUri,
         sellerEmail: myEmail ?? (raw?.sellerEmail ?? null),
         sellerId: myId ?? (raw?.sellerId ? String(raw.sellerId) : null),
-        buyerEmail,
-        buyerId,
+        buyerEmail: buyerEmailX,
+        buyerId: buyerIdX,
         postCreatedAt: raw?.postCreatedAt ?? raw?.createdAt ?? undefined,
       });
 
@@ -334,22 +365,26 @@ export default function ChatRoomPage() {
     raw?.productPrice, raw?.postCreatedAt, raw?.createdAt, raw?.sellerEmail, raw?.sellerId
   ]);
 
-  /** 최초 진입: 방 요약 생성/갱신 (origin.params는 ChatList 재입장에 유용) */
+  // ✅ 아이덴티티/헤더 준비 후에만 upsert (초기 잘못된 닉네임 저장 방지)
   useEffect(() => {
     if (!roomId) return;
+    loadAndSeed();
+    if (!identityReady) return;
+    if (!headerTitle) return;
+
     (async () => {
       try {
         await upsertRoomOnOpen({
           roomId,
           category: isMarket ? 'market' : isLost ? 'lost' : 'group',
-          nickname: headerTitle ?? '닉네임',
+          nickname: headerTitle, // ✅ 항상 상대 닉네임
           productTitle: isMarket ? raw?.productTitle : undefined,
           productPrice: isMarket ? raw?.productPrice : undefined,
           productImageUri: isMarket ? raw?.productImageUri : undefined,
-          preview: initialMessage, // 선택
+          preview: initialMessage,
           origin: {
-            source: isMarket ? 'market' : isLost ? 'lost' : 'groupbuy', // 저장은 groupbuy 그대로, 내부에서 'group' 정규화
-            params: raw, // 네비 원본 파라미터
+            source: isMarket ? 'market' : isLost ? 'lost' : 'groupbuy',
+            params: raw, // (sanitize는 저장소에서 처리)
           },
         });
       } catch (e) {
@@ -357,9 +392,21 @@ export default function ChatRoomPage() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId]);
+  }, [roomId, identityReady, headerTitle]);
 
-  /** 최초 한 번: initialMessage 자동 전송 (중복 방지) */
+  // ✅ headerTitle이 뒤늦게 바뀌어도 리스트 닉네임 동기화
+  useEffect(() => {
+    if (!roomId) return;
+    if (!identityReady) return;
+    if (!headerTitle) return;
+
+    updateRoomOnSendSmart({
+      roomId,
+      originParams: raw,
+      nickname: headerTitle, // ✅ 닉네임 동기화
+    }).catch(() => {});
+  }, [roomId, identityReady, headerTitle]);
+
   const initialKickRef = useRef<string | null>(null);
   useEffect(() => {
     if (!roomId) return;
@@ -371,16 +418,9 @@ export default function ChatRoomPage() {
     initialKickRef.current = key;
 
     send(msg);
-
-    // 같은 세션에서 재렌더되어도 다시 안 보내도록 파라미터 제거(옵션)
-    try {
-      navigation.setParams({ initialMessage: undefined });
-    } catch {}
+    try { navigation.setParams({ initialMessage: undefined }); } catch {}
   }, [roomId, raw?.initialMessage, send, navigation]);
 
-  /** 최신 메시지가 바뀔 때마다 ChatList 미리보기 업데이트
-   *  - roomId로 못 찾으면 origin.params 기반으로 기존 방을 찾아 갱신
-   */
   const lastSyncedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!roomId || !Array.isArray(messages) || messages.length === 0) return;
@@ -394,13 +434,13 @@ export default function ChatRoomPage() {
     const ts = toMs(last?.time);
     updateRoomOnSendSmart({
       roomId,
-      originParams: raw, // ← roomId 불일치 시 맥락으로 기존 방 찾기
+      originParams: raw,
       preview,
       lastTs: ts,
+      nickname: headerTitle, // ✅ 프리뷰 갱신과 함께 닉네임도 안정적으로 동기화
     }).catch(e => console.log('updateRoomOnSendSmart error', e));
-  }, [messages, roomId, raw]);
+  }, [messages, roomId, raw, headerTitle]);
 
-  // roomId 가드
   if (!roomId) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -412,14 +452,11 @@ export default function ChatRoomPage() {
 
   return (
     <View style={styles.container}>
-      {/* 헤더 */}
       <ChatHeader
         title={headerTitle}
         onPressBack={() => navigation.goBack()}
         onPressMore={() => setMenuVisible(true)}
       />
-
-      {/* 상단 카드 */}
       <View style={styles.productCardShadowWrap}>
         <View style={styles.productCard}>
           <View style={styles.thumbWrap}>
@@ -429,7 +466,6 @@ export default function ChatRoomPage() {
               <View style={[styles.thumb, styles.thumbPlaceholder]} />
             )}
           </View>
-
           <View style={styles.infoWrap}>
             <Text style={styles.title} numberOfLines={1}>{cardTitle}</Text>
             {isMarket && <Text style={styles.price}>{priceLabel || '₩ 0'}</Text>}
@@ -459,7 +495,6 @@ export default function ChatRoomPage() {
               <Text style={styles.scheduleBtnText}>약속잡기</Text>
             </TouchableOpacity>
           </View>
-
           <View style={styles.actionsRight}>
             {showSaleStatus && (
               <SaleStatusSelector
@@ -479,13 +514,9 @@ export default function ChatRoomPage() {
         </View>
       </View>
 
-      {/* 채팅 리스트 */}
       <MessageList data={messages} bottomInset={100 + extraBottomPad} />
-
-      {/* 첨부 썸네일 바 */}
       <AttachmentBar uris={attachments} onRemoveAt={removeAttachmentAt} />
 
-      {/* 하단 바 */}
       {isBlocked ? (
         <View style={{ padding: 25, alignItems: 'center', backgroundColor: '#f9f9f9' }}>
           <Text style={{ color: '#999', fontSize: 14 }}>
@@ -502,7 +533,6 @@ export default function ChatRoomPage() {
         />
       )}
 
-      {/* 더보기 */}
       <MoreMenu
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
@@ -510,7 +540,6 @@ export default function ChatRoomPage() {
         onBlock={handleBlock}
       />
 
-      {/* 약속잡기 모달 */}
       <AppointmentModal
         visible={open}
         partnerNickname={headerTitle}
