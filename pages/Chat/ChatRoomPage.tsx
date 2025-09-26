@@ -1,5 +1,5 @@
 // pages/Chat/ChatRoomPage.tsx
-import AsyncStorage from '@react-native-async-storage/async-storage'; // ✅ 메인 캐시 업데이트용
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -7,7 +7,7 @@ import { ActivityIndicator, Alert, Image, Text, TouchableOpacity, View } from 'r
 import type { RootStackParamList } from '../../types/navigation';
 import styles from './ChatRoomPage.styles';
 
-// ✅ 공통 컴포넌트
+// 공통 컴포넌트
 import AttachmentBar from '@/components/Chat/AttachmentBar/AttachmentBar';
 import ChatHeader from '@/components/Chat/ChatHeader/ChatHeader';
 import LostCloseButton from '@/components/Chat/LostCloseButton/LostCloseButton';
@@ -16,33 +16,32 @@ import MoreMenu from '@/components/Chat/MoreMenu/MoreMenu';
 import SaleStatusSelector, { type SaleStatusLabel } from '@/components/Chat/SaleStatusSelector/SaleStatusSelector';
 import AppointmentModal from '@/components/Modal/AppointmentModal';
 
-// ✅ 권한 훅 (판매자/작성자 여부 판별)
+// 권한 훅
 import usePermissions from '@/hooks/usePermissions';
 
-// ✅ 분리한 채팅 로직 훅 & 분실물 마감 훅
+// 채팅 로직 훅 & 분실물 마감 훅
 import useChatRoom from '@/hooks/useChatRoom';
 import useLostClose from '@/hooks/useLostClose';
 
-// ✅ 유틸
+// 유틸
 import { blockUser, isBlockedUser, type BlockedUser } from '@/utils/blocked';
 import { deriveRoomIdFromParams } from '@/utils/chatId';
 import { getLocalIdentity } from '@/utils/localIdentity';
 
-// ✅ 거래완료 스냅샷 저장소
+// 거래완료 스냅샷 저장소
 import marketTradeRepo from '@/repositories/trades/MarketTradeRepo';
 
-// ✅ 하단 입력 바
+// 하단 입력 바
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 
-// ✅ 방 요약 저장/갱신 유틸 (미리보기 최신화 핵심)
-import { updateRoomOnSend, upsertRoomOnOpen } from '@/storage/chatStore';
+// ✅ 방 요약 저장/갱신 유틸
+import { updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
 
-// 아이콘 (상단 카드 버튼)
 const calendarIcon = require('../../assets/images/calendar.png');
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'ChatRoom'>;
 
-/** ✅ 판매상태 매핑 유틸 (라벨↔API enum) */
+/** 판매상태 매핑 */
 type ApiSaleStatus = 'ON_SALE' | 'RESERVED' | 'SOLD';
 const toLabel = (s?: ApiSaleStatus): SaleStatusLabel => {
   switch (s) {
@@ -61,24 +60,21 @@ const toApi = (l: SaleStatusLabel): ApiSaleStatus => {
   }
 };
 
-/** ✅ 메인 리스트 캐시 업데이트 (중고거래 상태 변경 시) */
 async function updateMarketCacheStatus(postId: string, next: SaleStatusLabel) {
   try {
     const KEY = 'market_posts_v1';
     const raw = await AsyncStorage.getItem(KEY);
     const list = raw ? JSON.parse(raw) : [];
-
     const updated = Array.isArray(list)
       ? list.map((it: any) => (it?.id === postId ? { ...it, saleStatus: next } : it))
       : list;
-
     await AsyncStorage.setItem(KEY, JSON.stringify(updated));
   } catch (e) {
     console.log('updateMarketCacheStatus error', e);
   }
 }
 
-/** ✅ time을 숫자(ms)로 정규화 */
+/** time → ms */
 function toMs(t: unknown): number {
   if (typeof t === 'number') return t;
   if (typeof t === 'string') return Number(new Date(t));
@@ -86,7 +82,7 @@ function toMs(t: unknown): number {
   return Date.now();
 }
 
-/** ✅ 미리보기 문자열 생성: 메시지 타입별 라벨링 */
+/** 프리뷰 라벨링 */
 function buildPreviewFromMessage(m: any): string {
   switch (m?.type) {
     case 'text':
@@ -109,22 +105,22 @@ export default function ChatRoomPage() {
   const route = useRoute<any>();
   const raw = (route.params ?? {}) as any;
 
-  // ===== 약속 모달 상태 =====
+  // 약속 모달
   const [open, setOpen] = useState(false);
 
-  // ===== 분기 플래그 =====
+  // 플래그
   const isLost = raw?.source === 'lost';
   const isMarket = raw?.source === 'market';
-  const isGroupBuy = raw?.source === 'groupbuy'; // UI용 플래그 (원본 파라미터 유지)
+  const isGroupBuy = raw?.source === 'groupbuy';
 
-  // ===== 헤더 타이틀 =====
+  // 헤더 타이틀
   const headerTitle: string = isMarket
     ? raw?.sellerNickname ?? '닉네임'
     : isLost
     ? raw?.posterNickname ?? '닉네임'
     : raw?.authorNickname ?? '닉네임';
 
-  // ===== 카드 데이터 =====
+  // 카드 데이터
   const cardTitle: string = isMarket ? (raw?.productTitle ?? '게시글 제목') : (raw?.postTitle ?? '게시글 제목');
   const cardImageUri: string | undefined = isMarket ? raw?.productImageUri : raw?.postImageUri;
 
@@ -140,22 +136,21 @@ export default function ChatRoomPage() {
   const purposeBadge: string = isLost ? (raw?.purpose === 'lost' ? '분실' : '습득') : '';
   const recruitLabel: string = isGroupBuy ? raw?.recruitLabel ?? '' : '';
 
-  // ===== roomId / 최초 인입 문구 =====
-  const fallbackRoomId = raw?.roomId ?? deriveRoomIdFromParams(raw);
-  const [roomId, setRoomId] = useState<string | null>(fallbackRoomId ?? null);
+  // roomId / initialMessage
+  const proposedId = raw?.roomId ?? deriveRoomIdFromParams(raw);
+  const [roomId, setRoomId] = useState<string | null>(proposedId ?? null);
   const initialMessage: string | undefined = raw?.initialMessage;
 
-  // ===== 작성자 여부 판별 =====
+  // 권한
   const { isOwner } = usePermissions({
     authorId: raw?.authorId,
     authorEmail: raw?.authorEmail,
     routeParams: { isOwner: raw?.isOwner },
   });
-
   const [devForceOwner, setDevForceOwner] = useState<boolean | null>(null);
   const effectiveIsOwner = (__DEV__ && devForceOwner !== null) ? devForceOwner : isOwner;
 
-  // ===== 내(판매자) 로컬 아이덴티티 =====
+  // 내 아이덴티티
   const [myEmail, setMyEmail] = useState<string | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
   useEffect(() => {
@@ -164,7 +159,6 @@ export default function ChatRoomPage() {
         const { userEmail, userId } = await getLocalIdentity();
         setMyEmail(userEmail ?? null);
         setMyId(userId ?? null);
-        console.log('[ME] getLocalIdentity =>', userEmail, userId);
       } catch {
         setMyEmail(null);
         setMyId(null);
@@ -172,19 +166,19 @@ export default function ChatRoomPage() {
     })();
   }, []);
 
-  // ===== 판매 상태 =====
+  // 판매 상태
   const [saleStatusLabel, setSaleStatusLabel] = useState<SaleStatusLabel>(
     toLabel(raw?.initialSaleStatus as ApiSaleStatus | undefined)
   );
 
-  // ===== 채팅 로직 (roomId가 해석된 후에만 구동) =====
+  // 채팅 로직
   const {
     messages, setMessages,
     attachments, extraBottomPad,
     loadAndSeed, addAttachments, removeAttachmentAt, send, pushSystemAppointment
-  } = useChatRoom(roomId ?? '', initialMessage);
+  } = useChatRoom(roomId ?? '');
 
-  // ===== 분실물 마감 훅 =====
+  // 분실물 마감
   const { lostStatus, handleCloseLost } = useLostClose({
     roomId: roomId ?? '',
     initial: (raw?.initialLostStatus as 'OPEN' | 'RESOLVED') ?? 'OPEN',
@@ -194,7 +188,7 @@ export default function ChatRoomPage() {
   const showSaleStatus = isMarket && effectiveIsOwner && !!raw?.postId;
   const showLostClose = isLost && effectiveIsOwner && !!raw?.postId;
 
-  // ===== 상대 정보(구매자 후보) =====
+  // 상대 정보
   const opponent = useMemo<BlockedUser | null>(() => {
     const idLike =
       raw?.opponentId ??
@@ -209,7 +203,7 @@ export default function ChatRoomPage() {
       raw?.opponentNickname ??
       raw?.sellerNickname ??
       raw?.authorNickname ??
-      (headerTitle || '닉네임');
+      headerTitle;
 
     if (!idLike || !nameLike) return null;
 
@@ -225,7 +219,7 @@ export default function ChatRoomPage() {
     return (raw?.opponentEmail ?? raw?.buyerEmail ?? null) || null;
   }, [raw?.opponentEmail, raw?.buyerEmail]);
 
-  // ===== 차단 여부 체크 =====
+  // 차단 여부
   const [isBlocked, setIsBlocked] = useState(false);
   useEffect(() => {
     (async () => {
@@ -242,26 +236,22 @@ export default function ChatRoomPage() {
       }
     })();
   }, [opponent?.id]);
-  
-  // ===== 더보기 메뉴 =====
-  const [menuVisible, setMenuVisible] = useState(false);
 
+  // 메뉴
+  const [menuVisible, setMenuVisible] = useState(false);
   const handleReport = () => {
     setMenuVisible(false);
     Alert.alert('신고하기', '해당 사용자를 신고하시겠어요?', [
       { text: '취소', style: 'cancel' },
-      { text: '신고', style: 'destructive', onPress: () => { /* TODO: 신고 API 연동 */ } },
+      { text: '신고', style: 'destructive', onPress: () => {} },
     ]);
   };
-
   const handleBlock = () => {
     setMenuVisible(false);
-
     if (!opponent?.id) {
       Alert.alert('오류', '상대 사용자 정보를 확인할 수 없어요.');
       return;
     }
-
     Alert.alert(
       '차단하기',
       `${opponent.name} 님을 차단할까요?\n채팅/게시글에서 표시/상호작용이 제한될 수 있어요.`,
@@ -284,20 +274,16 @@ export default function ChatRoomPage() {
     );
   };
 
-  // ===== 판매상태 변경(라벨 변경 + 리스트 캐시만 담당) =====
+  // 판매상태 변경
   const handleChangeSaleStatus = async (nextLabel: SaleStatusLabel) => {
     setSaleStatusLabel(nextLabel);
     const apiValue = toApi(nextLabel);
-
-    // TODO: 서버 PATCH로 상태 변경 전달 (apiValue)
-    // await api.updateSaleStatus({ postId: raw.postId, status: apiValue });
-
     if (raw?.postId) {
       await updateMarketCacheStatus(raw.postId, nextLabel);
     }
   };
 
-  // ===== 거래완료 시 스냅샷 기록(구매자 거래내역 반영) =====
+  // 거래완료 스냅샷
   const recordTradeCompletion = useCallback(async () => {
     try {
       if (!isMarket || !raw?.postId) return;
@@ -315,23 +301,6 @@ export default function ChatRoomPage() {
       }
       if (!buyerEmail && buyerId && meIdStr && buyerId === meIdStr) {
         buyerId = null;
-      }
-
-      console.log('[SAVE TRADE PARAMS]', {
-        postId: raw?.postId,
-        title: cardTitle,
-        price: raw?.productPrice,
-        image: !!cardImageUri ? '(uri)' : '(none)',
-        sellerEmail: myEmail ?? raw?.sellerEmail ?? null,
-        sellerId: myId ?? (raw?.sellerId ? String(raw.sellerId) : null),
-        buyerEmail,
-        buyerId,
-        postCreatedAt: raw?.postCreatedAt ?? raw?.createdAt ?? undefined,
-      });
-
-      if (!buyerEmail && !buyerId) {
-        Alert.alert('오류', '구매자 정보를 확인할 수 없어 거래완료를 기록하지 않았어요.');
-        return;
       }
 
       await marketTradeRepo.upsert({
@@ -365,7 +334,7 @@ export default function ChatRoomPage() {
     raw?.productPrice, raw?.postCreatedAt, raw?.createdAt, raw?.sellerEmail, raw?.sellerId
   ]);
 
-  /** ✅ 최초 진입 시, 방 요약(upsert) 보장 */
+  /** 최초 진입: 방 요약 생성/갱신 (origin.params는 ChatList 재입장에 유용) */
   useEffect(() => {
     if (!roomId) return;
     (async () => {
@@ -379,7 +348,7 @@ export default function ChatRoomPage() {
           productImageUri: isMarket ? raw?.productImageUri : undefined,
           preview: initialMessage, // 선택
           origin: {
-            source: isMarket ? 'market' : isLost ? 'lost' : 'groupbuy', // 타입상 'groupbuy' 유지
+            source: isMarket ? 'market' : isLost ? 'lost' : 'groupbuy', // 저장은 groupbuy 그대로, 내부에서 'group' 정규화
             params: raw, // 네비 원본 파라미터
           },
         });
@@ -390,10 +359,7 @@ export default function ChatRoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
 
-  /** ✅ 최초 진입 시 initialMessage 자동 전송 (기존 방이어도 보냄)
-   * - Detail 화면에서 입력한 첫 메시지가 route.params.initialMessage로 전달됨
-   * - 동일 화면에서 중복 전송 방지용 키(ref)로 한 번만 수행
-   */
+  /** 최초 한 번: initialMessage 자동 전송 (중복 방지) */
   const initialKickRef = useRef<string | null>(null);
   useEffect(() => {
     if (!roomId) return;
@@ -401,14 +367,20 @@ export default function ChatRoomPage() {
     if (!msg) return;
 
     const key = `${roomId}|${msg}`;
-    if (initialKickRef.current === key) return; // 중복 방지
+    if (initialKickRef.current === key) return;
     initialKickRef.current = key;
 
-    // 실제 전송
     send(msg);
-  }, [roomId, raw?.initialMessage, send]);
 
-  /** ✅ 최신 메시지가 바뀔 때마다 미리보기/시간을 저장소에 반영 */
+    // 같은 세션에서 재렌더되어도 다시 안 보내도록 파라미터 제거(옵션)
+    try {
+      navigation.setParams({ initialMessage: undefined });
+    } catch {}
+  }, [roomId, raw?.initialMessage, send, navigation]);
+
+  /** 최신 메시지가 바뀔 때마다 ChatList 미리보기 업데이트
+   *  - roomId로 못 찾으면 origin.params 기반으로 기존 방을 찾아 갱신
+   */
   const lastSyncedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!roomId || !Array.isArray(messages) || messages.length === 0) return;
@@ -420,12 +392,15 @@ export default function ChatRoomPage() {
 
     const preview = buildPreviewFromMessage(last);
     const ts = toMs(last?.time);
-    updateRoomOnSend(roomId, preview, ts).catch((e) => {
-      console.log('updateRoomOnSend error', e);
-    });
-  }, [messages, roomId]);
+    updateRoomOnSendSmart({
+      roomId,
+      originParams: raw, // ← roomId 불일치 시 맥락으로 기존 방 찾기
+      preview,
+      lastTs: ts,
+    }).catch(e => console.log('updateRoomOnSendSmart error', e));
+  }, [messages, roomId, raw]);
 
-  // ===== roomId 가드(필요시) =====
+  // roomId 가드
   if (!roomId) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -437,14 +412,14 @@ export default function ChatRoomPage() {
 
   return (
     <View style={styles.container}>
-      {/* ===== 헤더 ===== */}
+      {/* 헤더 */}
       <ChatHeader
         title={headerTitle}
         onPressBack={() => navigation.goBack()}
         onPressMore={() => setMenuVisible(true)}
       />
 
-      {/* ===== 상단 카드 ===== */}
+      {/* 상단 카드 */}
       <View style={styles.productCardShadowWrap}>
         <View style={styles.productCard}>
           <View style={styles.thumbWrap}>
@@ -504,13 +479,13 @@ export default function ChatRoomPage() {
         </View>
       </View>
 
-      {/* ===== 채팅 리스트 ===== */}
+      {/* 채팅 리스트 */}
       <MessageList data={messages} bottomInset={100 + extraBottomPad} />
 
-      {/* ===== 첨부 썸네일 바 ===== */}
+      {/* 첨부 썸네일 바 */}
       <AttachmentBar uris={attachments} onRemoveAt={removeAttachmentAt} />
 
-      {/* ===== 하단 입력 바 or 차단 안내 ===== */}
+      {/* 하단 바 */}
       {isBlocked ? (
         <View style={{ padding: 25, alignItems: 'center', backgroundColor: '#f9f9f9' }}>
           <Text style={{ color: '#999', fontSize: 14 }}>
@@ -521,13 +496,13 @@ export default function ChatRoomPage() {
         <DetailBottomBar
           variant="chat"
           placeholder="메세지를 입력해주세요."
-          onPressSend={send}          // useChatRoom가 messages를 갱신 → 위 useEffect가 미리보기 저장
-          onAddImages={addAttachments} // 이미지도 동일하게 반영
+          onPressSend={send}
+          onAddImages={addAttachments}
           attachmentsCount={attachments.length}
         />
       )}
 
-      {/* ===== 더보기 메뉴 ===== */}
+      {/* 더보기 */}
       <MoreMenu
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
@@ -535,13 +510,12 @@ export default function ChatRoomPage() {
         onBlock={handleBlock}
       />
 
-      {/* ===== 약속잡기 모달 ===== */}
+      {/* 약속잡기 모달 */}
       <AppointmentModal
         visible={open}
         partnerNickname={headerTitle}
         onClose={() => setOpen(false)}
         onSubmit={({ date, time, place }) => {
-          // 시스템 메시지를 추가 → messages 변경 → 미리보기 저장
           pushSystemAppointment(date ?? '', time ?? '', place ?? '');
           setOpen(false);
         }}

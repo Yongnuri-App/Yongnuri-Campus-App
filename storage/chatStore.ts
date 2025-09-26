@@ -5,6 +5,7 @@
 // - 전송/수신 직후 updateRoomOnSend() 로 최근 메시지/시간을 갱신
 // - ❗ 동일 맥락(카테고리+게시글+참여자)으로 들어오면 기존 roomId 재사용
 //   (origin.source가 'groupbuy'여도 'group'과 동일 스레드로 인식)
+// - ❗ origin.params 에서는 initialMessage/autoSendInitial 같은 "일회성 파라미터"는 저장하지 않음
 // -----------------------------------------------------------
 
 import type {
@@ -65,11 +66,22 @@ function canonSource(x: unknown): string {
   return v;
 }
 
+/** ✅ origin.params 저장 전 "일회성 파라미터" 제거 */
+function sanitizeOriginParams(p: any) {
+  if (!p || typeof p !== 'object') return p;
+  const {
+    initialMessage,      // ❌ 저장하지 않음 (재입장시 재전송 방지)
+    autoSendInitial,     // ❌ 저장하지 않음
+    ...rest
+  } = p;
+  return rest;
+}
+
 /**
  * ❗ 동일 대화 맥락을 식별하는 "스레드 키" 생성
  *  - source/category: 'market' | 'lost' | 'group' (origin.source가 'groupbuy'여도 'group'으로 간주)
- *  - 게시글 식별자: postId/productId/boardId(프로젝트 필드명에 맞게 우선순위 부여)
- *  - 참여자: 이메일/ID 중 존재하는 값 2개를 사전순으로 결합(순서 불변)
+ *  - 게시글 식별자: postId/productId/boardId
+ *  - 참여자: 이메일/ID 중 존재하는 값 2개를 사전순으로 결합(순서 무관)
  */
 function makeThreadKey(originParams: any): string | null {
   if (!originParams) return null;
@@ -132,6 +144,7 @@ export async function resolveRoomIdForOpen(originParams: any, proposedRoomId: st
  * - preview: 리스트에 바로 보일 최근 메시지(선택; 있으면 lastMessage/lastTs 갱신)
  * - origin : 최초 상세에서 ChatRoom으로 넘겼던 "원본 네비 파라미터" 보관(선택)
  * - ❗ 동일 스레드가 이미 있으면 roomId가 달라도 "기존 방"을 갱신(중복 생성 방지)
+ * - ❗ origin.params 에서 initialMessage/autoSendInitial 은 저장하지 않음
  */
 export async function upsertRoomOnOpen(params: {
   roomId: string;
@@ -160,6 +173,11 @@ export async function upsertRoomOnOpen(params: {
     }
   }
 
+  // ✅ 저장 전에 origin.params를 sanitize
+  const sanitizedOrigin: ChatRoomOrigin | undefined = params.origin
+    ? { ...params.origin, params: sanitizeOriginParams(params.origin.params) }
+    : undefined;
+
   if (idx === -1) {
     // 신규 방 생성
     const base: ChatRoomSummary = {
@@ -172,7 +190,7 @@ export async function upsertRoomOnOpen(params: {
       productTitle: params.productTitle,
       productPrice: params.productPrice,
       productImageUri: params.productImageUri,
-      origin: params.origin,
+      origin: sanitizedOrigin, // ✅ 일회성 필드 제거된 원본만 저장
     };
     rooms.unshift(base);
 
@@ -192,7 +210,7 @@ export async function upsertRoomOnOpen(params: {
       productTitle: params.productTitle ?? prev.productTitle,
       productPrice: params.productPrice ?? prev.productPrice,
       productImageUri: params.productImageUri ?? prev.productImageUri,
-      origin: params.origin ?? prev.origin,
+      origin: sanitizedOrigin ?? prev.origin, // ✅ sanitize된 origin 우선 적용
     };
 
     if (params.preview && params.preview.trim().length > 0) {
@@ -235,6 +253,39 @@ async function updateRoomPreviewImpl(roomId: string, preview: string, lastTs?: n
  */
 export async function updateRoomOnSend(roomId: string, preview: string, lastTs?: number) {
   await updateRoomPreviewImpl(roomId, preview, lastTs);
+}
+
+/**
+ * ✅ 스마트 업데이트: roomId로 못 찾으면 "대화 맥락(origin.params)"으로 방을 찾아 갱신
+ * - ChatRoomPage가 들고있는 roomId가 제안값(=실제 저장된 roomId와 다름)일 때 대비
+ */
+export async function updateRoomOnSendSmart(args: {
+  roomId?: string | null;
+  originParams?: any;
+  preview: string;
+  lastTs?: number;
+}) {
+  const ts = Number.isFinite(args.lastTs as number) ? (args.lastTs as number) : Date.now();
+  const preview = clipPreview(args.preview);
+
+  // 1) roomId로 먼저 시도
+  if (args.roomId) {
+    const rooms = await loadChatRooms();
+    const idx = rooms.findIndex(r => r.roomId === args.roomId);
+    if (idx !== -1) {
+      rooms[idx] = { ...rooms[idx], lastMessage: preview, lastTs: ts };
+      await persist(rooms);
+      return;
+    }
+  }
+
+  // 2) 맥락으로 roomId 찾기
+  if (args.originParams) {
+    const canonicalId = await findExistingRoomIdByContext(args.originParams);
+    if (canonicalId) {
+      await updateRoomPreviewImpl(canonicalId, preview, ts);
+    }
+  }
 }
 
 /** 🔁 별칭: 이름만 다르게 쓰고 싶을 때 사용 가능 (동일 동작) */
