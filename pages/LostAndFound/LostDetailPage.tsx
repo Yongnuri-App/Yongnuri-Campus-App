@@ -143,13 +143,21 @@ export default function LostDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  const onPressReport = () => {
+  const onPressReport = React.useCallback(() => {
+    if (!item) return;
+
     navigation.navigate('Report', {
+      mode: 'compose',
       targetNickname: profileName,
       targetDept: profileDept,
-      targetEmail: item?.authorEmail ?? null,
+      targetEmail: item.authorEmail ?? null,
+
+      targetPostId: String(item.id),
+      targetStorageKey: POSTS_KEY,   // 'lost_found_posts_v1'
+      targetPostTitle: item.title,
+      targetKind: 'lost',
     });
-  };
+  }, [item, navigation, profileName, profileDept]);
 
   if (!item) {
     return (

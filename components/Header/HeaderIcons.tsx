@@ -1,16 +1,52 @@
-// components/Header/HeaderIcons.tsx
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useState } from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
 import styles from './HeaderIcons.styles';
 import { getIsAdmin } from '../../utils/auth';
+import { getIdentityScope } from '../../utils/localIdentity';
+import {
+  loadBroadcast,
+  loadUserAlarms,
+  seenKeyByIdentity,
+  AlarmRow,
+} from '../../utils/alarmStorage';
 
 export default function HeaderIcons() {
   const navigation = useNavigation<any>();
   const [isAdmin, setIsAdmin] = useState(false);
-  const [notificationCount] = useState(3); // 임시 뱃지
+  const [notificationCount, setNotificationCount] = useState(0);
 
-  // 화면에 포커스될 때마다 저장된 관리자 플래그를 읽어 최신화
+  const refreshBadge = useCallback(async () => {
+    try {
+      const identity = await getIdentityScope();
+      if (!identity) return setNotificationCount(0);
+
+      const [broadcast, personal] = await Promise.all([
+        loadBroadcast(),
+        loadUserAlarms(identity),
+      ]);
+
+      const seenKey = seenKeyByIdentity(identity);
+      const saved = (await AsyncStorage.getItem(seenKey)) || null;
+      const t = saved ? new Date(saved).getTime() : 0;
+
+      const all: AlarmRow[] = [...broadcast, ...personal];
+      let count = 0;
+      if (t > 0) {
+        count = all.reduce(
+          (acc, it) => (new Date(it.createdAt).getTime() > t ? acc + 1 : acc),
+          0
+        );
+      } else {
+        count = all.length;
+      }
+      setNotificationCount(count);
+    } catch {
+      setNotificationCount(0);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
@@ -21,30 +57,30 @@ export default function HeaderIcons() {
         } catch {
           if (mounted) setIsAdmin(false);
         }
+        if (mounted) await refreshBadge();
       })();
-      return () => {
-        mounted = false;
-      };
-    }, [])
+      return () => { mounted = false; };
+    }, [refreshBadge])
   );
 
   const goMyPage = () => {
-    if (isAdmin) {
-      navigation.navigate('AdminGate'); // 관리자 홈
-    } else {
-      navigation.navigate('MyPage'); // 일반 마이페이지
-    }
+    if (isAdmin) navigation.navigate('AdminGate');
+    else navigation.navigate('MyPage');
+  };
+
+  const goNotification = () => {
+    // 낙관적 바로 0 → 돌아오면 focus에서 재계산
+    setNotificationCount(0);
+    navigation.navigate('Notification');
   };
 
   return (
     <View style={styles.iconGroup}>
-      {/* 검색 */}
       <TouchableOpacity onPress={() => navigation.navigate('Search')}>
         <Image source={require('../../assets/images/search.png')} style={styles.icon} />
       </TouchableOpacity>
 
-      {/* 알림 + 뱃지 */}
-      <TouchableOpacity onPress={() => navigation.navigate('Notification')}>
+      <TouchableOpacity onPress={goNotification}>
         <Image source={require('../../assets/images/bell.png')} style={styles.icon} />
         {notificationCount > 0 && (
           <View style={styles.badge}>
@@ -55,7 +91,6 @@ export default function HeaderIcons() {
         )}
       </TouchableOpacity>
 
-      {/* 마이페이지 (관리자/유저 분기) */}
       <TouchableOpacity onPress={goMyPage}>
         <Image source={require('../../assets/images/person.png')} style={styles.icon} />
       </TouchableOpacity>

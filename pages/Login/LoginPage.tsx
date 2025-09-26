@@ -24,11 +24,12 @@ import {
   StoredUser,
   clearSession,
 } from '../../utils/session';
+import {
+  setAuthEmailNormalized,   // ✅ 추가: 이메일 스코프 저장/해제
+  ensureLocalIdentity,       // ✅ 추가: 기기 고유 ID 보장(선택)
+} from '../../utils/localIdentity';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
-
-// ✅ 일부 화면 호환: auth_user_email도 같이 세팅
-const AUTH_USER_EMAIL_KEY = 'auth_user_email';
 
 export default function LoginPage({ navigation }: Props) {
   const [email, setEmail] = useState('');
@@ -87,8 +88,10 @@ export default function LoginPage({ navigation }: Props) {
           department: '',
           isAdmin: true,
         });
-        // 호환 키 추가 저장
-        await AsyncStorage.setItem(AUTH_USER_EMAIL_KEY, ADMIN_EMAIL.toLowerCase());
+
+        // ✅ 이메일 스코프 저장(표준/구키 모두) + 기기 ID 보장
+        await setAuthEmailNormalized(ADMIN_EMAIL.toLowerCase());
+        await ensureLocalIdentity();
 
         navigation.reset({
           index: 0,
@@ -126,8 +129,10 @@ export default function LoginPage({ navigation }: Props) {
         department: user.department ?? '',
         isAdmin: false,
       });
-      // 호환 키 추가 저장
-      await AsyncStorage.setItem(AUTH_USER_EMAIL_KEY, user.email.toLowerCase());
+
+      // ✅ 이메일 스코프 저장(표준/구키 모두) + 기기 ID 보장
+      await setAuthEmailNormalized(user.email.toLowerCase());
+      await ensureLocalIdentity();
 
       navigation.reset({
         index: 0,

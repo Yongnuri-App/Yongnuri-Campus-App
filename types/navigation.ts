@@ -155,6 +155,12 @@ export type RootStackParamList = {
         targetNickname?: string;
         targetDept?: string;
         targetEmail?: string | null;
+
+        // ✅ 추가: 삭제/알림에 꼭 필요한 메타
+        targetPostId?: string;                // 글 ID
+        targetStorageKey?: string;            // 저장소 키 (예: 'market_posts_v1')
+        targetPostTitle?: string;             // 글 제목 (알림 문구용)
+        targetKind?: 'market' | 'lost' | 'groupbuy' | 'notice'; // 힌트
       }
     | {
         mode: 'review';

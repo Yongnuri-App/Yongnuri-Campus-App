@@ -146,13 +146,22 @@ export default function GroupBuyDetailPage({
   };
 
   // ===== 신고 / 신청 =====
-  const onPressReport = () => {
+  const onPressReport = React.useCallback(() => {
+    if (!item) return;
+
     navigation.navigate('Report', {
+      mode: 'compose',
       targetNickname: profileName,
       targetDept: profileDept,
-      targetEmail: item?.authorEmail ?? null,
+      targetEmail: item.authorEmail ?? null,
+
+      targetPostId: String(item.id),
+      targetStorageKey: POSTS_KEY,   // 'groupbuy_posts_v1'
+      targetPostTitle: item.title,
+      targetKind: 'groupbuy',
     });
-  };
+  }, [item, navigation, profileName, profileDept]);
+
   const onPressApply = () => {
     if (!item?.applyLink) {
       Alert.alert('안내', '신청 링크가 없습니다.');

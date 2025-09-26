@@ -10,7 +10,6 @@ import { resolveRoomIdForOpen } from '@/storage/chatStore'; // ✅ 기존 방 �
 import type { RootStackScreenProps } from '@/types/navigation';
 import { getLocalIdentity } from '@/utils/localIdentity';
 import { getProfileByEmail, toDisplayName } from '@/utils/session';
-import { loadJson, saveJson } from '@/utils/storage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, {
   useCallback,
@@ -38,7 +37,7 @@ const LIKED_MAP_KEY = 'market_liked_map_v1';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
-/** 마켓 게시글 타입 (로컬 드래프트/모킹 데이터 기준) */
+/** 마켓 게시글 타입 */
 type MarketPost = {
   id: string;
   title: string;
@@ -50,17 +49,17 @@ type MarketPost = {
   likeCount: number;
   createdAt: string; // ISO
 
-  /** ✅ 작성자 메타(판매자 판별/표시용) */
+  /** 작성자 메타 */
   authorId?: string | number;
   authorEmail?: string | null;
   authorName?: string;
   authorDept?: string;
 
-  /** ✅ (선택) 판매 상태: 있으면 채팅 초깃값으로 전달 */
+  /** (선택) 판매 상태 */
   status?: 'ON_SALE' | 'RESERVED' | 'SOLD';
 };
 
-/** "n분 전" 표기 헬퍼 */
+/** "n분 전" 표기 */
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -95,8 +94,8 @@ export default function MarketDetailPage({
   const [menuVisible, setMenuVisible] = useState(false);
   const hScrollRef = useRef<ScrollView | null>(null);
 
-  /** 좋아요 훅 */
-  const { liked, syncCount } = useLike({
+  /** 좋아요 훅 (✅ 유저별 liked_map 키 사용) */
+  const { liked, syncCount, setLikedPersisted } = useLike({
     itemId: id,
     likedMapKey: LIKED_MAP_KEY,
     postsKey: POSTS_KEY,
@@ -148,7 +147,7 @@ export default function MarketDetailPage({
     confirmCancelText: '취소',
   });
 
-  /** 권한 파생: 관리자/소유자 */
+  /** 권한 파생 */
   const { isAdmin, isOwner } = usePermissions({
     authorId: item?.authorId,
     authorEmail: item?.authorEmail ?? null,
@@ -165,7 +164,6 @@ export default function MarketDetailPage({
     (async () => {
       if (!item) return;
 
-      // 1) 이메일로 프로필 조회(최신 표준)
       if (item.authorEmail) {
         try {
           const prof = await getProfileByEmail(item.authorEmail);
@@ -183,7 +181,6 @@ export default function MarketDetailPage({
         }
       }
 
-      // 2) 이메일 프로필 없거나 실패 → 과거 메타로 폴백
       const nick = item.authorName || '익명';
       setAuthorNickname(nick);
       setAuthorDeptLabel(item.authorDept || '');
@@ -242,13 +239,22 @@ export default function MarketDetailPage({
   };
 
   /** 신고 화면으로 이동 */
-  const onPressReport = () => {
+  const onPressReport = React.useCallback(() => {
+    if (!item) return;
+
     navigation.navigate('Report', {
+      mode: 'compose',
       targetNickname: authorNickname,
       targetDept: authorDeptLabel || undefined,
-      targetEmail: item?.authorEmail ?? null,
+      targetEmail: item.authorEmail ?? null,
+
+      // 삭제/알림용 메타
+      targetPostId: String(item.id),
+      targetStorageKey: POSTS_KEY,   // 'market_posts_v1'
+      targetPostTitle: item.title,
+      targetKind: 'market',
     });
-  };
+  }, [item, navigation, authorNickname, authorDeptLabel]);
 
   // ======================================================================
   // ⬇⬇⬇ 훅 순서가 깨지지 않도록, 아래 훅들도 모두 "조건문 밖"에서 선언 ⬇⬇⬇
@@ -344,7 +350,7 @@ export default function MarketDetailPage({
   // UI 전용 이미지 배열(이제 item은 존재 보장)
   const images = Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
 
-  /** 우상단 버튼: 관리자/소유자 ⇒ 옵션(모달), 일반 ⇒ 신고 */
+  /** 우상단 버튼 */
   const RightTopButton = () => {
     if (isAdmin || isOwner) {
       return (
@@ -427,7 +433,7 @@ export default function MarketDetailPage({
 
         {/* ===== 본문 ===== */}
         <View style={styles.body}>
-          {/* ✅ 이메일 기반 최신 프로필 표시 + 폴백 */}
+          {/* 이메일 기반 최신 프로필 표시 + 폴백 */}
           <ProfileRow
             emailForLookup={item.authorEmail ?? null}
             preferNickname
@@ -458,59 +464,57 @@ export default function MarketDetailPage({
       </ScrollView>
 
       {/* ===== 하단 고정 바 ===== */}
-      {/* ✅ 작성자 본인이라면 상세에서 채팅 시작을 숨김 */}
       {!isOwner && (
         <DetailBottomBar
           variant="detail"
           initialLiked={liked}
-          onToggleLike={async (likedFlag) => {
-            // ✅ 좋아요 로컬 동기화
-            const likedMap = await loadJson<Record<string, boolean>>(
-              LIKED_MAP_KEY,
-              {}
-            );
-            likedMap[id] = likedFlag;
-            await saveJson(LIKED_MAP_KEY, likedMap);
-
+          onToggleLike={async (nextLiked) => {
+            // ✅ 유저별 liked_map 키에 저장 + 전역 리스트 카운트 동기화
+            await setLikedPersisted(nextLiked);
             setItem((prev) => {
               if (!prev) return prev;
-              const nextCount = Math.max(
-                0,
-                (prev.likeCount ?? 0) + (likedFlag ? 1 : -1)
-              );
+              const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));
               updatePostLikeCountInList(POSTS_KEY, prev.id, nextCount);
               return { ...prev, likeCount: nextCount };
             });
           }}
+
           /**
            * ✅ ChatRoom으로 넘어갈 때 필요한 모든 파라미터 전달
            *  - `source: 'market'`는 항상 명시 (리터럴 유지)
            *  - 동일 맥락 방 재사용을 위해 buyerId/buyerEmail/buyerNickname도 전달
            */
+
           chatAutoNavigateParams={{
-            // ---- 필수(마켓 스키마) ----
-            source: 'market',
+            source: 'market' as const,
             postId: String(item.id),
             productTitle: item.title,
             productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0),
             productImageUri: images[0] ?? undefined,
             initialSaleStatus: item.status ?? 'ON_SALE',
 
-            // ---- 소유자 메타(OwnerMeta 추정) ----
+            // 판매자 메타
+            sellerId: item.authorId != null ? String(item.authorId) : undefined,
+            sellerEmail: item.authorEmail ?? undefined,
             authorId: item.authorId,
             authorEmail: item.authorEmail ?? null,
 
-            // ---- 공통 메타(ChatCommonMeta 추정) ----
-            roomId: resolvedRoomId || proposedRoomId,
-            postCreatedAt: item.createdAt,
+            // 판매자 표시 이름
             sellerNickname: authorNickname,
+            // (레거시 호환이 필요한 경우에만 유지)
+            // @ts-expect-error legacy compat
+            nickname: authorNickname,
 
-            // ✅ 구매자(나) 정보 — 판매자 화면에서 상대 닉네임 표시에 필요
+            // 공통 메타
+            ...(resolvedRoomId || proposedRoomId ? { roomId: resolvedRoomId || proposedRoomId } : {}),
+            postCreatedAt: item.createdAt,
+
+            // 구매자(나)
             buyerId: meId ?? undefined,
             buyerEmail: meEmail ?? undefined,
             buyerNickname: myNickname,
 
-            // 상대(=판매자) 정보 — 현재 로그인 사용자의 상대
+            // 상대(=판매자) 정보
             opponentId: item.authorId != null ? String(item.authorId) : undefined,
             opponentEmail: item.authorEmail ?? undefined,
             opponentNickname: authorNickname,
@@ -520,7 +524,6 @@ export default function MarketDetailPage({
         />
       )}
 
-      {/* ✅ 관리자/판매자 공통 옵션 모달 */}
       {(isAdmin || isOwner) && (
         <AdminActionSheet
           visible={menuVisible}

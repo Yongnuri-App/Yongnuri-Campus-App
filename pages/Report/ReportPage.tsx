@@ -23,29 +23,21 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import { useImagePicker } from '../../hooks/useImagePicker';
 
-type ReportType = '부적절한 콘텐츠' | '사기/스팸' | '욕설/혐오' | '기타';
-const REPORT_TYPES: ReportType[] = ['부적절한 콘텐츠', '사기/스팸', '욕설/혐오', '기타'];
+// ✅ 유틸로 분리된 타입/액션 사용 (여기서 알림 아이콘까지 처리됨)
+import {
+  ReportType,
+  StoredReport,
+  approveReport,
+  rejectReport,
+} from '../../utils/reportActions';
 
+const REPORT_TYPES: ReportType[] = [
+  '부적절한 콘텐츠',
+  '사기/스팸',
+  '욕설/혐오',
+  '기타',
+];
 const REPORTS_KEY = 'reports_v1';
-
-type ReportStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
-
-type StoredReport = {
-  id: string;
-  target: {
-    email?: string | null;
-    nickname?: string;
-    dept?: string;
-    label?: string; // "닉네임 - 학과"
-  };
-  type: ReportType;
-  content: string;
-  images: string[];
-  createdAt: string; // ISO
-  reporterEmail?: string | null;
-  status?: ReportStatus; // ✅ 처리 상태
-};
-
 const { width: SCREEN_W } = Dimensions.get('window');
 
 export default function ReportPage({
@@ -60,7 +52,9 @@ export default function ReportPage({
   const [typeOpen, setTypeOpen] = useState(false);
   const [typeValue, setTypeValue] = useState<ReportType | null>(null);
   const [content, setContent] = useState('');
-  const { images, openAdd, removeAt, max, setImages } = useImagePicker({ max: 10 });
+  const { images, openAdd, removeAt, max, setImages } = useImagePicker({
+    max: 10,
+  });
 
   // ---------- review 모드 로드 상태 ----------
   const [loaded, setLoaded] = useState<StoredReport | null>(null);
@@ -78,11 +72,23 @@ export default function ReportPage({
     setViewerIndex(Math.round(x / SCREEN_W));
   };
 
-  // 입력으로 넘어온 타겟 파라미터(호환 지원)
-  const targetLabelParam = (route.params as any)?.targetLabel as string | undefined;
-  const targetNicknameParam = (route.params as any)?.targetNickname as string | undefined;
-  const targetDeptParam = (route.params as any)?.targetDept as string | undefined;
-  const targetEmailParam = (route.params as any)?.targetEmail as string | null | undefined;
+  // ----- 입력으로 넘어온 타겟 파라미터(호환 + 확장) -----
+  const p = (route.params as any) ?? {};
+  const targetLabelParam = p.targetLabel as string | undefined;
+  const targetNicknameParam = p.targetNickname as string | undefined;
+  const targetDeptParam = p.targetDept as string | undefined;
+  const targetEmailParam = p.targetEmail as string | null | undefined;
+
+  // ✅ 승인 시 정확한 삭제/문구를 위해 저장
+  const targetPostIdParam = p.targetPostId as string | undefined;
+  const targetStorageKeyParam = p.targetStorageKey as string | undefined;
+  const targetPostTitleParam = p.targetPostTitle as string | undefined;
+  const targetKindParam = p.targetKind as
+    | 'market'
+    | 'lost'
+    | 'groupbuy'
+    | 'notice'
+    | undefined;
 
   // compose 모드 표시용 라벨(우선순위: label → nickname+dept 조합)
   const targetLabelCompose = useMemo(() => {
@@ -149,13 +155,20 @@ export default function ReportPage({
         target: {
           email: targetEmailParam ?? null,
           label: targetLabelCompose || undefined,
+
+          // ✅ 승인 시 삭제/문구에 사용
+          postId: targetPostIdParam,
+          storageKey: targetStorageKeyParam,
+          postTitle: targetPostTitleParam,
+          kind: targetKindParam,
         },
         type: typeValue,
         content: content.trim(),
         images,
         createdAt: new Date().toISOString(),
-        status: 'PENDING', // ✅ 기본값
+        status: 'PENDING',
       };
+
       const raw = await AsyncStorage.getItem(REPORTS_KEY);
       const list: StoredReport[] = raw ? JSON.parse(raw) : [];
       list.unshift(newItem);
@@ -166,32 +179,39 @@ export default function ReportPage({
       ]);
     } catch (e: any) {
       console.log(e);
-      Alert.alert('오류', e?.message || '제출에 실패했어요. 잠시 후 다시 시도해주세요.');
+      Alert.alert(
+        '오류',
+        e?.message || '제출에 실패했어요. 잠시 후 다시 시도해주세요.'
+      );
     }
   };
 
-  // ✅ 관리자 처리: 미인정/인정
-  const updateStatus = async (nextStatus: ReportStatus) => {
+  // ✅ 관리자 처리: 반려/승인 (utils/reportActions 가 알림 + 아이콘까지 처리)
+  const onPressOutline = async () => {
     if (!isReview || !reviewId) return;
     try {
-      const raw = await AsyncStorage.getItem(REPORTS_KEY);
-      const list: StoredReport[] = raw ? JSON.parse(raw) : [];
-      const idx = list.findIndex((r) => r.id === reviewId);
-      if (idx >= 0) {
-        list[idx] = { ...list[idx], status: nextStatus };
-        await AsyncStorage.setItem(REPORTS_KEY, JSON.stringify(list));
-      }
-      Alert.alert('처리 완료', nextStatus === 'APPROVED' ? '인정 처리되었습니다.' : '미인정 처리되었습니다.', [
+      await rejectReport(reviewId);
+      Alert.alert('처리 완료', '미인정 처리되었습니다.', [
         { text: '확인', onPress: () => navigation.goBack() },
       ]);
-    } catch (e) {
-      console.log('report update status error', e);
-      Alert.alert('오류', '처리에 실패했습니다. 다시 시도해주세요.');
+    } catch (e: any) {
+      console.log('reject error', e);
+      Alert.alert('오류', e?.message ?? '처리에 실패했습니다. 다시 시도해주세요.');
     }
   };
 
-  const onPressOutline = () => updateStatus('REJECTED');
-  const onPressFilled = () => updateStatus('APPROVED');
+  const onPressFilled = async () => {
+    if (!isReview || !reviewId) return;
+    try {
+      await approveReport(reviewId); // ✅ 글 삭제 + 작성자 개인 알림(아이콘 포함)
+      Alert.alert('처리 완료', '인정 처리되어 게시글이 삭제되었습니다.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    } catch (e: any) {
+      console.log('approve error', e);
+      Alert.alert('오류', e?.message ?? '처리에 실패했습니다. 다시 시도해주세요.');
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -210,7 +230,9 @@ export default function ReportPage({
             resizeMode="contain"
           />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{isReview ? '신고 상세' : '신고하기'}</Text>
+        <Text style={styles.headerTitle}>
+          {isReview ? '신고 상세' : '신고하기'}
+        </Text>
         <View style={styles.rightSpacer} />
       </View>
 
@@ -253,7 +275,10 @@ export default function ReportPage({
                       {typeValue}
                     </Text>
                   ) : (
-                    <Text style={styles.selectTextPlaceholder} numberOfLines={1}>
+                    <Text
+                      style={styles.selectTextPlaceholder}
+                      numberOfLines={1}
+                    >
                       신고 유형을 선택해주세요.
                     </Text>
                   )}
@@ -329,14 +354,23 @@ export default function ReportPage({
                   <Text style={styles.thumbEmpty}>첨부된 사진이 없습니다.</Text>
                 ) : (
                   images.map((uri, i) => (
-                    <TouchableOpacity key={`${uri}-${i}`} onPress={() => onThumbPress(i)} activeOpacity={0.9}>
+                    <TouchableOpacity
+                      key={`${uri}-${i}`}
+                      onPress={() => onThumbPress(i)}
+                      activeOpacity={0.9}
+                    >
                       <RNImage source={{ uri }} style={styles.thumb} />
                     </TouchableOpacity>
                   ))
                 )}
               </View>
             ) : (
-              <PhotoPicker images={images} max={max} onAddPress={openAdd} onRemoveAt={removeAt} />
+              <PhotoPicker
+                images={images}
+                max={max}
+                onAddPress={openAdd}
+                onRemoveAt={removeAt}
+              />
             )}
           </View>
         </ScrollView>
@@ -374,10 +408,22 @@ export default function ReportPage({
       </KeyboardAvoidingView>
 
       {/* ✅ 전체화면 이미지 뷰어 */}
-      <Modal visible={viewerOpen} transparent animationType="fade" onRequestClose={() => setViewerOpen(false)}>
+      <Modal
+        visible={viewerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setViewerOpen(false)}
+      >
         <View style={styles.viewerWrap}>
-          <TouchableOpacity style={styles.viewerCloseBtn} onPress={() => setViewerOpen(false)} activeOpacity={0.8}>
-            <Image source={require('../../assets/images/close.png')} style={styles.viewerCloseIcon} />
+          <TouchableOpacity
+            style={styles.viewerCloseBtn}
+            onPress={() => setViewerOpen(false)}
+            activeOpacity={0.8}
+          >
+            <Image
+              source={require('../../assets/images/close.png')}
+              style={styles.viewerCloseIcon}
+            />
           </TouchableOpacity>
 
           <ScrollView
@@ -398,14 +444,18 @@ export default function ReportPage({
                 showsVerticalScrollIndicator={false}
                 showsHorizontalScrollIndicator={false}
               >
-                <RNImage source={{ uri }} style={styles.viewerImage} resizeMode="contain" />
+                <RNImage
+                  source={{ uri }}
+                  style={styles.viewerImage}
+                  resizeMode="contain"
+                />
               </ScrollView>
             ))}
           </ScrollView>
 
           <View style={styles.viewerIndicator}>
             <Text style={styles.viewerIndicatorText}>
-              {(viewerIndex + 1)} / {(images ?? []).length || 0}
+              {viewerIndex + 1} / {(images ?? []).length || 0}
             </Text>
           </View>
         </View>

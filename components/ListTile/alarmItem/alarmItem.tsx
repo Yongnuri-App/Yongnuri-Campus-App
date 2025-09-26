@@ -1,13 +1,15 @@
-// components/ListTile/alarmItem/alarmItem.tsx
 import React, { memo } from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { Image, Text, TouchableOpacity, View } from 'react-native';
 import styles from './alarmItem.styles';
 
 export type AlarmItemProps = {
-  title: string;               // 예: "[관리자] 거래가 정상적으로 완료되었습니다!"
-  description?: string;        // 줄바꿈 없이 저장된 본문
-  createdAt?: string | Date;   // ISO 문자열 또는 Date
-  onPress?: () => void;        // 탭 액션(선택)
+  title: string;               // "[관리자] ..." 그대로 표시
+  description?: string;        // 줄바꿈 제거된 본문
+  createdAt?: string | Date;   // ISO or Date
+  onPress?: () => void;
+  highlight?: boolean;
+  /** ✅ 신고 알림일 때만 아이콘 노출 */
+  reportIcon?: boolean;
 };
 
 function fmtKR(datetime?: string | Date) {
@@ -20,23 +22,43 @@ function fmtKR(datetime?: string | Date) {
   return `${hh}:${mm}, ${month}월 ${day}일`;
 }
 
-function AlarmItem({ title, description, createdAt, onPress }: AlarmItemProps) {
+function AlarmItem({
+  title,
+  description,
+  createdAt,
+  onPress,
+  highlight,
+  reportIcon,
+}: AlarmItemProps) {
   return (
     <TouchableOpacity
-      style={styles.container}
+      style={[styles.container, highlight && styles.containerHighlight]}
       activeOpacity={onPress ? 0.9 : 1}
       onPress={onPress}
     >
-      {/* 제목 */}
-      <Text style={styles.title}>{title}</Text>
-
-      {/* 본문: 오른쪽 끝까지 꽉 차게 */}
-      {!!description && <Text style={styles.desc}>{description}</Text>}
-
-      {/* 시간: 항상 내용의 아랫줄, 오른쪽 정렬 */}
-      <View style={styles.timeRow}>
-        <Text style={styles.time}>{fmtKR(createdAt)}</Text>
+      {/* 제목 행: (신고 알림이면 아이콘) + 제목 */}
+      <View style={styles.titleRow}>
+        {reportIcon && (
+          <Image
+            source={require('../../../assets/images/alert_red.png')}
+            style={styles.adminIcon}
+            resizeMode="contain"
+          />
+        )}
+        <Text style={[styles.title, highlight && styles.titleHighlight]}>{title}</Text>
       </View>
+
+      {!!description && (
+        <Text style={[styles.desc, highlight && styles.descHighlight]}>{description}</Text>
+      )}
+
+      <View style={styles.timeRow}>
+        <Text style={[styles.time, highlight && styles.timeHighlight]}>{fmtKR(createdAt)}</Text>
+      </View>
+
+      {/* 양쪽 끝까지 가는 상/하 경계선 */}
+      <View style={styles.topLine} />
+      <View style={styles.bottomLine} />
     </TouchableOpacity>
   );
 }
