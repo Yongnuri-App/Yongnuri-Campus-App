@@ -1,7 +1,15 @@
 // pages/My/TradeHistory/TradeHistoryPage.tsx
+// -------------------------------------------------------------------
+// ✅ 변경 요약
+// - "분실물 › 회수" 칩: 내 계정(ownerEmail === myEmail) 기준으로만 노출
+// - tradeHistoryStore의 getRecoveredLostItemsByOwner 사용
+// - 이벤트 채널명을 훅 상수(EVT_TRADE_HISTORY_UPDATED)로 통일
+// -------------------------------------------------------------------
+
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  DeviceEventEmitter,
   FlatList,
   Image,
   SafeAreaView,
@@ -25,6 +33,15 @@ import { getLocalIdentity } from '../../../utils/localIdentity';
 // ✅ '거래완료' 스냅샷 저장소(구매 내역은 여기서 읽어옴)
 import marketTradeRepo, { type MarketTradeRecord } from '../../../repositories/trades/MarketTradeRepo';
 
+// ✅ 회수 칩 데이터(로컬 TradeHistory 저장소) – 오너 기준 필터 사용
+import {
+  getRecoveredLostItemsByOwner,
+  type RecoveredLostItem,
+} from '../../../storage/tradeHistoryStore';
+
+// ✅ 이벤트 채널 상수 (useLostClose에서 export)
+import { EVT_TRADE_HISTORY_UPDATED } from '../../../hooks/useLostClose';
+
 const TABS: CategoryTab[] = [
   { key: 'market', label: '중고거래' },
   { key: 'lost',   label: '분실물' },
@@ -39,7 +56,7 @@ const FILTERS_BY_TAB: Record<string, { key: string; label: string }[]> = {
   lost: [
     { key: 'found',     label: '습득' },
     { key: 'lost',      label: '분실' },
-    { key: 'retrieved', label: '회수' }, // (추후 데이터 연동 예정)
+    { key: 'retrieved', label: '회수' }, // ✅ 이제 구현됨 (로컬 tradeHistoryStore 사용)
   ],
   group: [
     { key: 'register', label: '등록' },
@@ -101,7 +118,9 @@ export default function TradeHistoryPage() {
   // 각 탭별 데이터 상태
   const [marketMine, setMarketMine]       = useState<MarketPost[]>([]);           // 중고거래/판매(내 글)
   const [marketBought, setMarketBought]   = useState<MarketTradeRecord[]>([]);    // 중고거래/구매(거래완료 스냅샷)
-  const [lostMine, setLostMine]           = useState<LostPost[]>([]);
+  const [lostMine, setLostMine]           = useState<LostPost[]>([]);             // 분실/습득(내 글)
+  const [lostRecovered, setLostRecovered] = useState<RecoveredLostItem[]>([]);    // ✅ 분실물/회수(로컬, 오너 기준)
+
   const [groupMine, setGroupMine]         = useState<GroupPost[]>([]);
 
   const filtersForTab = useMemo(() => FILTERS_BY_TAB[activeTab] ?? [], [activeTab]);
@@ -116,16 +135,6 @@ export default function TradeHistoryPage() {
   const isGroup          = activeTab === 'group';
   const isGroupRegister  = isGroup && filter === 'register';
   const isGroupApply     = isGroup && filter === 'apply';
-
-  // ----------------------- DEBUG 0-A 시작 -----------------------
-  // 구매 탭일 때, 현재 사용자의 식별자(이메일/ID)가 무엇인지 확인 로그
-  useEffect(() => {
-    if (isMarketBuy) {
-      console.log('[BUY TAB] getLocalIdentity => myEmail, myId =', myEmail, myId);
-      // 참고: 둘 다 비어있으면 구매 탭 필터가 작동 안 하므로 로그인/세션 확인 필요
-    }
-  }, [isMarketBuy, myEmail, myId]);
-  // ----------------------- DEBUG 0-A 끝 -------------------------
 
   const onChangeTab = (next: string) => {
     setActiveTab(next);
@@ -168,7 +177,6 @@ export default function TradeHistoryPage() {
         buyerEmail: myEmail,
         buyerId: myId,
       });
-      // trade 스냅샷은 이미 createdAt(거래완료 시각) 기준으로 정렬 저장됨
       setMarketBought(list);
     } catch (e) {
       console.warn('TradeHistory market buy load error:', e);
@@ -176,13 +184,11 @@ export default function TradeHistoryPage() {
     } finally { setLoading(false); }
   }, [isMarketBuy, myEmail, myId]);
 
-  /** 분실물: 내 글만 + type 필터 */
+  /** 분실물: 내 글만 + type 필터 (회수 제외) */
   const loadLostMine = useCallback(async () => {
-    if (!isLost) return;
+    if (!isLost || isLostRetrieved) return; // 회수는 별도 로직
     setLoading(true);
     try {
-      if (isLostRetrieved) { setLostMine([]); return; } // 회수: 아직 미구현
-
       const all = await lostRepo.list();
       const mine = (all || []).filter((p: LostPost) => {
         const authorEmailNorm = normEmail(p.authorEmail ?? null);
@@ -202,6 +208,24 @@ export default function TradeHistoryPage() {
       setLostMine([]);
     } finally { setLoading(false); }
   }, [isLost, isLostFound, isLostLost, isLostRetrieved, myEmail, myId]);
+
+  /** ✅ 분실물: 회수 칩 데이터 로드 (오너 이메일 기준 필터) */
+  const loadLostRecovered = useCallback(async () => {
+    if (!isLostRetrieved) return;
+    setLoading(true);
+    try {
+      // ✅ 내 이메일이 있으면 내 항목만 필터, 없으면 전체 반환
+      const list = await getRecoveredLostItemsByOwner(myEmail ?? '');
+      // 저장소에서 최신순 정렬 보장하지만, 혹시 몰라 재정렬
+      const sorted = [...list].sort((a, b) =>
+        new Date(b.recoveredAt).getTime() - new Date(a.recoveredAt).getTime()
+      );
+      setLostRecovered(sorted);
+    } catch (e) {
+      console.warn('TradeHistory lost recovered load error:', e);
+      setLostRecovered([]);
+    } finally { setLoading(false); }
+  }, [isLostRetrieved, myEmail]);
 
   /** 공동구매: 내가 등록한 글만 (등록 칩 전용) */
   const loadGroupMine = useCallback(async () => {
@@ -238,29 +262,34 @@ export default function TradeHistoryPage() {
         loadMarketBought();
         setMarketMine([]);
       }
-      // 다른 탭 데이터 비우기
-      setLostMine([]); setGroupMine([]);
+      setLostMine([]); setLostRecovered([]); setGroupMine([]);
       return;
     }
 
     if (isLost) {
-      loadLostMine();
+      if (isLostRetrieved) {
+        loadLostRecovered();
+        setLostMine([]); // 회수와 분실/습득은 UI 구분
+      } else {
+        loadLostMine();
+        setLostRecovered([]);
+      }
       setMarketMine([]); setMarketBought([]); setGroupMine([]);
       return;
     }
 
     if (isGroup) {
-      if (isGroupRegister) loadGroupMine(); else setGroupMine([]); // 신청은 비움
-      setMarketMine([]); setMarketBought([]); setLostMine([]);
+      if (isGroupRegister) loadGroupMine(); else setGroupMine([]);
+      setMarketMine([]); setMarketBought([]); setLostMine([]); setLostRecovered([]);
       return;
     }
 
-    // 기타 방어적 초기화
-    setMarketMine([]); setMarketBought([]); setLostMine([]); setGroupMine([]);
+    // 방어적 초기화
+    setMarketMine([]); setMarketBought([]); setLostMine([]); setLostRecovered([]); setGroupMine([]);
   }, [
     activeTab, filter,
-    isMarketSell, isMarketBuy, isLost, isGroup, isGroupRegister,
-    loadMarketMine, loadMarketBought, loadLostMine, loadGroupMine,
+    isMarketSell, isMarketBuy, isLost, isLostRetrieved, isGroup, isGroupRegister,
+    loadMarketMine, loadMarketBought, loadLostMine, loadLostRecovered, loadGroupMine,
   ]);
 
   /** 화면 복귀 시 갱신 (탭/필터 유지한 채 최신화) */
@@ -268,10 +297,25 @@ export default function TradeHistoryPage() {
     useCallback(() => {
       if (isMarketSell) loadMarketMine();
       if (isMarketBuy)  loadMarketBought();
-      if (isLost)       loadLostMine();
+      if (isLostRetrieved) loadLostRecovered();
+      else if (isLost)  loadLostMine();
       if (isGroupRegister) loadGroupMine();
-    }, [isMarketSell, isMarketBuy, isLost, isGroupRegister, loadMarketMine, loadMarketBought, loadLostMine, loadGroupMine])
+    }, [isMarketSell, isMarketBuy, isLost, isLostRetrieved, isGroupRegister, loadMarketMine, loadMarketBought, loadLostMine, loadLostRecovered, loadGroupMine])
   );
+
+  /** ✅ 회수 처리 직후, ChatRoom에서 쏘는 이벤트로 실시간 갱신 */
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(EVT_TRADE_HISTORY_UPDATED, async (payload) => {
+      // payload.scope === 'lost-recovered' 로 구분 가능하지만
+      // 현재 화면의 탭/필터에 맞춰 필요한 목록만 리로드
+      if (isLostRetrieved) await loadLostRecovered();
+      if (isLost && !isLostRetrieved) await loadLostMine();
+      if (isMarketBuy) await loadMarketBought();
+      if (isMarketSell) await loadMarketMine();
+      if (isGroupRegister) await loadGroupMine();
+    });
+    return () => sub.remove();
+  }, [isLost, isLostRetrieved, isMarketBuy, isMarketSell, isGroupRegister, loadLostRecovered, loadLostMine, loadMarketBought, loadMarketMine, loadGroupMine]);
 
   /* ---------- UI ---------- */
   const EmptyState = () => (
@@ -330,7 +374,7 @@ export default function TradeHistoryPage() {
     );
   };
 
-  // 분실물 렌더러
+  // 분실물 렌더러 (분실/습득)
   const renderLostItem = ({ item }: { item: LostPost }) => {
     const firstImage = Array.isArray(item.images) && item.images.length > 0 ? item.images[0] : undefined;
     const subtitle = `${timeAgo(item.createdAt)}`;
@@ -342,6 +386,21 @@ export default function TradeHistoryPage() {
         likeCount={item.likeCount ?? 0}
         image={firstImage}
         onPress={() => goLostDetail(item.id)}
+      />
+    );
+  };
+
+  // ✅ 분실물/회수 렌더러 (RecoveredLostItem → LostItem에 매핑)
+  const renderRecoveredItem = ({ item }: { item: RecoveredLostItem }) => {
+    const subtitle = `회수 · ${timeAgo(item.recoveredAt)}`;
+    return (
+      <LostItem
+        title={item.title}
+        subtitle={subtitle}
+        typeLabel={'회수'}
+        likeCount={0}
+        image={item.image}
+        onPress={() => item.postId && goLostDetail(item.postId)}
       />
     );
   };
@@ -395,7 +454,19 @@ export default function TradeHistoryPage() {
 
     // 분실물
     if (isLost) {
-      if (isLostRetrieved) return <EmptyState />; // 회수: 현재 비워둠
+      if (isLostRetrieved) {
+        // ✅ 회수 칩 컨텐츠(내 계정 기준)
+        return lostRecovered.length === 0 ? <EmptyState /> : (
+          <FlatList
+            data={lostRecovered}
+            keyExtractor={(it) => (it.recordId ?? `${it.postId}__${(it.ownerEmail ?? '').toLowerCase()}`)}
+            renderItem={renderRecoveredItem}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+          />
+        );
+      }
+      // 분실/습득
       return lostMine.length === 0 ? <EmptyState /> : (
         <FlatList
           data={lostMine}

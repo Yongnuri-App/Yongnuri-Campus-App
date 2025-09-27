@@ -62,6 +62,9 @@ const styles = StyleSheet.create({
   badgeFound: {
     backgroundColor: '#419EBD',
   },
+  badgeRetrieved: {
+    backgroundColor: '#979797',
+  },
   badgeText: {
     fontFamily: 'Inter',
     fontStyle: 'normal',

@@ -22,7 +22,6 @@ import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './LostDetailPage.styles';
 
 // ✅ DEV: 분실물 채팅 진입 버튼 (OWNER/GUEST 테스트용)
-import DevLostChatButton from '../../components/Dev/DevLostChatButton';
 
 // ✅ 이메일 기반 표기 훅
 import useDisplayProfile from '../../hooks/useDisplayProfile';
@@ -289,7 +288,7 @@ export default function LostDetailPage({
               - DevLostChatButton 내부에서 __DEV__ 체크하므로
                 실서비스 빌드에서는 자동으로 숨김
              ========================= */}
-          <DevLostChatButton
+          {/* <DevLostChatButton
             post={{
               id: String(item.id),
               title: item.title,
@@ -300,7 +299,7 @@ export default function LostDetailPage({
               authorId: String(item.authorId ?? ''), // ChatRoom 권한 판별용
               authorEmail: item.authorEmail ?? undefined,
             }}
-          />
+          /> */}
         </View>
       </ScrollView>
 
@@ -325,6 +324,8 @@ export default function LostDetailPage({
             place: item.location,
             purpose: item.type,
             postImageUri: images[0],
+            authorEmail: item.authorEmail ?? null,
+            authorId: item.authorId != null ? String(item.authorId) : undefined,
           }}
           placeholder="게시자에게 메시지를 보내보세요"
         />

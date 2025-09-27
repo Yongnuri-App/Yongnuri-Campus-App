@@ -12,8 +12,8 @@ import GroupItem from '../../components/ListTile/GroupItem/GroupItem';
 import LostItem from '../../components/ListTile/LostItem/LostItem';
 import MarketItem from '../../components/ListTile/MarketItem/MarketItem';
 import NoticeItem from '../../components/ListTile/NoticeItem/NoticeItem';
-import styles from './MainPage.styles';
 import { getIsAdmin } from '../../utils/auth';
+import styles from './MainPage.styles';
 
 import type { RootStackScreenProps } from '../../types/navigation';
 
@@ -50,6 +50,7 @@ type LostListItem = {
   images: string[];
   likeCount: number;
   createdAt: string;
+  status?: 'OPEN' | 'RESOLVED';
 };
 
 type GroupListItem = {
@@ -288,16 +289,21 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
           <FlatList
             data={filteredLost}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <LostItem
-                title={item.title}
-                subtitle={`${item.location} · ${timeAgo(item.createdAt)}`}
-                typeLabel={item.type === 'found' ? '습득' : '분실'}
-                likeCount={item.likeCount ?? 0}
-                image={item.images && item.images.length > 0 ? item.images[0] : undefined}
-                onPress={() => navigation.navigate('LostDetail', { id: item.id })}
-              />
-            )}
+            renderItem={({ item }) => {
+              const typeLabel =
+                item.status === 'RESOLVED' ? '회수' : (item.type === 'found' ? '습득' : '분실');
+
+              return (
+                <LostItem
+                  title={item.title}
+                  subtitle={`${item.location} · ${timeAgo(item.createdAt)}`}
+                  typeLabel={typeLabel}  // ⬅️ 여기만 바꿔주면 UI 배지 변경됨
+                  likeCount={item.likeCount ?? 0}
+                  image={item.images && item.images.length > 0 ? item.images[0] : undefined}
+                  onPress={() => navigation.navigate('LostDetail', { id: item.id })}
+                />
+              );
+            }}
             ListEmptyComponent={
               <Text style={{ color: '#979797', marginTop: 24, textAlign: 'center' }}>
                 {category === 'all'
