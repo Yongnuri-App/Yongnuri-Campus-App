@@ -1,12 +1,8 @@
 // pages/Chat/ChatRoomPage.tsx
 // ---------------------------------------------------------
 // 채팅방 화면 (중고거래 / 분실물 / 공동구매 공통)
-// - 요구사항 반영:
-//   1) 분실물 "완료 처리(회수)"는 버튼을 **게시자(글 작성자)에게만** 노출
-//   2) 완료 처리 시 회수 거래내역은 **양쪽(게시자 + 상대방) 모두**에게 저장
-//      → recipientEmails로 두 계정에 대해 각각 upsert
-// - 타입스크립트 / Expo 환경
-// - 스타일은 ChatRoomPage.styles.ts로 분리
+// - 헤더 하단 "게시글 카드"는 ChatHeader가 렌더
+// - 여기서는 카드에 필요한 메타를 계산해서 ChatHeader에 전달
 // ---------------------------------------------------------
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -121,8 +117,6 @@ function buildPreviewFromMessage(m: any): string {
     default: return (m?.text ?? String(m?.type ?? '')).toString();
   }
 }
-const toLower = (s?: unknown) => (s == null ? '' : String(s)).trim().toLowerCase();
-const toStr   = (v?: unknown) => (v == null ? '' : String(v));
 
 export default function ChatRoomPage() {
   const navigation = useNavigation<Nav>();
@@ -136,11 +130,11 @@ export default function ChatRoomPage() {
   const isMarket = raw?.source === 'market';
   const isGroupBuy = raw?.source === 'groupbuy';
 
-  // 카드(상단 요약) 메타
+  // ✅ 헤더 카드에 내려줄 기본 메타
   const cardTitle: string = isMarket ? (raw?.productTitle ?? '게시글 제목') : (raw?.postTitle ?? '게시글 제목');
   const cardImageUri: string | undefined = isMarket ? raw?.productImageUri : raw?.postImageUri;
 
-  // 중고거래 가격 라벨
+  // 🔽 부가 정보 계산 (헤더 카드에서 사용)
   const priceLabel = useMemo(() => {
     if (!isMarket) return '';
     const price = raw?.productPrice;
@@ -149,17 +143,17 @@ export default function ChatRoomPage() {
     return '';
   }, [isMarket, raw?.productPrice]);
 
-  // 분실물 카드 보조 정보
-  const placeLabel: string = isLost ? raw?.place ?? '장소 정보 없음' : '';
-  const purposeBadge: string = isLost ? (raw?.purpose === 'lost' ? '분실' : '습득') : '';
-  const recruitLabel: string = isGroupBuy ? raw?.recruitLabel ?? '' : '';
+  const placeLabel: string = isLost ? (raw?.place ?? '장소 정보 없음') : '';
+  const purpose: 'lost' | 'found' | undefined =
+    isLost ? (raw?.purpose === 'found' ? 'found' : 'lost') : undefined;
+  const recruitLabel: string = isGroupBuy ? (raw?.recruitLabel ?? '') : '';
 
   // 방 아이디 파생
   const proposedId = raw?.roomId ?? deriveRoomIdFromParams(raw);
   const [roomId] = useState<string | null>(proposedId ?? null);
   const initialMessage: string | undefined = raw?.initialMessage;
 
-  // ✅ 게시자 닉네임 / 내 닉네임
+  // ✅ 게시자/나 정보 (이하 로직 동일)
   const posterNickname: string = useMemo(() => (
     (raw?.posterNickname ??
       raw?.authorNickname ??
@@ -180,7 +174,6 @@ export default function ChatRoomPage() {
     })();
   }, []);
 
-  // ✅ 게시자 식별값(이메일/ID)을 넓게 수집 (route 파라미터의 다양한 키 호환)
   const authorEmailAny: string | null =
     raw?.authorEmail ??
     raw?.writerEmail ??
@@ -213,19 +206,16 @@ export default function ChatRoomPage() {
     raw?.origin?.params?.ownerId ??
     null;
 
-  // 🔧 null → undefined 정규화 (타입 안전)
   const authorEmailU: string | undefined = authorEmailAny ?? undefined;
   const authorIdU: string | number | undefined =
     (authorIdAny ?? undefined) as string | number | undefined;
 
-  // ✅ 권한: 관리자/작성자 판별 (일부 기능에 사용)
   const { isOwner } = usePermissions({
     authorId: authorIdU,
     authorEmail: authorEmailU,
     routeParams: { isOwner: raw?.isOwner },
   });
 
-  // 내 세션 아이덴티티 로드
   const [myEmail, setMyEmail] = useState<string | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
   useEffect(() => {
@@ -240,15 +230,13 @@ export default function ChatRoomPage() {
       }
     })();
   }, []);
-  const identityReady = (myEmail !== null || myId !== null); // ✅ 로드 완료 플래그
+  const identityReady = (myEmail !== null || myId !== null);
 
-  // 상대/내 식별 값(중고거래용)
   const sellerEmail = raw?.sellerEmail ?? raw?.authorEmail ?? undefined;
   const buyerEmail  = raw?.buyerEmail  ?? raw?.opponentEmail ?? raw?.userEmail ?? undefined;
   const sellerId = raw?.sellerId ?? raw?.authorId ?? undefined;
   const buyerId  = raw?.buyerId  ?? raw?.opponentId ?? raw?.userId ?? undefined;
 
-  // 닉네임 소스 확장
   const sellerName =
     raw?.sellerNickname ??
     raw?.posterNickname ??
@@ -262,7 +250,6 @@ export default function ChatRoomPage() {
     raw?.opponentBuyerNickname ??
     '';
 
-  // ✅ 헤더 타이틀: 항상 "상대 닉네임"
   const headerTitle: string = useMemo(() => {
     return pickOtherNickname({
       meEmail: myEmail,
@@ -279,14 +266,12 @@ export default function ChatRoomPage() {
     toLabel(raw?.initialSaleStatus as ApiSaleStatus | undefined)
   );
 
-  // 채팅 데이터 훅
   const {
     messages, setMessages,
     attachments, extraBottomPad,
     loadAndSeed, addAttachments, removeAttachmentAt, send, pushSystemAppointment
   } = useChatRoom(roomId ?? '');
 
-  // ✅ 분실물 방 판정 (유연: source 또는 힌트로 판정)
   const isLostContext = useMemo(() => {
     const s =
       raw?.source ??
@@ -301,8 +286,7 @@ export default function ChatRoomPage() {
     return s === 'lost' || hasLostHints;
   }, [raw]);
 
-  // ✅ postId 안전 추출 (여러 키 호환)
-  const lostPostIdFromAny: string | null = useMemo(() => {
+  const generalizedPostId: string | null = useMemo(() => {
     return (
       (raw?.postId && String(raw.postId)) ||
       (raw?.id && String(raw.id)) ||
@@ -313,7 +297,6 @@ export default function ChatRoomPage() {
     );
   }, [raw]);
 
-  // ✅ "게시자 전용" 노출을 위한 엄격한 작성자 판별 (이메일 정확 일치)
   const isAuthorStrict = useMemo(() => {
     const n = (s?: string | null) => (s ?? '').trim().toLowerCase();
     const me = n(myEmail);
@@ -321,34 +304,26 @@ export default function ChatRoomPage() {
     return !!me && !!author && me === author;
   }, [myEmail, authorEmailAny]);
 
-  // ✅ 완료 버튼 노출 조건: 분실물 방 + postId 존재 + "게시자" 본인일 때만
-  const showLostClose = isLostContext && !!lostPostIdFromAny && isAuthorStrict;
+  const showLostClose = isLostContext && !!generalizedPostId && isAuthorStrict;
 
-  // ✅ 상대방 이메일 (양쪽 회수내역 반영을 위해 필요)
-  const opponentEmail: string | null = useMemo(() => {
+  const opponentEmailX: string | null = useMemo(() => {
     return (raw?.opponentEmail ?? raw?.buyerEmail ?? null) || null;
   }, [raw?.opponentEmail, raw?.buyerEmail]);
 
-  // ✅ 분실물 "완료 처리(회수)" 훅
-  // - recipientEmails: 게시자 + 상대방 모두 전달 → 양쪽 계정의 거래내역에 저장
   const { lostStatus, handleCloseLost } = useLostClose({
     roomId: roomId ?? '',
     initial: (raw?.initialLostStatus as 'OPEN' | 'RESOLVED') ?? 'OPEN',
     pushMessage: (msg) => setMessages(prev => [...prev, msg]),
-
-    postId: lostPostIdFromAny ?? undefined,
+    postId: generalizedPostId ?? undefined,
     postTitle: cardTitle,
     postImageUri: cardImageUri,
     place: isLost ? (raw?.place ?? undefined) : undefined,
-
-    // ✅ 핵심: 두 계정 모두에게 회수 내역 반영
     recipientEmails: [
-      authorEmailAny ?? undefined,      // 게시자
-      opponentEmail ?? undefined,       // 상대방
+      authorEmailAny ?? undefined,
+      opponentEmailX ?? undefined,
     ].filter(Boolean) as string[],
   });
 
-  // 차단 상태 판별
   const opponent = useMemo<BlockedUser | null>(() => {
     const idLike =
       raw?.opponentId ?? raw?.sellerId ?? raw?.authorId ?? raw?.userId ??
@@ -380,7 +355,6 @@ export default function ChatRoomPage() {
     })();
   }, [opponent?.id]);
 
-  // 신고/차단 메뉴 핸들러
   const [menuVisible, setMenuVisible] = useState(false);
   const handleReport = () => {
     setMenuVisible(false);
@@ -417,10 +391,8 @@ export default function ChatRoomPage() {
     );
   };
 
-  // 중고거래: 상태 변경 로컬 반영(데모)
   const handleChangeSaleStatus = async (nextLabel: SaleStatusLabel) => {
     setSaleStatusLabel(nextLabel);
-    const apiValue = toApi(nextLabel);
     if (raw?.postId) {
       try {
         const KEY = 'market_posts_v1';
@@ -436,7 +408,6 @@ export default function ChatRoomPage() {
     }
   };
 
-  // 중고거래: 거래완료 스냅샷 기록(구매자 내역용)
   const recordTradeCompletion = useCallback(async () => {
     try {
       if (!isMarket || !raw?.postId) return;
@@ -444,16 +415,16 @@ export default function ChatRoomPage() {
       const meEmailNorm = (myEmail ?? '').trim().toLowerCase();
       const meIdStr = (myId ?? '').toString();
 
-      let buyerEmailX = (raw?.buyerEmail ?? raw?.opponentEmail ?? null);
-      let buyerIdX = buyerEmailX ? null : (opponent?.id ? String(opponent.id) : null);
+      let buyerEmailY = (raw?.buyerEmail ?? raw?.opponentEmail ?? null);
+      let buyerIdY = buyerEmailY ? null : (opponent?.id ? String(opponent.id) : null);
 
-      const buyerEmailNorm = (buyerEmailX ?? '').trim().toLowerCase();
+      const buyerEmailNorm = (buyerEmailY ?? '').trim().toLowerCase();
       if (buyerEmailNorm && meEmailNorm && buyerEmailNorm === meEmailNorm) {
-        buyerEmailX = null;
-        buyerIdX = buyerIdX ?? (raw?.buyerId ? String(raw.buyerId) : null);
+        buyerEmailY = null;
+        buyerIdY = buyerIdY ?? (raw?.buyerId ? String(raw.buyerId) : null);
       }
-      if (!buyerEmailX && buyerIdX && meIdStr && buyerIdX === meIdStr) {
-        buyerIdX = null;
+      if (!buyerEmailY && buyerIdY && meIdStr && buyerIdY === meIdStr) {
+        buyerIdY = null;
       }
 
       await marketTradeRepo.upsert({
@@ -463,8 +434,8 @@ export default function ChatRoomPage() {
         image: cardImageUri,
         sellerEmail: myEmail ?? (raw?.sellerEmail ?? null),
         sellerId: myId ?? (raw?.sellerId ? String(raw.sellerId) : null),
-        buyerEmail: buyerEmailX,
-        buyerId: buyerIdX,
+        buyerEmail: buyerEmailY,
+        buyerId: buyerIdY,
         postCreatedAt: raw?.postCreatedAt ?? raw?.createdAt ?? undefined,
       });
 
@@ -487,7 +458,6 @@ export default function ChatRoomPage() {
     raw?.productPrice, raw?.postCreatedAt, raw?.createdAt, raw?.sellerEmail, raw?.sellerId
   ]);
 
-  // ✅ 채팅방 최초 로드 시 메시지/방 미리 세팅
   useEffect(() => {
     if (!roomId) return;
     loadAndSeed();
@@ -499,7 +469,7 @@ export default function ChatRoomPage() {
         await upsertRoomOnOpen({
           roomId,
           category: isMarket ? 'market' : isLost ? 'lost' : 'group',
-          nickname: headerTitle, // ✅ 항상 상대 닉네임
+          nickname: headerTitle,
           productTitle: isMarket ? raw?.productTitle : undefined,
           productPrice: isMarket ? raw?.productPrice : undefined,
           productImageUri: isMarket ? raw?.productImageUri : undefined,
@@ -516,7 +486,6 @@ export default function ChatRoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, identityReady, headerTitle]);
 
-  // ✅ headerTitle이 뒤늦게 바뀌어도 리스트 닉네임 동기화
   useEffect(() => {
     if (!roomId) return;
     if (!identityReady) return;
@@ -529,7 +498,6 @@ export default function ChatRoomPage() {
     }).catch(() => {});
   }, [roomId, identityReady, headerTitle]);
 
-  // 최초 자동 메시지 전송(있을 때만 1회)
   const initialKickRef = useRef<string | null>(null);
   useEffect(() => {
     if (!roomId) return;
@@ -544,7 +512,6 @@ export default function ChatRoomPage() {
     try { navigation.setParams({ initialMessage: undefined }); } catch {}
   }, [roomId, raw?.initialMessage, send, navigation]);
 
-  // 마지막 메시지 기준으로 프리뷰/시간 동기화
   const lastSyncedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!roomId || !Array.isArray(messages) || messages.length === 0) return;
@@ -565,7 +532,33 @@ export default function ChatRoomPage() {
     }).catch(e => console.log('updateRoomOnSendSmart error', e));
   }, [messages, roomId, raw, headerTitle]);
 
-  // 로딩 가드
+  // ====== ✅ 카드 존재여부 검사(헤더로 주입) ======
+  const checkPostExistsExternally = useCallback(async (meta: { source: 'market'|'lost'|'group', postId: string }) => {
+    // 1) 로컬 캐시에서 먼저 찾기
+    const keyBySource: Record<typeof meta.source, string> = {
+      market: 'market_posts_v1',
+      lost:   'lost_found_posts_v1',
+      group:  'groupbuy_posts_v1',
+    };
+    try {
+      const key = keyBySource[meta.source];
+      const rawList = await AsyncStorage.getItem(key);
+      if (rawList) {
+        const list = JSON.parse(rawList);
+        if (Array.isArray(list)) {
+          const found = list.find((it: any) => String(it?.id ?? it?.postId) === String(meta.postId));
+          if (found?.deleted === true) return false;
+          if (found) return true;
+        }
+      }
+    } catch {
+      // 캐시 조회 실패는 무시하고 다음 단계로
+    }
+    // 2) TODO: 필요 시 API 조회 (404 → false)
+    return true; // 캐시에 없으면 일단 존재한다고 가정(임시)
+  }, []);
+
+  // ====== 렌더 ======
   if (!roomId) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -575,73 +568,57 @@ export default function ChatRoomPage() {
     );
   }
 
+  // 헤더에 전달할 카드 메타 구성
+  const headerSource: 'market'|'lost'|'group' = isMarket ? 'market' : isLost ? 'lost' : 'group';
+  const headerPostId = (isMarket ? (raw?.postId ? String(raw.postId) : null) : generalizedPostId) ?? null;
+
   return (
     <View style={styles.container}>
-      {/* 헤더: 상대 닉네임 */}
+      {/* 헤더: 상대 닉네임 + (헤더 하단) 게시글 카드 */}
       <ChatHeader
         title={headerTitle}
         onPressBack={() => navigation.goBack()}
         onPressMore={() => setMenuVisible(true)}
+        post={headerPostId ? {
+          source: headerSource,
+          postId: headerPostId,
+          title: cardTitle,
+          thumbnailUri: cardImageUri,
+
+          // 🔽 부가 정보 전달!
+          priceLabel,
+          purpose,
+          placeLabel,
+          recruitLabel,
+        } : undefined}
+        checkPostExistsExternally={checkPostExistsExternally}
       />
 
-      {/* 상단 카드(게시글 요약) */}
-      <View style={styles.productCardShadowWrap}>
-        <View style={styles.productCard}>
-          <View style={styles.thumbWrap}>
-            {cardImageUri ? (
-              <Image source={{ uri: cardImageUri }} style={styles.thumb} />
-            ) : (
-              <View style={[styles.thumb, styles.thumbPlaceholder]} />
-            )}
-          </View>
-          <View style={styles.infoWrap}>
-            <Text style={styles.title} numberOfLines={1}>{cardTitle}</Text>
-            {isMarket && <Text style={styles.price}>{priceLabel || '₩ 0'}</Text>}
-            {isLost && (
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View
-                  style={[
-                    styles.badgeBase,
-                    raw?.purpose === 'lost' ? styles.badgeLost : styles.badgeFound,
-                  ]}
-                >
-                  <Text style={styles.badgeText}>{purposeBadge}</Text>
-                </View>
-                <Text style={styles.placeText} numberOfLines={1}>{placeLabel}</Text>
-              </View>
-            )}
-            {isGroupBuy && (
-              <Text style={styles.groupBuyLabel} numberOfLines={1}>{recruitLabel}</Text>
-            )}
-          </View>
+      {/* 액션 행 (약속잡기 / 판매상태 / 분실 회수) */}
+      <View style={styles.actionsRow}>
+        <View style={styles.actionsLeft}>
+          <TouchableOpacity style={styles.scheduleBtn} onPress={() => setOpen(true)}>
+            <Image source={calendarIcon} style={styles.calendarIcon} />
+            <Text style={styles.scheduleBtnText}>약속잡기</Text>
+          </TouchableOpacity>
         </View>
-
-        {/* 카드 액션: 일정잡기 / 판매상태 / (분실)완료처리 */}
-        <View style={styles.actionsRow}>
-          <View style={styles.actionsLeft}>
-            <TouchableOpacity style={styles.scheduleBtn} onPress={() => setOpen(true)}>
-              <Image source={calendarIcon} style={styles.calendarIcon} />
-              <Text style={styles.scheduleBtnText}>약속잡기</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.actionsRight}>
-            {/* 중고거래: 판매자만 상태 변경 */}
-            {isMarket && isOwner && !!raw?.postId && (
-              <SaleStatusSelector
-                value={saleStatusLabel}
-                onChange={handleChangeSaleStatus}
-                onCompleteTrade={recordTradeCompletion}
-              />
-            )}
-            {/* 분실물: "게시자" 본인에게만 완료 처리 버튼 노출 */}
-            {showLostClose && (
-              <LostCloseButton
-                value={lostStatus}
-                onClose={handleCloseLost}
-                readOnly={false} // 게시자 전용으로 노출했으므로 활성
-              />
-            )}
-          </View>
+        <View style={styles.actionsRight}>
+          {/* 중고거래: 판매자만 상태 변경 */}
+          {isMarket && isOwner && !!raw?.postId && (
+            <SaleStatusSelector
+              value={saleStatusLabel}
+              onChange={handleChangeSaleStatus}
+              onCompleteTrade={recordTradeCompletion}
+            />
+          )}
+          {/* 분실물: "게시자" 본인에게만 완료 처리 버튼 노출 */}
+          {showLostClose && (
+            <LostCloseButton
+              value={lostStatus}
+              onClose={handleCloseLost}
+              readOnly={false}
+            />
+          )}
         </View>
       </View>
 

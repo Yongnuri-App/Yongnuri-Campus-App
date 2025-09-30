@@ -179,7 +179,7 @@ export default function LostDetailPage({
           accessibilityLabel="게시글 옵션"
           activeOpacity={0.9}
         >
-          <Image source={require('../../assets/images/tab.png')} style={styles.icon} />
+          <Image source={require('../../assets/images/more_white.png')} style={styles.icon} />
         </TouchableOpacity>
       );
     }

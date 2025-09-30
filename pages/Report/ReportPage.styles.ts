@@ -1,5 +1,5 @@
 // pages/Report/ReportPage.styles.ts
-import { Platform, StyleSheet, Dimensions } from 'react-native';
+import { Dimensions, Platform, StyleSheet } from 'react-native';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -35,8 +35,9 @@ export default StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
+    marginTop: Platform.OS === 'ios' ? 12 : 0,
     textAlign: 'center',
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '700',
     color: '#1E1E1E',
   },
@@ -204,7 +205,7 @@ export default StyleSheet.create({
     justifyContent: 'center',
   },
   submitText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
   },
