@@ -18,10 +18,10 @@ type OwnerMeta = {
 export type SaleStatusApi = 'ON_SALE' | 'RESERVED' | 'SOLD';
 export type LostStatusApi = 'OPEN' | 'RESOLVED';
 
-type MarketMeta = {
-  /** 상세/채팅 진입 시점의 초기 판매상태(있으면 헤더/셀렉터 초기값에 사용) */
-  initialSaleStatus?: SaleStatusApi;
-};
+/** 상세/채팅 진입 시점의 초기 판매상태(있으면 헤더/셀렉터 초기값에 사용) */
+// type MarketMeta = {
+//   initialSaleStatus?: SaleStatusApi;
+// };
 
 // /** -----------------------------------------------------------
 //  * 공통: 채팅 상대/참여자/카드 공용 필드

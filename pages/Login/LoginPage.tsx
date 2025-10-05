@@ -13,11 +13,14 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  ActivityIndicator,
 } from 'react-native';
+
 import { setIsAdmin, clearIsAdmin } from '../../utils/auth';
 import { ADMIN_EMAIL, ADMIN_PASSWORD } from '../../utils/admin';
 import { RootStackParamList } from '../../types/navigation';
 import styles from './LoginPage.styles';
+
 import {
   setSessionFromUser,
   USERS_ALL_KEY,
@@ -25,15 +28,23 @@ import {
   clearSession,
 } from '../../utils/session';
 import {
-  setAuthEmailNormalized,   // ✅ 추가: 이메일 스코프 저장/해제
-  ensureLocalIdentity,       // ✅ 추가: 기기 고유 ID 보장(선택)
+  setAuthEmailNormalized,
+  ensureLocalIdentity,
 } from '../../utils/localIdentity';
 
+// 🔗 추가: API 연결
+import { authApi } from '../../api/auth';
+import { setAuthToken } from '../../api/client';
+
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
+
+const ACCESS_TOKEN_KEY = 'access_token';
+const REFRESH_TOKEN_KEY = 'refresh_token';
 
 export default function LoginPage({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
   /** users_all_v1 에 (email 기준) 레코드 업서트 */
   const upsertUser = async (record: StoredUser) => {
@@ -43,7 +54,6 @@ export default function LoginPage({ navigation }: Props) {
       (u) => u.email?.toLowerCase() === record.email.toLowerCase()
     );
     if (idx >= 0) {
-      // 기존 값 보존 + 최신 필드만 갱신
       list[idx] = { ...list[idx], ...record };
     } else {
       list.unshift(record);
@@ -57,29 +67,33 @@ export default function LoginPage({ navigation }: Props) {
       Alert.alert('안내', '이메일과 비밀번호를 입력해주세요.');
       return;
     }
+    if (loading) return;
 
     try {
-      // 혹시 남아있는 관리자/세션 정보 초기화
+      setLoading(true);
+
+      // 기존 세션/관리자 초기화
       await clearIsAdmin();
       await clearSession();
 
-      // 1) 관리자 하드코딩 로그인 (가입 여부와 무관)
-      if (em.toLowerCase() === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASSWORD) {
+      // 1) 관리자 하드코딩 로그인 (기존 유지)
+      if (
+        em.toLowerCase() === ADMIN_EMAIL.toLowerCase() &&
+        password === ADMIN_PASSWORD
+      ) {
         await setIsAdmin(true);
 
-        // DB에도 관리자 레코드 업서트해서 ProfileRow가 DB 기준으로 읽을 수 있게
         await upsertUser({
           email: ADMIN_EMAIL.toLowerCase(),
           name: '관리자',
           nickname: '관리자',
           department: '',
           studentId: '',
-          password: 'ADMIN', // 표시용/검증용은 아님
+          password: 'ADMIN',
           isAdmin: true,
           createdAt: new Date().toISOString(),
         });
 
-        // 세션 저장
         await setSessionFromUser({
           email: ADMIN_EMAIL.toLowerCase(),
           name: '관리자',
@@ -89,7 +103,6 @@ export default function LoginPage({ navigation }: Props) {
           isAdmin: true,
         });
 
-        // ✅ 이메일 스코프 저장(표준/구키 모두) + 기기 ID 보장
         await setAuthEmailNormalized(ADMIN_EMAIL.toLowerCase());
         await ensureLocalIdentity();
 
@@ -100,47 +113,79 @@ export default function LoginPage({ navigation }: Props) {
         return;
       }
 
-      // 2) 일반 사용자 로그인: 가입된 사용자만 허용
-      const raw = await AsyncStorage.getItem(USERS_ALL_KEY);
-      const users: StoredUser[] = raw ? JSON.parse(raw) : [];
-      const user = users.find(
-        (u) => u.email?.toLowerCase() === em.toLowerCase() && u.password === password
-      );
+      // 2) 일반 사용자: 서버 로그인
+      console.log('[LOGIN] ▶ /auth/login request', { email: em });
+      const res = await authApi.login({ email: em, password });
+      console.log('[LOGIN] ◀ /auth/login response', res?.status, res?.data);
 
-      if (!user) {
-        Alert.alert('로그인 실패', '가입된 사용자만 로그인할 수 있습니다.');
-        return;
+      const accessToken: string | undefined = res?.data?.accessToken;
+      const refreshToken: string | undefined = res?.data?.refreshToken;
+      if (!accessToken) {
+        throw new Error('서버에서 accessToken을 받지 못했습니다.');
       }
 
-      await setIsAdmin(false);
+      // 토큰 저장 & axios 헤더 주입
+      await AsyncStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+      if (refreshToken) await AsyncStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+      setAuthToken(accessToken);
 
-      // (안전) 이메일 소문자 표준화한 값으로 users_all_v1 도 갱신해 둠
+      // 2-1) (선택) 내 정보 조회 시도 → 세션/로컬DB 동기화
+      let me: any = null;
+      try {
+        const meRes = await authApi.me();
+        console.log('[LOGIN] ◀ /users/me response', meRes?.status, meRes?.data);
+        me = meRes?.data ?? null;
+      } catch (err) {
+        console.log('[LOGIN] /users/me failed (continue without profile)', err);
+      }
+
+      const emLower = em.toLowerCase();
+      const profile = {
+        email: emLower,
+        name: me?.name ?? '',
+        nickname: me?.nickname ?? '',
+        department: me?.major ?? me?.department ?? '',
+        studentId: me?.studentId ? String(me.studentId) : '',
+        isAdmin: !!me?.isAdmin,
+      };
+
+      // 로컬 DB 업서트(프로필이 비어도 이메일 기준으로 레코드 남겨둠)
       await upsertUser({
-        ...user,
-        email: user.email.toLowerCase(),
+        email: profile.email,
+        name: profile.name,
+        nickname: profile.nickname,
+        department: profile.department,
+        studentId: profile.studentId,
+        password: '', // 서버 로그인이라 클라이언트에 패스워드 보관 X
+        isAdmin: profile.isAdmin,
+        createdAt: new Date().toISOString(),
       });
 
       // 세션 저장
-      await setSessionFromUser({
-        email: user.email.toLowerCase(),
-        name: user.name,
-        nickname: user.nickname,
-        studentId: user.studentId ?? '',
-        department: user.department ?? '',
-        isAdmin: false,
-      });
+      await setSessionFromUser(profile);
 
-      // ✅ 이메일 스코프 저장(표준/구키 모두) + 기기 ID 보장
-      await setAuthEmailNormalized(user.email.toLowerCase());
+      // 이메일 스코프/디바이스 ID
+      await setAuthEmailNormalized(emLower);
       await ensureLocalIdentity();
 
       navigation.reset({
         index: 0,
         routes: [{ name: 'Main', params: { initialTab: 'market' } }],
       });
-    } catch (e) {
-      console.error('login error', e);
-      Alert.alert('오류', '로그인 처리 중 문제가 발생했습니다.');
+    } catch (e: any) {
+      console.log('[LOGIN] ✖ error', {
+        message: e?.message,
+        status: e?.response?.status,
+        data: e?.response?.data,
+      });
+      const msg =
+        e?.response?.data?.message ??
+        (e?.response?.status
+          ? `로그인 실패 (HTTP ${e.response.status})`
+          : '네트워크 오류가 발생했습니다.');
+      Alert.alert('로그인 실패', msg);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -170,6 +215,7 @@ export default function LoginPage({ navigation }: Props) {
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="next"
+          editable={!loading}
         />
 
         <TextInput
@@ -180,18 +226,28 @@ export default function LoginPage({ navigation }: Props) {
           onChangeText={setPassword}
           returnKeyType="done"
           onSubmitEditing={onPressLogin}
+          editable={!loading}
         />
 
-        <TouchableOpacity style={styles.loginButton} onPress={onPressLogin} activeOpacity={0.8}>
-          <Text style={styles.loginButtonText}>로그인</Text>
+        <TouchableOpacity
+          style={styles.loginButton}
+          onPress={onPressLogin}
+          activeOpacity={0.8}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.loginButtonText}>로그인</Text>
+          )}
         </TouchableOpacity>
 
         <View style={styles.bottomLinks}>
-          <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
+          <TouchableOpacity disabled={loading} onPress={() => navigation.navigate('Signup')}>
             <Text style={styles.linkText}>회원가입</Text>
           </TouchableOpacity>
           <View style={styles.divider} />
-          <TouchableOpacity onPress={() => navigation.navigate('PasswordReset')}>
+          <TouchableOpacity disabled={loading} onPress={() => navigation.navigate('PasswordReset')}>
             <Text style={styles.linkText}>비밀번호 재설정</Text>
           </TouchableOpacity>
         </View>
