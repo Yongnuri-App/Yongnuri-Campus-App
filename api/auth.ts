@@ -14,7 +14,7 @@ export type JoinReq   = {
   nickname: string;
   password: string;
   passwordCheck: string;
-  // studentId?: string; // 서버가 받으면 추가
+  studentId?: string; // 서버가 받으면 추가
 };
 export type ResetPasswordReq = {
   email: string;
@@ -33,10 +33,14 @@ export const me               = ()                   => api.get('/users/me');
 
 // ----- 호환용 객체(export된 멤버 'authApi') -----
 export const authApi = {
-  requestEmailCode,
-  verifyEmailCode,
-  join,
+  requestEmailCode: (body: EmailReq) => api.post('/auth/email', body),
+  verifyEmailCode: (body: VerifyReq) => api.post('/auth/verify', body),
+  join: (body: JoinReq) => api.post('/auth/join', body),
   login,
   me,
   resetPassword, 
+  mypage: () => api.get('/mypage'),
+  /** 닉네임 수정: 명세상 body에 accessToken, nickName */
+  updateMypage: (body: { accessToken?: string; nickName: string }) =>
+    api.post('/mypage', body),
 } as const;
