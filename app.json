@@ -7,11 +7,9 @@
     "scheme": "yongnuri",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-
     "ios": {
       "supportsTablet": true
     },
-
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -19,12 +17,10 @@
       },
       "edgeToEdgeEnabled": true
     },
-
     "web": {
       "bundler": "metro",
       "favicon": "./assets/images/favicon.png"
     },
-
     "plugins": [
       [
         "expo-splash-screen",
@@ -36,15 +32,14 @@
         }
       ]
     ],
-
     "experiments": {
       "typedRoutes": true
     },
-
     "extra": {
       "apiBaseUrl": "http://192.168.0.108:8080",
       "ADMIN_ID": "202178028@yiu.ac.kr",
-      "ADMIN_PW": "1234"
+      "ADMIN_PW": "1234",
+      "profilePath": "/mypage"
     }
   }
 }

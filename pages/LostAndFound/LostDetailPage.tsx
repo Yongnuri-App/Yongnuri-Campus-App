@@ -1,6 +1,5 @@
 // pages/LostAndFound/LostDetailPage.tsx
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -12,6 +11,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 import AdminActionSheet from '../../components/Modals/AdminActionSheet/AdminActionSheet';
@@ -21,12 +22,12 @@ import usePermissions from '../../hooks/usePermissions';
 import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './LostDetailPage.styles';
 
-// ✅ DEV: 분실물 채팅 진입 버튼 (OWNER/GUEST 테스트용)
-
-// ✅ 이메일 기반 표기 훅
+// 이메일 기반 표기 훅
 import useDisplayProfile from '../../hooks/useDisplayProfile';
-// ✅ 실제 파일 경로: components/Profile/ProfileRow.tsx
 import ProfileRow from '../../components/Profile/ProfileRow';
+
+// ✅ API
+import { getLostFoundDetail } from '../../api/lost';
 
 const POSTS_KEY = 'lost_found_posts_v1';
 const LIKED_MAP_KEY = 'lost_found_liked_map_v1';
@@ -47,7 +48,8 @@ type LostPost = {
   authorDept?: string;
 };
 
-function timeAgo(iso: string) {
+function timeAgo(iso?: string) {
+  if (!iso) return '';
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
   if (m < 1) return '방금 전';
@@ -87,51 +89,81 @@ export default function LostDetailPage({
     confirmCancelText: '취소',
   });
 
-  /** 게시글 로컬 저장소에서 조회 */
+  /** 서버에서 상세 가져와서 화면 모델로 정규화 */
   const loadDetail = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem(POSTS_KEY);
-      const list: LostPost[] = raw ? JSON.parse(raw) : [];
-      const found = list.find(p => String(p.id) === String(id)) ?? null;
+      const res = await getLostFoundDetail(id);
+      console.log('[LostDetailPage] 상세 조회 성공(정규화전)', res);
 
-      setItem(found);
-      if (!found) {
-        Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
+      const normalized: LostPost = {
+        // ⬇️ 서버가 id 또는 post_id 중 무엇이든 올 수 있으니 둘 다 대응
+        id: String((res as any).id ?? (res as any).post_id),
+
+        type: res.purpose === 'LOST' ? 'lost' : 'found',
+        title: res.title,
+        content: res.content,
+        location: res.location,
+        images: (res.images ?? []).map((it) => it.imageUrl),
+        likeCount: 0,
+        createdAt: (res as any).createdAt ?? (res as any).created_at ?? new Date().toISOString(),
+
+        authorEmail: (res as any).authorEmail ?? null,
+        authorName: (res as any).authorNickname ?? undefined,
+        authorDept: (res as any).authorDepartment ?? (res as any).department ?? undefined,
+      };
+
+      setItem(normalized);
+      syncCount(0);
+    } catch (e) {
+      console.log('lost detail api error -> try local fallback', e);
+      // 3) 실패 시 로컬 저장소 폴백 (기존 로직 유지)
+      try {
+        const raw = await AsyncStorage.getItem(POSTS_KEY);
+        const list: LostPost[] = raw ? JSON.parse(raw) : [];
+        const found = list.find((p) => String(p.id) === String(id)) ?? null;
+
+        setItem(found);
+        if (!found) {
+          Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
+            { text: '확인', onPress: () => navigation.goBack() },
+          ]);
+          return;
+        }
+        syncCount(found.likeCount ?? 0);
+      } catch (err) {
+        console.log('lost detail load error', err);
+        Alert.alert('오류', '게시글을 불러오지 못했어요.', [
           { text: '확인', onPress: () => navigation.goBack() },
         ]);
-        return;
       }
-      syncCount(found.likeCount ?? 0);
-    } catch (e) {
-      console.log('lost detail load error', e);
-      Alert.alert('오류', '게시글을 불러오지 못했어요.', [
-        { text: '확인', onPress: () => navigation.goBack() },
-      ]);
     }
   }, [id, navigation, syncCount]);
 
-  useEffect(() => {
-    const unsub = navigation.addListener('focus', () => loadDetail());
-    return unsub;
-  }, [navigation, loadDetail]);
+  useFocusEffect(
+    React.useCallback(() => {
+      // 포커스될 때 상세 1회 로드
+      loadDetail();
+      // 별도 cleanup 필요 없음
+    }, [loadDetail])
+  );
 
-  useEffect(() => {
-    loadDetail();
-  }, [loadDetail]);
-
-  /** ✅ 권한 파생(관리자 우선 정책) */
+  /** 권한 파생 */
   const { isAdmin, isOwner } = usePermissions({
     authorId: item?.authorId,
     authorEmail: item?.authorEmail ?? null,
     routeParams: route.params,
   });
 
-  /** ✅ 프로필 표기: 이메일 우선 조회 → 없으면 게시글 메타 폴백 */
-  const { name: lookupName, dept: lookupDept } = useDisplayProfile(item?.authorEmail ?? null, true);
+  /** 프로필 표기: 이메일 조회(있으면) → 닉네임 폴백 */
+  // 이메일 기반 최신 표기값
+  const { name: lookupName, dept: lookupDept } =
+    useDisplayProfile(item?.authorEmail ?? null, true);
+
   const profileName = useMemo(
     () => (lookupName || item?.authorName || '사용자'),
     [lookupName, item?.authorName]
   );
+
   const profileDept = useMemo(
     () => (lookupDept || item?.authorDept || ''),
     [lookupDept, item?.authorDept]
@@ -152,7 +184,7 @@ export default function LostDetailPage({
       targetEmail: item.authorEmail ?? null,
 
       targetPostId: String(item.id),
-      targetStorageKey: POSTS_KEY,   // 'lost_found_posts_v1'
+      targetStorageKey: POSTS_KEY,
       targetPostTitle: item.title,
       targetKind: 'lost',
     });
@@ -168,7 +200,6 @@ export default function LostDetailPage({
 
   const images = Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
 
-  /** 우상단 버튼: 관리자/소유자 ⇒ 옵션(모달), 일반 ⇒ 신고 */
   const renderRightTopButton = () => {
     if (isAdmin || isOwner) {
       return (
@@ -248,7 +279,6 @@ export default function LostDetailPage({
 
         {/* ===== 본문 ===== */}
         <View style={styles.body}>
-          {/* ✅ 이메일 기반 최신 표기값 */}
           <ProfileRow name={profileName} dept={profileDept} />
 
           <View style={styles.divider} />
@@ -281,36 +311,17 @@ export default function LostDetailPage({
           </View>
 
           <View style={{ height: 24 }} />
-
-          {/* =========================
-              ✅ DEV: 분실물 채팅 진입 버튼
-              - OWNER/GUEST 시나리오로 ChatRoomPage 이동
-              - DevLostChatButton 내부에서 __DEV__ 체크하므로
-                실서비스 빌드에서는 자동으로 숨김
-             ========================= */}
-          {/* <DevLostChatButton
-            post={{
-              id: String(item.id),
-              title: item.title,
-              imageUri: images[0],
-              place: item.location,
-              purpose: item.type,                 // 'lost' | 'found'
-              posterNickname: profileName,        // 작성자 닉네임
-              authorId: String(item.authorId ?? ''), // ChatRoom 권한 판별용
-              authorEmail: item.authorEmail ?? undefined,
-            }}
-          /> */}
         </View>
       </ScrollView>
 
-      {/* ===== 하단 고정 바: 관리자/작성자는 숨김 ===== */}
+      {/* 하단 고정 바: 관리자/작성자는 숨김 */}
       {!(isAdmin || isOwner) && (
         <DetailBottomBar
           variant="detail"
           initialLiked={liked}
           onToggleLike={async (nextLiked: boolean) => {
             await setLikedPersisted(nextLiked);
-            setItem(prev => {
+            setItem((prev) => {
               if (!prev) return prev;
               const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));
               return { ...prev, likeCount: nextCount };
@@ -331,12 +342,11 @@ export default function LostDetailPage({
         />
       )}
 
-      {/* ✅ 관리자/소유자 공통 옵션 모달 */}
       {(isAdmin || isOwner) && (
         <AdminActionSheet
           visible={menuVisible}
           onClose={() => setMenuVisible(false)}
-          showEdit={!isAdmin && isOwner} // 관리자이면 수정 숨김
+          showEdit={!isAdmin && isOwner}
           onEdit={() => navigation.navigate('LostPost', { mode: 'edit', id: String(item.id) })}
           onDelete={confirmAndDelete}
           editLabel="수정"

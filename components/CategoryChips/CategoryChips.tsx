@@ -8,18 +8,22 @@ export type CategoryItem = {
   label: string;
 };
 
-/** 기본 카테고리 리스트 */
+/**
+ * 기본 카테고리 리스트
+ * - 방법 A: 서버가 기대하는 location 문자열을 id와 label에 동일하게 설정
+ * - "전체"만 예외로 id는 'all' 유지 (기존 로직과 호환)
+ */
 export const DEFAULT_CATEGORIES: CategoryItem[] = [
   { id: 'all', label: '전체' },
-  { id: 'maingate', label: '용인대 정문' },
-  { id: 'mudo', label: '무도대학' },
-  { id: 'sports', label: '체육과학대학' },
-  { id: 'aibio', label: 'AI바이오융합대학' },
-  { id: 'arts', label: '문화예술대학' },
-  { id: 'square', label: '본관 앞 광장' },
-  { id: 'studentcenter', label: '학생회관' },
-  { id: 'library', label: '중앙도서관' },
-  { id: 'yongoreum', label: '용오름대학' },
+  { id: '용인대 정문', label: '용인대 정문' },
+  { id: '무도대학', label: '무도대학' },
+  { id: '체육과학대학', label: '체육과학대학' },
+  { id: 'AI바이오융합대학', label: 'AI바이오융합대학' },
+  { id: '문화예술대학', label: '문화예술대학' },
+  { id: '본관 앞 광장', label: '본관 앞 광장' },
+  { id: '학생회관', label: '학생회관' },
+  { id: '중앙도서관', label: '중앙도서관' },
+  { id: '용오름대학', label: '용오름대학' },
 ];
 
 type Props = {
