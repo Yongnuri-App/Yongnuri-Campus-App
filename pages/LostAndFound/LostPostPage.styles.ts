@@ -68,7 +68,7 @@ export default StyleSheet.create({
   /* ===== Scroll Content ===== */
   // 스크롤 내용의 하단 여백(고정 버튼 높이만큼은 submitSpacer로 확보)
   scrollContent: {
-    paddingBottom: 8,
+    paddingBottom: 30,
   },
 
   /* ===== 공통 블록/텍스트 ===== */

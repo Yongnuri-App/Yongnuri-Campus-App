@@ -8,7 +8,7 @@ export default StyleSheet.create({
   inner: {
     paddingHorizontal: 19,
     paddingTop: 60,
-    paddingBottom: 24,
+    paddingBottom: 100,
   },
   /* ===== Header ===== */
   header: {

@@ -21,7 +21,7 @@ export default StyleSheet.create({
   inner: {
     paddingHorizontal: 19,
     paddingTop: 60,
-    paddingBottom: 24, // 본문 하단 여백 (버튼 공간은 submitWrap이 담당)
+    paddingBottom: 10, // 본문 하단 여백 (버튼 공간은 submitWrap이 담당)
   },
 
   scroll: {
