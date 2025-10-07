@@ -1,5 +1,5 @@
-// pages/GroupBuy/GroupBuyRecruitPage.tsx
-import React, { useMemo, useState, useCallback } from 'react';
+// /pages/GroupBuy/GroupBuyRecruitPage.tsx
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   Alert,
   Image,
@@ -11,14 +11,18 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CommonActions, useRoute } from '@react-navigation/native';
 
 import styles, { COLORS } from './GroupBuyRecruitPage.styles';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import { useImagePicker } from '../../hooks/useImagePicker';
-import { useEditPost } from '../../hooks/useEditPost';
-import { getCurrentUserEmail } from '../../utils/currentUser';
+
+import {
+  createGroupBuyPost,
+  getGroupBuyDetail,
+  updateGroupBuyPost,
+  GetGroupBuyDetailRes, // ✅ 올바른 타입명
+} from '../../api/groupBuy';
 
 type RecruitMode = 'unlimited' | 'limited' | null;
 
@@ -26,22 +30,8 @@ interface Props {
   navigation?: any;
 }
 
-const POSTS_KEY = 'groupbuy_posts_v1';
-const AUTH_USER_ID_KEY = 'auth_user_id';
-const AUTH_USER_EMAIL_KEY = 'auth_user_email';
-
 const TITLE_MAX = 50;
 const DESC_MAX = 1000;
-
-async function ensureLocalIdentity() {
-  let userId = await AsyncStorage.getItem(AUTH_USER_ID_KEY);
-  if (!userId) {
-    userId = `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    await AsyncStorage.setItem(AUTH_USER_ID_KEY, userId);
-  }
-  const compatEmail = await AsyncStorage.getItem(AUTH_USER_EMAIL_KEY);
-  return { userId, compatEmail: compatEmail ?? null };
-}
 
 const GroupBuyRecruitPage: React.FC<Props> = ({ navigation }) => {
   const route = useRoute<any>();
@@ -101,75 +91,28 @@ const CreateForm: React.FC<{ navigation: any }> = ({ navigation }) => {
 
     setSubmitting(true);
     try {
-      const { userId, compatEmail } = await ensureLocalIdentity();
+      const limitNum =
+        (recruitMode ?? 'unlimited') === 'limited' ? Number(recruitCount) : null;
 
-      // 표준 세션 이메일 우선
-      let userEmail: string | null = await getCurrentUserEmail();
-      if (!userEmail) userEmail = compatEmail;
-
-      if (!userEmail) {
-        Alert.alert('오류', '로그인이 필요합니다. 다시 로그인해 주세요.');
-        setSubmitting(false);
-        return;
-      }
-
-      // ✅ 타입 좁히기: TS가 recruitMode의 null 가능성을 알지 못하므로 명시
-      const modeNarrowed = (recruitMode ?? 'unlimited') as Exclude<RecruitMode, null>;
-
-      type GroupBuyPost = {
-        id: string;
-        title: string;
-        description: string;
-        recruit: { mode: 'unlimited' | 'limited'; count: number | null };
-        applyLink: string;
-        images: string[];
-        likeCount: number;
-        createdAt: string;
-        authorId?: string | number;
-        authorEmail?: string | null;
-        authorName?: string;
-        authorDept?: string;
-      };
-
-      const newItem: GroupBuyPost = {
-        id: `${Date.now()}`,
+      await createGroupBuyPost({
         title: title.trim(),
-        description: desc.trim(),
-        recruit: {
-          mode: modeNarrowed,
-          count: modeNarrowed === 'limited' ? Number(recruitCount) : null,
-        },
-        applyLink: normalizedLink,
-        images,
-        likeCount: 0,
-        createdAt: new Date().toISOString(),
-        authorId: userId,
-        authorEmail: userEmail, // 이메일만 저장 → 상세에서 최신 닉/학부 조회
-      };
-
-      const raw = await AsyncStorage.getItem(POSTS_KEY);
-      const list = raw ? JSON.parse(raw) : [];
-      list.unshift(newItem);
-      await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(list));
-
-      setTitle('');
-      setDesc('');
-      setRecruitMode(null);
-      setRecruitCount('');
-      setApplyLink('');
+        content: desc.trim(),
+        imageUrls: images ?? [],
+        limit: limitNum,
+        link: normalizedLink,
+        status: 'RECRUITING',
+      });
 
       navigation.dispatch(
         CommonActions.reset({
           index: 1,
-          routes: [
-            { name: 'Main', params: { initialTab: 'group' } },
-            { name: 'GroupBuyDetail', params: { id: newItem.id, isOwner: true } },
-          ],
+          routes: [{ name: 'Main', params: { initialTab: 'group' } }],
         })
       );
     } catch (e: any) {
-      console.log(e);
-      Alert.alert('오류', e?.message || '등록에 실패했어요. 잠시 후 다시 시도해주세요.');
+      console.log('[GroupBuy create] 실패', e?.message);
+      Alert.alert('오류', e?.response?.data?.message || e?.message || '등록에 실패했어요.');
+    } finally {
       setSubmitting(false);
     }
   };
@@ -323,59 +266,123 @@ const CreateForm: React.FC<{ navigation: any }> = ({ navigation }) => {
 };
 
 /* =========================
- * Edit (수정) 폼
+ * Edit (수정) 폼 — 서버 연동
  * =======================*/
 const EditForm: React.FC<{ navigation: any; postId: string }> = ({ navigation, postId }) => {
+  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
+  const [title, setTitle] = useState('');
+  const [desc, setDesc] = useState('');
+  const [recruitMode, setRecruitMode] = useState<RecruitMode>('unlimited');
+  const [recruitCount, setRecruitCount] = useState<string>('');
+  const [applyLink, setApplyLink] = useState('');
 
   const { images, setImages, openAdd, removeAt, max } = useImagePicker({ max: 10 });
 
-  const handleLoaded = useCallback((post: any) => {
-    if (post.images && post.images.length) {
-      setImages(post.images);
+  // 서버에서 상세 불러와 폼 채우기
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      const d: GetGroupBuyDetailRes = await getGroupBuyDetail(postId);
+
+      setTitle(d.title ?? '');
+      setDesc(d.content ?? '');
+      setApplyLink(d.link ?? '');
+
+      const limit = d.limit;
+      if (limit == null) {
+        setRecruitMode('unlimited');
+        setRecruitCount('');
+      } else {
+        setRecruitMode('limited');
+        setRecruitCount(String(limit));
+      }
+
+      const imgs =
+        Array.isArray(d.images) && d.images.length
+          ? [...d.images].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0)).map(i => i.imageUrl)
+          : d.thumbnailUrl
+          ? [d.thumbnailUrl]
+          : [];
+      setImages(imgs);
+    } catch (e) {
+      console.log('[GroupBuy edit] detail load error', (e as any)?.response?.data || e);
+      Alert.alert('오류', '게시글을 불러오지 못했어요.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    } finally {
+      setLoading(false);
     }
-  }, [setImages]);
+  }, [postId, navigation, setImages]);
 
-  const {
-    title, setTitle,
-    desc, setDesc,
-    mode: recruitMode, setMode: setRecruitMode,
-    count: recruitCount, setCount: setRecruitCount,
-    applyLink, setApplyLink,
-    isValid,
-    save,
-  } = useEditPost({
-    postId,
-    postsKey: POSTS_KEY,
-    onLoaded: handleLoaded,
-  });
+  useEffect(() => { load(); }, [load]);
 
-  const normalizedLink = () => {
-    if (!applyLink?.trim()) return '';
-    return /^https?:\/\//i.test(applyLink.trim()) ? applyLink.trim() : `https://${applyLink.trim()}`;
+  const isValidUrl = (s: string) => {
+    try {
+      const url = /^https?:\/\//i.test(s) ? s : `https://${s}`;
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
   };
 
-  const canSubmit = !!isValid && !submitting;
-  const submitLabel = submitting ? '수정 중...' : '수정 완료';
+  const isValid = useMemo(() => {
+    if (!title.trim() || !desc.trim()) return false;
+    if (applyLink && !isValidUrl(applyLink.trim())) return false;
+    if (recruitMode === 'limited') {
+      const n = Number(recruitCount);
+      if (!recruitCount || Number.isNaN(n) || n <= 0) return false;
+    }
+    return true;
+  }, [title, desc, applyLink, recruitMode, recruitCount]);
+
+  const normalizedLink = useMemo(() => {
+    if (!applyLink?.trim()) return '';
+    return /^https?:\/\//i.test(applyLink.trim())
+      ? applyLink.trim()
+      : `https://${applyLink.trim()}`;
+  }, [applyLink]);
 
   const handleSubmitEdit = async () => {
-    if (!canSubmit) return;
+    if (!isValid || submitting) return;
     setSubmitting(true);
     try {
-      const ok = await save?.({ images, applyLink: normalizedLink() });
-      if (ok) {
-        Alert.alert('완료', '게시글을 수정했어요.', [
-          { text: '확인', onPress: () => navigation.goBack() },
-        ]);
-      } else {
-        setSubmitting(false);
+      const payload: any = {
+        title: title.trim(),
+        content: desc.trim(),
+        link: normalizedLink || undefined, // 빈 값이면 보내지 않음
+        imageUrls: images ?? [],
+      };
+      if (recruitMode === 'limited') {
+        payload.limit = Number(recruitCount);
       }
+      // status 변경 UI 없음
+
+      const res = await updateGroupBuyPost(postId, payload);
+      console.log('[GroupBuy edit] patched ->', res);
+
+      Alert.alert('완료', '게시글을 수정했어요.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
     } catch (e: any) {
-      console.log(e);
-      Alert.alert('오류', e?.message || '수정에 실패했어요.');
+      console.log('[GroupBuy edit] patch error', e?.response?.data || e);
+      Alert.alert('오류', e?.response?.data?.message || e?.message || '수정에 실패했어요.');
       setSubmitting(false);
     }
   };
+
+  const submitLabel = submitting ? '수정 중...' : '수정 완료';
+  const canSubmit = isValid && !submitting;
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ color: '#979797' }}>불러오는 중…</Text>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView

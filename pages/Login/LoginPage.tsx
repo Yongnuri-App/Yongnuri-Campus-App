@@ -124,9 +124,19 @@ export default function LoginPage({ navigation }: Props) {
         throw new Error('서버에서 accessToken을 받지 못했습니다.');
       }
 
-      // 토큰 저장 & axios 헤더 주입
-      await AsyncStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-      if (refreshToken) await AsyncStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+      // ✅ 토큰 저장 (기존 키 유지 + 호환 키 동시 저장)
+      await AsyncStorage.multiSet([
+        [ACCESS_TOKEN_KEY, accessToken], // 'access_token' (기존)
+        ['accessToken', accessToken],    // ← createGroupBuyPost에서 찾는 키
+      ]);
+      if (refreshToken) {
+        await AsyncStorage.multiSet([
+          [REFRESH_TOKEN_KEY, refreshToken], // 'refresh_token' (기존)
+          ['refreshToken', refreshToken],     // 호환 키
+        ]);
+      }
+
+      // axios 헤더 주입 (헤더 인증 쓰는 API 대비)
       setAuthToken(accessToken);
 
       // 2-1) (선택) 내 정보 조회 시도 → 세션/로컬DB 동기화
@@ -145,7 +155,7 @@ export default function LoginPage({ navigation }: Props) {
         name: me?.name ?? '',
         nickname: me?.nickname ?? '',
         department: me?.major ?? me?.department ?? '',
-        studentId: me?.studentId ? String(me.studentId) : '',
+        studentId: me?.studentId ? String(me?.studentId) : '',
         isAdmin: !!me?.isAdmin,
       };
 

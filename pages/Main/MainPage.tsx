@@ -17,6 +17,7 @@ import styles from './MainPage.styles';
 import type { RootStackScreenProps } from '../../types/navigation';
 import { getMarketList } from '../../api/market';
 import { getLostFoundList } from '../../api/lost';
+import { getGroupBuyList } from '../../api/groupBuy';
 
 /** AsyncStorage 키 매핑 (탭별) */
 const POSTS_KEY_MAP = {
@@ -53,6 +54,7 @@ type LostListItem = {
   status?: 'REPORTED' | 'RETURNED' | 'DELETED';
 };
 
+/** 공구 리스트 타입 */
 type GroupListItem = {
   id: string;
   title: string;
@@ -65,6 +67,7 @@ type GroupListItem = {
   images: string[];
   likeCount: number;
   createdAt: string;
+  status?: 'RECRUITING' | 'COMPLETED' | 'DELETED';
 };
 
 type NoticeListItem = {
@@ -229,15 +232,10 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
           const typeLabel = getLocationLabelFromId(currentCategoryId ?? category);
           console.log('[MainPage] GET /board/lost-found?location=', typeLabel);
 
-          const data = await getLostFoundList(
-            // 서버가 무시할 수 있지만, 보내는 건 유지
-            typeLabel
-          );
-
-          // 서버 응답을 먼저 정규화
+          const data = await getLostFoundList(typeLabel);
           let rows: any[] = Array.isArray(data) ? data : [];
 
-          // ✅ 서버가 location 필터를 무시하는 경우를 대비해 클라이언트에서 한 번 더 필터링
+          // 서버가 location 필터를 무시하는 경우를 대비해 클라이언트에서 한 번 더 필터링
           if (typeLabel && typeLabel !== '전체') {
             rows = rows.filter((d: any) => (d?.location ?? '').trim() === typeLabel);
           }
@@ -265,12 +263,10 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
 
           list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-          // 서버가 빈 배열 주면 로컬 폴백
           if (!list.length) {
             try {
               const raw = await AsyncStorage.getItem('lost_found_posts_v1');
               const local: LostListItem[] = raw ? JSON.parse(raw) : [];
-              // 폴백에도 같은 기준으로 필터 적용
               const filteredLocal =
                 typeLabel && typeLabel !== '전체'
                   ? local.filter((it) => (it.location ?? '').trim() === typeLabel)
@@ -284,7 +280,6 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
           }
         } catch (e) {
           console.log('[MainPage] lost list load error', (e as any)?.response?.data || e);
-          // 실패 시 로컬 폴백 (+ 동일 필터)
           try {
             const typeLabel = getLocationLabelFromId(currentCategoryId ?? category);
             const raw = await AsyncStorage.getItem('lost_found_posts_v1');
@@ -301,7 +296,52 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
         return;
       }
 
-      // ----- 나머지 탭은 기존 로컬 저장소 유지 -----
+      // ----- 공동구매: 서버 목록 호출 -----
+      if (which === 'group') {
+        try {
+          // 현재 group 탭은 카테고리 칩을 숨기므로 기본 '전체'로 호출
+          const typeLabel = '전체';
+          const rows = await getGroupBuyList(typeLabel);
+
+          const list: GroupListItem[] = (Array.isArray(rows) ? rows : []).map((d: any, idx: number) => {
+            const id = String(d.post_id ?? d.id ?? `group_${idx}`);
+            const createdAt = d.created_at ?? d.createdAt ?? new Date().toISOString();
+            const limitVal = d.limit; // number | null
+            const statusUp = String(d.status ?? '').toUpperCase();
+
+            return {
+              id,
+              title: d.title ?? '',
+              description: undefined,
+              recruit: {
+                mode: limitVal == null ? 'unlimited' : 'limited',
+                count: limitVal == null ? null : Number(limitVal),
+              },
+              applyLink: '',
+              images: d.thumbnailUrl ? [d.thumbnailUrl] : [],
+              likeCount: Number(d.bookmarkCount ?? 0),
+              createdAt,
+              status: (statusUp as 'RECRUITING' | 'COMPLETED' | 'DELETED') || undefined,
+            };
+          });
+
+          list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          setGroupItems(list);
+        } catch (e) {
+          console.log('[MainPage] group list load error', (e as any)?.response?.data || e);
+          // 실패 시 로컬 폴백
+          try {
+            const raw = await AsyncStorage.getItem('groupbuy_posts_v1');
+            const local: GroupListItem[] = raw ? JSON.parse(raw) : [];
+            setGroupItems(local);
+          } catch {
+            setGroupItems([]);
+          }
+        }
+        return;
+      }
+
+      // ----- 공지/기타: 기존 로컬 저장소 유지 -----
       const key = POSTS_KEY_MAP[which as keyof typeof POSTS_KEY_MAP];
       if (!key) return;
       try {
@@ -313,11 +353,9 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
             new Date(a.createdAt ?? a.startDate).getTime()
         );
 
-        if (which === 'group') setGroupItems(list as GroupListItem[]);
         if (which === 'notice') setNoticeItems(list as NoticeListItem[]);
       } catch (e) {
         console.log('load posts error', e);
-        if (which === 'group') setGroupItems([]);
         if (which === 'notice') setNoticeItems([]);
       }
     },
@@ -450,6 +488,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
                 recruitCount={item.recruit?.count ?? null}
                 image={item.images && item.images.length > 0 ? item.images[0] : undefined}
                 likeCount={item.likeCount ?? 0}
+                isClosed={String(item.status ?? '').toUpperCase() === 'COMPLETED'} // ✅ 상태 반영
                 onPress={() => navigation.navigate('GroupBuyDetail', { id: item.id })}
               />
             )}
