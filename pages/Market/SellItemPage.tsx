@@ -1,6 +1,5 @@
 // pages/Market/SellItemPage.tsx
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -11,29 +10,23 @@ import {
   View,
 } from 'react-native';
 import { CommonActions, useRoute } from '@react-navigation/native';
-import { getCurrentUserEmail } from '../../utils/currentUser';
 
 import LocationPicker from '../../components/LocationPicker/LocationPicker';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import styles from './SellItemPage.styles';
 import { useImagePicker } from '../../hooks/useImagePicker';
-import { useEditPost } from '../../hooks/useEditPost';
+import { createMarketPost, getMarketPost, updateMarketPost } from '../../api/market';
+import type { CreateMarketPostReq } from '../../types/market';
+import type { UpdateMarketPostReq } from '../../api/market';
+import { getCurrentUserEmail } from '../../utils/currentUser';
 
 type SaleMode = 'sell' | 'donate' | null;
-
-interface Props {
-  navigation?: any;
-}
-
-const POSTS_KEY = 'market_posts_v1';
-const AUTH_USER_ID_KEY = 'auth_user_id';
-const AUTH_USER_EMAIL_KEY = 'auth_user_email';
 
 const MAX_IMAGES = 10;
 const TITLE_MAX = 50;
 const DESC_MAX = 1000;
 
-/** 숫자만 받은 뒤 "₩ 12,345" 형태로 보여주기 */
+/** 금액 포맷 함수 */
 const formatKRW = (digits: string) => {
   if (!digits) return '';
   const n = Number(digits);
@@ -41,180 +34,69 @@ const formatKRW = (digits: string) => {
   return `₩ ${n.toLocaleString('ko-KR')}`;
 };
 
-// 로그인 없어도 기기별 고정 로컬 사용자 ID 보장
-async function ensureLocalIdentity() {
-  let userId = await AsyncStorage.getItem(AUTH_USER_ID_KEY);
-  if (!userId) {
-    userId = `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    await AsyncStorage.setItem(AUTH_USER_ID_KEY, userId);
-  }
-  // 이메일은 구키일 수 있으므로 여기서는 읽기만
-  const userEmail = (await AsyncStorage.getItem(AUTH_USER_EMAIL_KEY)) ?? null;
-  return { userId, userEmail };
-}
-
-type MarketPost = {
-  id: string;
-  title: string;
-  description: string;
-  mode: 'sell' | 'donate';
-  price: number;
-  location: string;
-  images: string[];
-  likeCount: number;
-  createdAt: string;
-  authorId?: string | number;
-  authorEmail?: string | null;
-  authorName?: string;
-  authorDept?: string;
-};
-
-const SellItemPage: React.FC<Props> = ({ navigation }) => {
+const SellItemPage: React.FC<{ navigation?: any }> = ({ navigation }) => {
+  // 라우트 파라미터: create | edit / id
   const route = useRoute<any>();
   const modeParam = route.params?.mode as 'create' | 'edit' | undefined;
-  const editId = route.params?.id as string | undefined;
+  const editId = route.params?.id as string | number | undefined;
   const isEdit = modeParam === 'edit' && !!editId;
 
-  // 사진은 훅이 관리 (UI는 PhotoPicker)
   const { images, setImages, openAdd, removeAt } = useImagePicker({ max: MAX_IMAGES });
-
-  // 폼 상태
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [mode, setMode] = useState<SaleMode>(null);
-  const [priceRaw, setPriceRaw] = useState<string>(''); // 숫자만
+  const [priceRaw, setPriceRaw] = useState<string>('');
   const [location, setLocation] = useState<string>('');
+  const [saleStatus, setSaleStatus] = useState<'SELLING' | 'RESERVED' | 'SOLD'>('SELLING');
   const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(isEdit);
 
-  const isDonation = useMemo(() => mode === 'donate', [mode]);
-  const isSell = useMemo(() => mode === 'sell', [mode]);
+  /** ✅ 이탈 방지 우회 ref (동기 판정용) */
+  const bypassGuardRef = useRef(false);
+
+  const isDonation = mode === 'donate';
+  const isSell = mode === 'sell';
   const priceDisplay = useMemo(() => formatKRW(priceRaw), [priceRaw]);
 
-  /** ===== 수정 모드: 공통 useEditPost를 마켓 어댑터로 사용 ===== */
-  const marketAdapters = isEdit
-    ? {
-        deserialize: (post: MarketPost) => ({
-          // 기본 폼 필드
-          title: post.title ?? '',
-          desc: post.description ?? '',
-          mode: 'unlimited' as const, // 기본 훅의 모드는 쓰지 않음
-          count: '',
-          applyLink: '',
-          imagesText: (post.images ?? []).join(', '),
-          // 실제 마켓 필드는 extra에 보관
-          extra: {
-            saleMode: post.mode as 'sell' | 'donate',
-            price: Number(post.price ?? 0),
-            location: post.location ?? '',
-          },
-        }),
-        serialize: (prev: MarketPost, form: any): MarketPost => {
-          const saleMode: 'sell' | 'donate' = form?.extra?.saleMode ?? 'sell';
-          const priceNum: number =
-            saleMode === 'donate'
-              ? 0
-              : Number(form?.extra?.price ?? 0);
-
-          const imgs =
-            typeof form.imagesText === 'string'
-              ? form.imagesText
-                  .split(',')
-                  .map((s: string) => s.trim())
-                  .filter(Boolean)
-              : [];
-
-          return {
-            ...prev,
-            title: String(form.title ?? '').trim(),
-            description: String(form.desc ?? '').trim(),
-            mode: saleMode,
-            price: priceNum,
-            location: String(form?.extra?.location ?? '').trim(),
-            images: imgs,
-            // authorId / authorEmail은 유지 (prev에 이미 있음)
-          };
-        },
-        validate: (form: any) => {
-          const okTitle = !!String(form.title ?? '').trim();
-          const okDesc = !!String(form.desc ?? '').trim();
-          const saleMode: 'sell' | 'donate' | null = form?.extra?.saleMode ?? null;
-          const locOk = !!String(form?.extra?.location ?? '').trim();
-          if (!okTitle || !okDesc || !locOk || !saleMode) return false;
-          if (saleMode === 'sell') {
-            const pn = Number(form?.extra?.price ?? 0);
-            if (!Number.isFinite(pn) || pn <= 0) return false;
-          }
-          return true;
-        },
-      }
-    : undefined;
-
-  // ✅ 핵심: enabled: isEdit (create 모드에선 훅이 동작하지 않음)
-  const edit = useEditPost<MarketPost, any>({
-    postId: editId ?? '',
-    postsKey: POSTS_KEY,
-    adapters: marketAdapters as any,
-    onLoaded: (post) => {
-      // 폼 주입
-      setTitle(post.title ?? '');
-      setDesc(post.description ?? '');
-      setMode(post.mode ?? 'sell');
-      setPriceRaw(post.mode === 'donate' ? '' : String(Number(post.price ?? 0)));
-      setLocation(post.location ?? '');
-      if (post.images && post.images.length) {
-        setImages(post.images);
-      }
-    },
-    onSaved: (next) => {
-      // 상세 페이지 즉시 갱신 콜백(상세에서 넘겨준 onEdited가 있으면 실행)
-      route.params?.onEdited?.(next);
-    },
-    enabled: isEdit,
-  });
-
-  /** 폼 유효성 (작성/수정 버튼 활성/비활성) */
+  /** 작성 가능 여부 */
   const canSubmitCreate = useMemo(() => {
-    if (!title.trim()) return false;
-    if (!desc.trim()) return false;
-    if (mode === null) return false;
+    if (!title.trim() || !desc.trim() || !location.trim() || !mode) return false;
     if (mode === 'sell') {
-      if (!priceRaw.trim()) return false;
-      const pn = Number(priceRaw);
-      if (!Number.isFinite(pn) || pn <= 0) return false;
+      const n = Number(priceRaw);
+      if (!Number.isFinite(n) || n <= 0) return false;
     }
-    if (!location.trim()) return false;
     return true;
-  }, [title, desc, mode, priceRaw, location]);
+  }, [title, desc, location, mode, priceRaw]);
 
-  const canSubmit = isEdit ? edit.isValid !== false : canSubmitCreate;
-
-  /** 작성 중 여부(이탈 방지) */
+  /** 작성 중 여부 */
   const isDirty = useMemo(() => {
     return (
-      images.length > 0 ||
       !!title.trim() ||
       !!desc.trim() ||
       mode !== null ||
       !!priceRaw.trim() ||
-      !!location.trim()
+      !!location.trim() ||
+      images.length > 0
     );
-  }, [images, title, desc, mode, priceRaw, location]);
+  }, [title, desc, mode, priceRaw, location, images]);
 
   /** 뒤로가기 */
   const goBack = () => {
     if (navigation?.goBack) return navigation.goBack();
-    Alert.alert('뒤로가기', '네비게이션이 연결되어 있지 않습니다.');
   };
 
-  /** 모드 변경 */
+  /** 거래 방식 변경 */
   const handleChangeMode = (next: SaleMode) => {
     setMode(next);
-    if (next === 'donate') setPriceRaw(''); // 나눔 전환 시 가격 초기화
+    if (next === 'donate') setPriceRaw('');
   };
 
-  /** 이탈 방지: 경고 후 리셋 */
+  /** 작성 중 이탈 방지 */
   useEffect(() => {
     const sub = navigation?.addListener?.('beforeRemove', (e: any) => {
+      // ✅ 저장/이동 과정에서는 가드 비활성화 (ref는 동기적으로 즉시 반영됨)
+      if (bypassGuardRef.current) return;
+
       if (!isDirty || submitting) return;
       e.preventDefault();
       Alert.alert('작성 중', '작성 중인 내용이 사라집니다. 나가시겠어요?', [
@@ -234,120 +116,155 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
         },
       ]);
     });
-    return () => {
-      if (sub) sub();
-    };
+    return () => sub && sub();
   }, [isDirty, submitting, navigation, setImages]);
 
-  /** 제출 - 생성 */
+  /** ====== 수정 모드일 때 상세 불러와서 폼 주입 ====== */
+  useEffect(() => {
+    if (!isEdit) return;
+    let mounted = true;
+    (async () => {
+      try {
+        setLoading(true);
+        console.log('[SellItemPage] load detail for edit id=', editId);
+        const detail = await getMarketPost(editId as string);
+        console.log('[SellItemPage] detail =', detail);
+
+        // 서버 스펙 기준 매핑
+        const d = detail || {};
+        const _images: string[] = Array.isArray(d.images)
+          ? d.images.map((it: any) => it?.imageUrl).filter(Boolean)
+          : (d.thumbnailUrl ? [d.thumbnailUrl] : []);
+
+        if (!mounted) return;
+        setTitle(d.title ?? '');
+        setDesc(d.content ?? '');
+        setLocation(d.location ?? '');
+        setSaleStatus((d.status as any) ?? 'SELLING');
+
+        const priceNum = Number(d.price ?? 0);
+        const nextMode: SaleMode = priceNum === 0 ? 'donate' : 'sell';
+        setMode(nextMode);
+        setPriceRaw(nextMode === 'donate' ? '' : String(priceNum));
+        if (_images.length) setImages(_images);
+      } catch (e: any) {
+        console.log('[SellItemPage] load detail error', e?.response?.data || e);
+        Alert.alert('오류', '게시글 정보를 불러오지 못했어요.', [
+          { text: '확인', onPress: () => navigation.goBack?.() },
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [isEdit, editId, navigation, setImages]);
+
+  /** 등록 (API 연결) */
   const handleSubmitCreate = async () => {
     if (!canSubmitCreate || submitting) return;
     setSubmitting(true);
     try {
-      // ✅ 로컬 사용자 식별자(UID) 확보
-      const { userId } = await ensureLocalIdentity();
-      // ✅ 세션에서 현재 로그인 이메일(소문자 정규화) 확보
-      const userEmailRaw = await getCurrentUserEmail();
-      const userEmail = userEmailRaw ? userEmailRaw.trim().toLowerCase() : null;
-
-      if (!userEmail) {
-        Alert.alert('오류', '로그인이 필요합니다. 다시 로그인해 주세요.');
-        setSubmitting(false);
+      const email = await getCurrentUserEmail();
+      if (!email) {
+        Alert.alert('로그인이 필요합니다.');
         return;
       }
 
-      const payload = {
+      const method = mode === 'donate' ? 'DONATE' : 'SELL';
+      const priceNum = mode === 'donate' ? 0 : Number(priceRaw);
+
+      // ✅ 서버 NotBlank(status) 대응: 기본값 SELLING(판매중)
+      const payload: CreateMarketPostReq = {
         title: title.trim(),
-        description: desc.trim(),
-        mode, // 'sell' | 'donate'
-        price: mode === 'donate' ? 0 : Number(priceRaw), // number
+        content: desc.trim(),
+        imageUrls: images,
+        method,
         location: location.trim(),
-        images, // string[]
+        price: priceNum,
+        status: 'SELLING',
       };
 
-      // 로컬 '게시글 목록'에 prepend (최신이 위)
-      const newItem: MarketPost = {
-        id: String(Date.now()),
-        title: payload.title,
-        description: payload.description,
-        mode: (payload.mode as 'sell' | 'donate') ?? 'sell',
-        price: payload.price,
-        location: payload.location,
-        images: payload.images,
-        likeCount: 0,
-        createdAt: new Date().toISOString(),
-        authorId: userId,          // ✅ 기기 고유 ID
-        authorEmail: userEmail,    // ✅ 이메일 우선 판별용 (소문자)
-        // authorName / authorDept는 프로필 조회 시 폴백
-      };
+      console.log('[SellItemPage] submit payload(final)', payload);
 
-      const raw = await AsyncStorage.getItem(POSTS_KEY);
-      const list = raw ? JSON.parse(raw) : [];
-      list.unshift(newItem);
-      await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(list));
+      const res = await createMarketPost(payload);
+      console.log('[SellItemPage] created post_id =', res?.post_id);
+      Alert.alert('완료', '게시글이 등록되었습니다.');
 
-      Alert.alert('완료', '게시글이 작성되었습니다.');
+      // 폼 초기화
+      setImages([]); setTitle(''); setDesc(''); setMode(null); setPriceRaw(''); setLocation('');
 
-      // 폼/상태 리셋
-      setImages([]);
-      setTitle('');
-      setDesc('');
-      setMode(null);
-      setPriceRaw('');
-      setLocation('');
-
-      // ✅ 스택 재구성: Main(목록-중고거래) + MarketDetail(방금 글)
-      //    네 네비게이터에서 상세 라우트 이름이 'MarketDetail'인지 확인!
+      // ✅ 가드 우회 후 이동 (ref로 즉시 반영)
+      bypassGuardRef.current = true;
       navigation.dispatch(
         CommonActions.reset({
           index: 1,
           routes: [
             { name: 'Main', params: { initialTab: 'market' } },
-            { name: 'MarketDetail', params: { id: newItem.id, isOwner: true } },
+            { name: 'MarketDetail', params: { id: String(res.post_id), isOwner: true } },
           ],
         })
       );
     } catch (e: any) {
-      Alert.alert('오류', e?.message || '작성에 실패했어요. 잠시 후 다시 시도해주세요.');
-      console.log(e);
+      console.log('[SellItemPage] create error', e?.response?.data || e?.message);
+      const msg = e?.response?.data?.message || e?.message || '작성에 실패했습니다.';
+      Alert.alert('오류', msg);
     } finally {
       setSubmitting(false);
     }
   };
 
-  /** 제출 - 수정 */
+  /** 수정 (API 연결) */
   const handleSubmitEdit = async () => {
     if (submitting) return;
     setSubmitting(true);
     try {
-      const ok = await edit.save?.({
-        extra: {
-          saleMode: (mode ?? 'sell') as 'sell' | 'donate',
-          price: mode === 'donate' ? 0 : Number(priceRaw || 0),
-          location: location.trim(),
+      const method = mode === 'donate' ? 'DONATE' : 'SELL';
+      const payload: UpdateMarketPostReq = {
+        title: title.trim() || undefined,
+        content: desc.trim() || undefined,
+        imageUrls: images && images.length ? images : undefined,
+        method,
+        location: location.trim() || undefined,
+        price: mode === 'donate' ? 0 : Number(priceRaw || 0),
+        status: saleStatus || 'SELLING',
+      };
+
+      console.log('[SellItemPage] update payload(final)', payload);
+
+      const res = await updateMarketPost(editId as string, payload);
+      console.log('[SellItemPage] updated post_id =', res.post_id);
+
+      Alert.alert('완료', res.message || '게시글을 수정했어요.', [
+        {
+          text: '확인',
+          onPress: () => {
+            // ✅ 가드 우회 후 뒤로가기 (ref로 즉시 반영)
+            bypassGuardRef.current = true;
+            navigation.goBack?.();
+          },
         },
-        images, // 사진 배열을 그대로 넘겨주면 어댑터에서 imagesText로 반영
-      });
-      if (ok) {
-        Alert.alert('완료', '게시글을 수정했어요.', [
-          { text: '확인', onPress: () => navigation.goBack() },
-        ]);
-      } else {
-        setSubmitting(false);
-      }
+      ]);
+
+      // 상세 화면이 리스너로 다시 GET 하도록 콜백 존재 시 호출
+      route.params?.onEdited?.({ id: String(res.post_id) });
     } catch (e: any) {
-      Alert.alert('오류', e?.message || '수정에 실패했어요.');
-      console.log(e);
+      const errData = e?.response?.data ?? e;
+      console.log('[SellItemPage] update error', errData);
+      Alert.alert('오류', errData?.message || '수정에 실패했어요.');
+    } finally {
       setSubmitting(false);
     }
   };
 
-  const submitLabel = submitting ? (isEdit ? '수정 중...' : '작성 중...') : (isEdit ? '수정 완료' : '작성 완료');
+  const submitLabel =
+    submitting ? (isEdit ? '수정 중...' : '작성 중...') : (isEdit ? '수정 완료' : '작성 완료');
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.inner}>
-        {/* 상단 헤더 */}
+        {/* 헤더 */}
         <View style={styles.header}>
           <TouchableOpacity onPress={goBack} style={styles.backButton}>
             <Image
@@ -361,123 +278,136 @@ const SellItemPage: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
 
-        {/* 사진 영역 */}
-        <PhotoPicker
-          images={images}
-          max={MAX_IMAGES}
-          onAddPress={openAdd}
-          onRemoveAt={removeAt}
-        />
-
-        {/* 제목 */}
-        <View style={styles.field}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={styles.label}>제목</Text>
-            <Text style={{ color: '#979797' }}>{title.length}/{TITLE_MAX}</Text>
+        {/* 로딩 중엔 간단 표기 */}
+        {loading ? (
+          <View style={{ paddingVertical: 40 }}>
+            <Text style={{ color: '#979797', textAlign: 'center' }}>불러오는 중...</Text>
           </View>
-          <TextInput
-            style={styles.input}
-            placeholder="글 제목"
-            placeholderTextColor="#979797"
-            value={title}
-            onChangeText={setTitle}
-            maxLength={TITLE_MAX}
-          />
-        </View>
+        ) : (
+          <>
+            {/* 사진 선택 */}
+            <PhotoPicker
+              images={images}
+              max={MAX_IMAGES}
+              onAddPress={openAdd}
+              onRemoveAt={removeAt}
+            />
 
-        {/* 설명 */}
-        <View style={styles.field}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={styles.label}>설명</Text>
-            <Text style={{ color: '#979797' }}>{desc.length}/{DESC_MAX}</Text>
-          </View>
-          <TextInput
-            style={[styles.input, styles.textarea]}
-            placeholder="용누리 캠퍼스에 올릴 게시글 내용을 작성해주세요."
-            placeholderTextColor="#979797"
-            value={desc}
-            onChangeText={setDesc}
-            multiline
-            textAlignVertical="top"
-            maxLength={DESC_MAX}
-          />
-        </View>
+            {/* 제목 */}
+            <View style={styles.field}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={styles.label}>제목</Text>
+                <Text style={{ color: '#979797' }}>{title.length}/{TITLE_MAX}</Text>
+              </View>
+              <TextInput
+                style={styles.input}
+                placeholder="글 제목"
+                placeholderTextColor="#979797"
+                value={title}
+                onChangeText={setTitle}
+                maxLength={TITLE_MAX}
+              />
+            </View>
 
-        {/* 거래방식 + 가격 */}
-        <View style={styles.field}>
-          <Text style={styles.label}>거래 방식</Text>
+            {/* 설명 */}
+            <View style={styles.field}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={styles.label}>설명</Text>
+                <Text style={{ color: '#979797' }}>{desc.length}/{DESC_MAX}</Text>
+              </View>
+              <TextInput
+                style={[styles.input, styles.textarea]}
+                placeholder="게시글 내용을 작성해주세요."
+                placeholderTextColor="#979797"
+                value={desc}
+                onChangeText={setDesc}
+                multiline
+                textAlignVertical="top"
+                maxLength={DESC_MAX}
+              />
+            </View>
 
-          <View style={styles.modeRow}>
-            <TouchableOpacity
-              onPress={() => handleChangeMode('sell')}
-              style={[
-                styles.modeChip,
-                mode === 'sell' ? styles.modeChipActiveFill : styles.modeChipOutline,
-              ]}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.modeChipText,
-                  mode === 'sell' ? styles.modeChipTextLight : styles.modeChipTextDark,
-                ]}
-              >
-                판매하기
-              </Text>
-            </TouchableOpacity>
+            {/* 거래 방식 */}
+            <View style={styles.field}>
+              <Text style={styles.label}>거래 방식</Text>
+              <View style={styles.modeRow}>
+                <TouchableOpacity
+                  onPress={() => handleChangeMode('sell')}
+                  style={[
+                    styles.modeChip,
+                    mode === 'sell' ? styles.modeChipActiveFill : styles.modeChipOutline,
+                  ]}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.modeChipText,
+                      mode === 'sell' ? styles.modeChipTextLight : styles.modeChipTextDark,
+                    ]}
+                  >
+                    판매하기
+                  </Text>
+                </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => handleChangeMode('donate')}
-              style={[
-                styles.modeChip,
-                mode === 'donate' ? styles.modeChipActiveFill : styles.modeChipOutline,
-              ]}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.modeChipText,
-                  mode === 'donate' ? styles.modeChipTextLight : styles.modeChipTextDark,
-                ]}
-              >
-                나눔하기
-              </Text>
-            </TouchableOpacity>
-          </View>
+                <TouchableOpacity
+                  onPress={() => handleChangeMode('donate')}
+                  style={[
+                    styles.modeChip,
+                    mode === 'donate' ? styles.modeChipActiveFill : styles.modeChipOutline,
+                  ]}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.modeChipText,
+                      mode === 'donate' ? styles.modeChipTextLight : styles.modeChipTextDark,
+                    ]}
+                  >
+                    나눔하기
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-          <TextInput
-            style={[styles.input, !isSell && styles.inputDisabled]}
-            placeholder="￦ 0"
-            placeholderTextColor="#979797"
-            value={priceDisplay}
-            onChangeText={(t) => {
-              // 숫자만 추출 + 선행 0 제거
-              const onlyDigits = t.replace(/[^\d]/g, '');
-              const normalized = onlyDigits.replace(/^0+(\d)/, '$1');
-              setPriceRaw(normalized);
-            }}
-            editable={!isDonation}
-            keyboardType="number-pad"
-          />
-        </View>
+              <TextInput
+                style={[styles.input, !isSell && styles.inputDisabled]}
+                placeholder="￦ 0"
+                placeholderTextColor="#979797"
+                value={priceDisplay}
+                onChangeText={(t) => {
+                  const onlyDigits = t.replace(/[^\d]/g, '');
+                  const normalized = onlyDigits.replace(/^0+(\d)/, '$1');
+                  setPriceRaw(normalized);
+                }}
+                editable={!isDonation}
+                keyboardType="number-pad"
+              />
+            </View>
 
-        {/* 거래 희망 장소 */}
-        <LocationPicker
-          value={location}
-          onChange={setLocation}
-          placeholder="장소를 선택해 주세요."
-        />
+            {/* 거래 희망 장소 */}
+            <LocationPicker
+              value={location}
+              onChange={setLocation}
+              placeholder="장소를 선택해 주세요."
+            />
 
-        <View style={styles.submitSpacer} />
+            <View style={styles.submitSpacer} />
+          </>
+        )}
       </ScrollView>
 
-      {/* 하단 고정 버튼 */}
+      {/* 하단 버튼 */}
       <View style={styles.submitWrap}>
         <TouchableOpacity
-          style={[styles.submitButton, { opacity: canSubmit && !submitting ? 1 : 0.6 }]}
-          activeOpacity={canSubmit && !submitting ? 0.9 : 1}
+          style={[
+            styles.submitButton,
+            {
+              opacity:
+                (isEdit ? !submitting : (canSubmitCreate && !submitting)) ? 1 : 0.6,
+            },
+          ]}
+          activeOpacity={(isEdit ? !submitting : (canSubmitCreate && !submitting)) ? 0.9 : 1}
           onPress={isEdit ? handleSubmitEdit : handleSubmitCreate}
-          disabled={!canSubmit || submitting}
+          disabled={isEdit ? submitting : (!canSubmitCreate || submitting)}
         >
           <Text style={styles.submitText}>{submitLabel}</Text>
         </TouchableOpacity>

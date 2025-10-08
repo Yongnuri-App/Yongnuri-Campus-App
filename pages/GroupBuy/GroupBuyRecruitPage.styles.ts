@@ -21,7 +21,7 @@ export default StyleSheet.create({
   inner: {
     paddingHorizontal: 19,
     paddingTop: 60,
-    paddingBottom: 24, // 본문 하단 여백 (버튼 공간은 submitWrap이 담당)
+    paddingBottom: 10, // 본문 하단 여백 (버튼 공간은 submitWrap이 담당)
   },
 
   scroll: {
@@ -167,8 +167,7 @@ export default StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: 19,
-    paddingTop: 10,
-    paddingBottom: 4, // iOS 홈 인디케이터 고려 여유
+    paddingBottom: 15, // iOS 홈 인디케이터 고려 여유
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',

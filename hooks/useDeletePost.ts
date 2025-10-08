@@ -1,114 +1,104 @@
 // hooks/useDeletePost.ts
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useCallback, useState } from 'react';
-
 import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CommonActions } from '@react-navigation/native';
+import { deleteBoardPost, PostType } from '@/api/board';
 
-type Options = {
-  /** 이 화면의 게시글 id */
-  postId: string;
-  /** 이 타입의 게시글이 저장된 리스트 키 (예: 'market_posts_v1') */
-  postsKey: string;
-  /** 선택: 좋아요 맵 키가 있으면 삭제 시 해당 id 키도 같이 정리 */
-  likedMapKey?: string;
+type Params = {
+  postId: string | number;
+  postsKey: string;             // 예: 'market_posts_v1' | 'lost_found_posts_v1' ...
+  likedMapKey?: string;         // 예: 'market_liked_map_v1'
+  navigation: any;
 
-  /** 삭제 후 자동으로 뒤로가기 할지 (기본 true) */
-  navigateBackOnDelete?: boolean;
-  /** react-navigation 의 navigation (goBack에 사용) */
-  navigation?: { goBack: () => void };
-
-  /** 완료/실패 콜백(선택) */
-  onDeleted?: () => void;
-  onError?: (err: unknown) => void;
-
-  /** 확인 다이얼로그 문구 커스터마이즈 (선택) */
-  confirmTitle?: string;     // 기본: '삭제'
-  confirmMessage?: string;   // 기본: '정말로 이 게시글을 삭제할까요?'
-  confirmOkText?: string;    // 기본: '삭제'
-  confirmCancelText?: string;// 기본: '취소'
+  confirmTitle?: string;
+  confirmMessage?: string;
+  confirmOkText?: string;
+  confirmCancelText?: string;
 };
+
+function resolvePostTypeByKey(key: string): PostType {
+  if (key === 'market_posts_v1') return 'USED_ITEM';
+  if (key === 'lost_found_posts_v1') return 'LOST_ITEM';
+  if (key === 'groupbuy_posts_v1') return 'GROUP_BUY';
+  if (key === 'notice_posts_v1') return 'NOTICE';
+  // 기본값
+  return 'USED_ITEM';
+}
+
+// ✅ 삭제 후 돌아갈 메인 탭도 게시판에 맞춰 동적으로 결정
+function resolveInitialTabByKey(key: string): 'market' | 'lost' | 'group' | 'notice' {
+  if (key === 'market_posts_v1') return 'market';
+  if (key === 'lost_found_posts_v1') return 'lost';
+  if (key === 'groupbuy_posts_v1') return 'group';
+  if (key === 'notice_posts_v1') return 'notice';
+  return 'market';
+}
+
+async function removeFromLocalList(postsKey: string, id: string | number) {
+  const raw = await AsyncStorage.getItem(postsKey);
+  const list = raw ? JSON.parse(raw) : [];
+  const next = Array.isArray(list)
+    ? list.filter((p: any) => String(p?.id) !== String(id))
+    : [];
+  await AsyncStorage.setItem(postsKey, JSON.stringify(next));
+}
+
+async function removeFromLikedMap(likedMapKey?: string, id?: string | number) {
+  if (!likedMapKey || id == null) return;
+  const raw = await AsyncStorage.getItem(likedMapKey);
+  if (!raw) return;
+  const map = JSON.parse(raw) || {};
+  delete map[String(id)];
+  await AsyncStorage.setItem(likedMapKey, JSON.stringify(map));
+}
 
 export function useDeletePost({
   postId,
   postsKey,
   likedMapKey,
-  navigateBackOnDelete = true,
   navigation,
-  onDeleted,
-  onError,
   confirmTitle = '삭제',
   confirmMessage = '정말로 이 게시글을 삭제할까요?',
   confirmOkText = '삭제',
   confirmCancelText = '취소',
-}: Options) {
-  const [deleting, setDeleting] = useState(false);
-
-  /** 실제 삭제 로직 (확인 없이 바로 실행하고 싶을 때 사용) */
-  const deleteNow = useCallback(async (): Promise<boolean> => {
+}: Params) {
+  const doDelete = async () => {
     try {
-      setDeleting(true);
+      const postType = resolvePostTypeByKey(postsKey);
+      console.log('[Delete] try', { postId, postType, postsKey });
 
-      // 1) 목록에서 제거
-      const raw = await AsyncStorage.getItem(postsKey);
-      const list = raw ? JSON.parse(raw) : [];
-      const idx = Array.isArray(list) ? list.findIndex((p: any) => p?.id === postId) : -1;
-      if (idx < 0) {
-        setDeleting(false);
-        return false; // 이미 없음
-      }
-      list.splice(idx, 1);
-      await AsyncStorage.setItem(postsKey, JSON.stringify(list));
+      // 1) 서버 삭제
+      await deleteBoardPost(postType, postId);
 
-      // 2) 좋아요 맵에서 정리(선택)
-      if (likedMapKey) {
-        try {
-          const likedRaw = await AsyncStorage.getItem(likedMapKey);
-          const likedMap = likedRaw ? JSON.parse(likedRaw) : {};
-          if (likedMap && typeof likedMap === 'object' && postId in likedMap) {
-            delete likedMap[postId];
-            await AsyncStorage.setItem(likedMapKey, JSON.stringify(likedMap));
-          }
-        } catch {}
-      }
+      // 2) 로컬 동기화
+      await removeFromLocalList(postsKey, postId);
+      await removeFromLikedMap(likedMapKey, postId);
 
-      setDeleting(false);
+      // 3) 메인으로 복귀 (게시판별 탭 유지)
+      const tab = resolveInitialTabByKey(postsKey);
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Main', params: { initialTab: tab } }],
+        })
+      );
 
-      // 3) 성공 후 처리
-      onDeleted?.();
-      if (navigateBackOnDelete && navigation) {
-        navigation.goBack();
-      }
-      return true;
-    } catch (err) {
-      setDeleting(false);
-      onError?.(err);
-      Alert.alert('오류', '게시글을 삭제하지 못했어요.');
-      return false;
+      Alert.alert('완료', '게시글이 삭제되었습니다.');
+    } catch (e: any) {
+      const errData = e?.response?.data ?? e;
+      console.log('[Delete] error', errData);
+      Alert.alert('오류', errData?.message || '삭제에 실패했어요.');
     }
-  }, [postId, postsKey, likedMapKey, navigateBackOnDelete, navigation, onDeleted, onError]);
-
-  /** 확인 다이얼로그를 띄우고 삭제 */
-  const confirmAndDelete = useCallback(() => {
-    Alert.alert(
-      confirmTitle,
-      confirmMessage,
-      [
-        { text: confirmCancelText, style: 'cancel' },
-        {
-          text: confirmOkText,
-          style: 'destructive',
-          onPress: () => void deleteNow(),
-        },
-      ],
-      { cancelable: true }
-    );
-  }, [confirmTitle, confirmMessage, confirmOkText, confirmCancelText, deleteNow]);
-
-  return {
-    deleting,          // 삭제 중 로딩 상태
-    deleteNow,         // 확인 없이 바로 삭제
-    confirmAndDelete,  // 확인 후 삭제
   };
+
+  const confirmAndDelete = () => {
+    Alert.alert(confirmTitle, confirmMessage, [
+      { text: confirmCancelText, style: 'cancel' },
+      { text: confirmOkText, style: 'destructive', onPress: () => void doDelete() },
+    ]);
+  };
+
+  return { confirmAndDelete };
 }
 
 export default useDeletePost;

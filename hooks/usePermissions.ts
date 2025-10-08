@@ -6,7 +6,9 @@ import { getIsAdmin } from '../utils/auth';
 type Params = {
   authorId?: string | number;
   authorEmail?: string | null;
-  /** 상세 라우트에서 넘겨줄 수 있는 힌트 (ex. isOwner, isAdmin) — 더 이상 isOwner는 신뢰하지 않음 */
+  /** 서버가 이메일을 주지 않는 경우 닉네임으로 최후의 폴백 판별에 사용 */
+  authorNickname?: string | null;
+  /** 상세 라우트에서 넘겨줄 수 있는 힌트 (ex. isOwner, isAdmin) */
   routeParams?: any;
 };
 
@@ -15,28 +17,28 @@ const AUTH_USER_ID_KEY = 'auth_user_id';
 const AUTH_EMAIL_KEY = 'auth_email';
 const AUTH_USER_EMAIL_KEY = 'auth_user_email';
 
+const USERS_ALL_KEY = 'users_all_v1';
+
 const coerceTrue = (v: any) =>
   v === true || v === 'true' || v === 1 || v === '1';
 
 const sameId = (a?: string | number | null, b?: string | number | null) =>
   a != null && b != null && String(a) === String(b);
 
-const normEmail = (s?: string | null) =>
-  (s ?? '').trim().toLowerCase();
-
-const sameEmail = (a?: string | null, b?: string | null) =>
-  !!a && !!b && normEmail(a) === normEmail(b);
+const norm = (s?: string | null) => (s ?? '').trim().toLowerCase();
+const sameEmail = (a?: string | null, b?: string | null) => !!a && !!b && norm(a) === norm(b);
+const sameNickname = (a?: string | null, b?: string | null) =>
+  !!a && !!b && norm(a) === norm(b);
 
 /**
  * 권한 파생 훅
  * - isAdmin: utils/auth 의 getIsAdmin() + route 파라미터 힌트
- * - isOwner: **이메일 우선 매칭**, 이메일이 "양쪽 모두 완전히 없는 경우에만" authorId(디바이스 ID) 폴백
- *
- * 이유:
- *  - auth_user_id 는 "기기 고정 ID"라서 같은 기기에서 계정만 바꿔도 동일 → 오판 위험
- *  - 글 저장 시 authorEmail 을 넣었으므로 이메일로 판별 가능
+ * - isOwner: 판별 우선순위
+ *    1) 이메일 완전 일치
+ *    2) (이메일 양쪽 모두 없음) 기기 로컬 ID(authorId) 일치
+ *    3) (1,2 실패) 닉네임 완전 일치 — ⚠️ 동명이인 위험, 최후 폴백으로만 사용
  */
-export default function usePermissions({ authorId, authorEmail, routeParams }: Params) {
+export default function usePermissions({ authorId, authorEmail, authorNickname, routeParams }: Params) {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isOwner, setIsOwner] = useState<boolean>(false);
 
@@ -64,34 +66,59 @@ export default function usePermissions({ authorId, authorEmail, routeParams }: P
           AUTH_EMAIL_KEY,
           AUTH_USER_EMAIL_KEY,
           AUTH_USER_ID_KEY,
+          USERS_ALL_KEY,
         ]);
 
         // 표준 키 우선, 없으면 구키 사용
         const localEmailStd = results.find(([k]) => k === AUTH_EMAIL_KEY)?.[1] ?? null;
         const localEmailCompat = results.find(([k]) => k === AUTH_USER_EMAIL_KEY)?.[1] ?? null;
         const localId = results.find(([k]) => k === AUTH_USER_ID_KEY)?.[1] ?? null;
+        const usersAllRaw = results.find(([k]) => k === USERS_ALL_KEY)?.[1] ?? '[]';
 
-        const localEmail = normEmail(localEmailStd || localEmailCompat) || null;
-        const authorEmailNorm = normEmail(authorEmail) || null;
+        const localEmail = (localEmailStd || localEmailCompat || '').toLowerCase() || null;
 
-        // 1) 이메일이 둘 다 있으면 → 이메일로만 판별
+        // 1) 이메일 일치 우선
+        const authorEmailNorm = (authorEmail ?? '').toLowerCase() || null;
         const emailOwned = !!authorEmailNorm && !!localEmail && sameEmail(authorEmailNorm, localEmail);
 
-        // 2) 이메일이 "양쪽 모두 완전히 없는 경우"에만 → ID 폴백 허용
-        const allowIdFallback = !authorEmailNorm && !localEmail;
-        const idOwned = allowIdFallback && sameId(authorId ?? null, localId ?? null);
+        let owned = emailOwned;
 
-        // 3) route 힌트는 더 이상 isOwner 판별에 사용하지 않음 (오판 위험)
-        //    const hintedOwned = coerceTrue(routeParams?.isOwner);
+        // 2) 이메일이 "양쪽 모두 완전히 없는 경우"에만 → ID 폴백
+        if (!owned) {
+          const allowIdFallback = !authorEmailNorm && !localEmail;
+          const idOwned = allowIdFallback && sameId(authorId ?? null, localId ?? null);
+          owned = owned || idOwned;
+        }
 
-        if (mounted) setIsOwner(!!(emailOwned || idOwned));
+        // 3) (최후 폴백) 닉네임 일치 — 이메일/ID로 판별 실패했을 때만 시도
+        if (!owned && authorNickname) {
+          try {
+            const list: any[] = JSON.parse(usersAllRaw || '[]');
+            const me = list.find(
+              (u) => (u?.email ?? '').toLowerCase() === (localEmail ?? '')
+            );
+            const myNick = me?.nickname || me?.name || '';
+            if (myNick && sameNickname(myNick, authorNickname)) {
+              owned = true;
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        // 4) (옵션) 라우트 힌트로 강제 소유자 지정 허용 (테스트/이행용)
+        if (!owned && coerceTrue(routeParams?.isOwner)) {
+          owned = true;
+        }
+
+        if (mounted) setIsOwner(!!owned);
       } catch {
         if (mounted) setIsOwner(false);
       }
     })();
 
     // 작성자 정보가 바뀔 때마다 재계산
-  }, [authorId, authorEmail /* routeParams?.isOwner 제거 */]);
+  }, [authorId, authorEmail, authorNickname, routeParams?.isOwner]);
 
   return { isAdmin, isOwner };
 }

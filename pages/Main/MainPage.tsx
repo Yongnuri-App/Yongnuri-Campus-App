@@ -1,4 +1,3 @@
-// pages/Main/MainPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -16,6 +15,9 @@ import { getIsAdmin } from '../../utils/auth';
 import styles from './MainPage.styles';
 
 import type { RootStackScreenProps } from '../../types/navigation';
+import { getMarketList } from '../../api/market';
+import { getLostFoundList } from '../../api/lost';
+import { getGroupBuyList } from '../../api/groupBuy';
 
 /** AsyncStorage 키 매핑 (탭별) */
 const POSTS_KEY_MAP = {
@@ -25,9 +27,7 @@ const POSTS_KEY_MAP = {
   notice: 'notice_posts_v1',
 } as const;
 
-/** ✅ 메인 탭 - 중고거래 리스트 아이템 타입
- *  - 배지 표기를 위해 saleStatus 필드 추가
- */
+/** 중고거래 리스트 타입 */
 type MarketListItem = {
   id: string;
   title: string;
@@ -41,6 +41,7 @@ type MarketListItem = {
   saleStatus?: '판매중' | '예약중' | '거래완료';
 };
 
+/** 분실물 리스트 타입 */
 type LostListItem = {
   id: string;
   type: 'lost' | 'found';
@@ -50,9 +51,10 @@ type LostListItem = {
   images: string[];
   likeCount: number;
   createdAt: string;
-  status?: 'OPEN' | 'RESOLVED';
+  status?: 'REPORTED' | 'RETURNED' | 'DELETED';
 };
 
+/** 공구 리스트 타입 */
 type GroupListItem = {
   id: string;
   title: string;
@@ -65,6 +67,7 @@ type GroupListItem = {
   images: string[];
   likeCount: number;
   createdAt: string;
+  status?: 'RECRUITING' | 'COMPLETED' | 'DELETED';
 };
 
 type NoticeListItem = {
@@ -77,13 +80,25 @@ type NoticeListItem = {
   createdAt: string;  // ISO
 };
 
-/** 위치 라벨 → 카테고리 id 매핑 */
-function getCategoryIdFromLocation(location: string): string {
-  const hit = DEFAULT_CATEGORIES.find(c => c.label === location);
-  return hit ? hit.id : 'all';
+/** 카테고리 id → 위치 라벨(API/클라이언트 필터용) */
+function getLocationLabelFromId(id: string): string {
+  if (id === 'all') return '전체';
+  return DEFAULT_CATEGORIES.find(c => c.id === id)?.label ?? '전체';
 }
 
-/** "n분 전 / n시간 전 / n일 전" 유틸 */
+/** 서버 status → 한글 배지 */
+function mapStatusToBadge(
+  s?: string
+): '판매중' | '예약중' | '거래완료' | undefined {
+  if (!s) return undefined;
+  const up = String(s).toUpperCase();
+  if (up === 'SELLING' || up === 'ON_SALE') return '판매중';
+  if (up === 'RESERVED') return '예약중';
+  if (up === 'SOLD' || up === 'SOLD_OUT') return '거래완료';
+  return undefined;
+}
+
+/** "n분 전 / n시간 전 / n일 전" */
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -95,7 +110,7 @@ function timeAgo(iso: string) {
   return `${d}일 전`;
 }
 
-/** YYYY-MM-DD 포맷터 */
+/** YYYY-MM-DD */
 function formatDateYMD(iso: string) {
   const d = new Date(iso);
   const yyyy = d.getFullYear();
@@ -112,7 +127,7 @@ function isClosed(isoEnd: string) {
 export default function MainPage({ navigation, route }: RootStackScreenProps<'Main'>) {
   const [category, setCategory] = useState<string>('all');
 
-  // 초기 탭: 파라미터 있으면 사용, 없으면 market
+  // 초기 탭
   const initialTabFromParam = (route?.params?.initialTab as TabKey | undefined) ?? 'market';
   const [tab, setTab] = useState<TabKey>(initialTabFromParam);
 
@@ -122,7 +137,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
   const [noticeItems, setNoticeItems] = useState<NoticeListItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
-  // ✅ 관리자 여부
+  // 관리자 여부
   const [isAdmin, setIsAdmin] = useState(false);
 
   // 외부 reset 등으로 initialTab이 바뀌면 동기화
@@ -132,7 +147,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.params?.initialTab]);
 
-  // ✅ 최초 마운트 시 관리자 플래그 로드
+  // 최초 마운트 시 관리자 플래그 로드
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -143,12 +158,10 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
         if (mounted) setIsAdmin(false);
       }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
-  // ✅ 포커스될 때마다 관리자 플래그 재확인(로그인/로그아웃 직후 반영)
+  // 포커스될 때마다 관리자 재확인
   useFocusEffect(
     useCallback(() => {
       let canceled = false;
@@ -160,9 +173,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
           if (!canceled) setIsAdmin(false);
         }
       })();
-      return () => {
-        canceled = true;
-      };
+      return () => { canceled = true; };
     }, [])
   );
 
@@ -175,62 +186,206 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
     }
   };
 
-  /** AsyncStorage에서 탭별 포스트 로드 */
-  const loadPosts = useCallback(async (which: TabKey) => {
-    const key = POSTS_KEY_MAP[which as keyof typeof POSTS_KEY_MAP];
-    if (!key) return;
+  /** 탭별 포스트 로드 */
+  const loadPosts = useCallback(
+    async (which: TabKey, currentCategoryId?: string) => {
+      // ----- 중고거래: 서버 목록 호출 -----
+      if (which === 'market') {
+        try {
+          const typeLabel = getLocationLabelFromId(currentCategoryId ?? category);
+          console.log('[MainPage] GET /board/market?type=', typeLabel);
+          const data = await getMarketList(typeLabel);
 
-    try {
-      const raw = await AsyncStorage.getItem(key);
-      const list = (raw ? JSON.parse(raw) : []) as any[];
+          const list: MarketListItem[] = (Array.isArray(data) ? data : []).map((d: any) => {
+            const id = String(d.post_id ?? d.id);
+            const createdAt = d.created_at ?? d.createdAt ?? new Date().toISOString();
+            const price = Number(d.price ?? 0);
+            const mode: 'sell' | 'donate' = price === 0 ? 'donate' : 'sell';
+            const thumb = d.thumbnailUrl || d.thumbnailURL || d.thumbnail || undefined;
 
-      // 생성일(또는 시작일) 내림차순 정렬
-      list.sort(
-        (a, b) =>
-          new Date(b.createdAt ?? b.startDate).getTime() -
-          new Date(a.createdAt ?? a.startDate).getTime()
-      );
+            return {
+              id,
+              title: d.title ?? '',
+              description: undefined,
+              mode,
+              price,
+              location: d.location ?? '',
+              images: thumb ? [thumb] : [],
+              likeCount: Number(d.bookmarkCount ?? 0),
+              createdAt,
+              saleStatus: mapStatusToBadge(d.status),
+            };
+          });
 
-      if (which === 'market') setMarketItems(list as MarketListItem[]);
-      if (which === 'lost') setLostItems(list as LostListItem[]);
-      if (which === 'group') setGroupItems(list as GroupListItem[]);
-      if (which === 'notice') setNoticeItems(list as NoticeListItem[]);
-    } catch (e) {
-      console.log('load posts error', e);
-      if (which === 'market') setMarketItems([]);
-      if (which === 'lost') setLostItems([]);
-      if (which === 'group') setGroupItems([]);
-      if (which === 'notice') setNoticeItems([]);
-    }
-  }, []);
+          list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          setMarketItems(list);
+        } catch (e) {
+          console.log('[MainPage] market list load error', (e as any)?.response?.data || e);
+          setMarketItems([]);
+        }
+        return;
+      }
 
-  /** 탭 포커스마다 재로딩 (채팅에서 상태 변경 후 복귀 시 반영) */
+      // ----- 분실물: 서버 목록 호출 + 클라이언트 보정 필터 -----
+      if (which === 'lost') {
+        try {
+          const typeLabel = getLocationLabelFromId(currentCategoryId ?? category);
+          console.log('[MainPage] GET /board/lost-found?location=', typeLabel);
+
+          const data = await getLostFoundList(typeLabel);
+          let rows: any[] = Array.isArray(data) ? data : [];
+
+          // 서버가 location 필터를 무시하는 경우를 대비해 클라이언트에서 한 번 더 필터링
+          if (typeLabel && typeLabel !== '전체') {
+            rows = rows.filter((d: any) => (d?.location ?? '').trim() === typeLabel);
+          }
+
+          const list: LostListItem[] = rows
+            .filter(Boolean)
+            .map((raw, idx) => {
+              const d: any = raw ?? {};
+              const id = String(d.post_id ?? d.id ?? `lost_${idx}`);
+              const createdAt = d.created_at ?? d.createdAt ?? new Date().toISOString();
+              const thumb = d.thumbnailUrl || d.thumbnailURL || d.thumbnail || undefined;
+
+              return {
+                id,
+                title: d.title ?? '',
+                content: '',
+                location: d.location ?? '',
+                type: (d.purpose === 'LOST' ? 'lost' : 'found') as 'lost' | 'found',
+                images: thumb ? [thumb] : [],
+                likeCount: Number(d.bookmarkCount ?? 0),
+                createdAt,
+                status: d.status as 'REPORTED' | 'RETURNED' | 'DELETED' | undefined,
+              };
+            });
+
+          list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+          if (!list.length) {
+            try {
+              const raw = await AsyncStorage.getItem('lost_found_posts_v1');
+              const local: LostListItem[] = raw ? JSON.parse(raw) : [];
+              const filteredLocal =
+                typeLabel && typeLabel !== '전체'
+                  ? local.filter((it) => (it.location ?? '').trim() === typeLabel)
+                  : local;
+              setLostItems(filteredLocal);
+            } catch {
+              setLostItems([]);
+            }
+          } else {
+            setLostItems(list);
+          }
+        } catch (e) {
+          console.log('[MainPage] lost list load error', (e as any)?.response?.data || e);
+          try {
+            const typeLabel = getLocationLabelFromId(currentCategoryId ?? category);
+            const raw = await AsyncStorage.getItem('lost_found_posts_v1');
+            const local: LostListItem[] = raw ? JSON.parse(raw) : [];
+            const filteredLocal =
+              typeLabel && typeLabel !== '전체'
+                ? local.filter((it) => (it.location ?? '').trim() === typeLabel)
+                : local;
+            setLostItems(filteredLocal);
+          } catch {
+            setLostItems([]);
+          }
+        }
+        return;
+      }
+
+      // ----- 공동구매: 서버 목록 호출 -----
+      if (which === 'group') {
+        try {
+          // 현재 group 탭은 카테고리 칩을 숨기므로 기본 '전체'로 호출
+          const typeLabel = '전체';
+          const rows = await getGroupBuyList(typeLabel);
+
+          const list: GroupListItem[] = (Array.isArray(rows) ? rows : []).map((d: any, idx: number) => {
+            const id = String(d.post_id ?? d.id ?? `group_${idx}`);
+            const createdAt = d.created_at ?? d.createdAt ?? new Date().toISOString();
+            const limitVal = d.limit; // number | null
+            const statusUp = String(d.status ?? '').toUpperCase();
+
+            return {
+              id,
+              title: d.title ?? '',
+              description: undefined,
+              recruit: {
+                mode: limitVal == null ? 'unlimited' : 'limited',
+                count: limitVal == null ? null : Number(limitVal),
+              },
+              applyLink: '',
+              images: d.thumbnailUrl ? [d.thumbnailUrl] : [],
+              likeCount: Number(d.bookmarkCount ?? 0),
+              createdAt,
+              status: (statusUp as 'RECRUITING' | 'COMPLETED' | 'DELETED') || undefined,
+            };
+          });
+
+          list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          setGroupItems(list);
+        } catch (e) {
+          console.log('[MainPage] group list load error', (e as any)?.response?.data || e);
+          // 실패 시 로컬 폴백
+          try {
+            const raw = await AsyncStorage.getItem('groupbuy_posts_v1');
+            const local: GroupListItem[] = raw ? JSON.parse(raw) : [];
+            setGroupItems(local);
+          } catch {
+            setGroupItems([]);
+          }
+        }
+        return;
+      }
+
+      // ----- 공지/기타: 기존 로컬 저장소 유지 -----
+      const key = POSTS_KEY_MAP[which as keyof typeof POSTS_KEY_MAP];
+      if (!key) return;
+      try {
+        const raw = await AsyncStorage.getItem(key);
+        const list = (raw ? JSON.parse(raw) : []) as any[];
+        list.sort(
+          (a, b) =>
+            new Date(b.createdAt ?? b.startDate).getTime() -
+            new Date(a.createdAt ?? a.startDate).getTime()
+        );
+
+        if (which === 'notice') setNoticeItems(list as NoticeListItem[]);
+      } catch (e) {
+        console.log('load posts error', e);
+        if (which === 'notice') setNoticeItems([]);
+      }
+    },
+    [category]
+  );
+
+  // 탭 포커스마다 재로딩
   useFocusEffect(
     useCallback(() => {
-      (async () => {
-        await loadPosts(tab);
-      })();
+      (async () => { await loadPosts(tab); })();
     }, [tab, loadPosts])
   );
 
-  /** 당겨서 새로고침 */
+  // 당겨서 새로고침
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadPosts(tab);
     setRefreshing(false);
   }, [tab, loadPosts]);
 
-  /** 카테고리 필터링(중고거래/분실물) */
-  const filteredMarket = useMemo(() => {
-    if (category === 'all') return marketItems;
-    return marketItems.filter(it => getCategoryIdFromLocation(it.location) === category);
-  }, [marketItems, category]);
+  /** 카테고리 바뀔 때 market/lost 재요청 */
+  useEffect(() => {
+    if (tab === 'market' || tab === 'lost') {
+      (async () => { await loadPosts(tab, category); })();
+    }
+  }, [category, tab, loadPosts]);
 
-  const filteredLost = useMemo(() => {
-    if (category === 'all') return lostItems;
-    return lostItems.filter(it => getCategoryIdFromLocation(it.location) === category);
-  }, [lostItems, category]);
-
+  /** 필터링: market은 서버 필터, lost는 서버 + 클라이언트 보정 필터 */
+  const filteredMarket = useMemo(() => marketItems, [marketItems]);
+  const filteredLost = useMemo(() => lostItems, [lostItems]);
   const filteredGroup = useMemo(() => groupItems, [groupItems]);
 
   /** 상세 이동 */
@@ -290,14 +445,15 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
             data={filteredLost}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => {
+              // 'RETURNED'면 회수, 그 외 목적에 따라 분실/습득
               const typeLabel =
-                item.status === 'RESOLVED' ? '회수' : (item.type === 'found' ? '습득' : '분실');
+                item.status === 'RETURNED' ? '회수' : (item.type === 'found' ? '습득' : '분실');
 
               return (
                 <LostItem
                   title={item.title}
                   subtitle={`${item.location} · ${timeAgo(item.createdAt)}`}
-                  typeLabel={typeLabel}  // ⬅️ 여기만 바꿔주면 UI 배지 변경됨
+                  typeLabel={typeLabel}
                   likeCount={item.likeCount ?? 0}
                   image={item.images && item.images.length > 0 ? item.images[0] : undefined}
                   onPress={() => navigation.navigate('LostDetail', { id: item.id })}
@@ -332,6 +488,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
                 recruitCount={item.recruit?.count ?? null}
                 image={item.images && item.images.length > 0 ? item.images[0] : undefined}
                 likeCount={item.likeCount ?? 0}
+                isClosed={String(item.status ?? '').toUpperCase() === 'COMPLETED'} // ✅ 상태 반영
                 onPress={() => navigation.navigate('GroupBuyDetail', { id: item.id })}
               />
             )}
@@ -391,9 +548,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
 
       <BottomTabBar value={tab} onChange={handleTabChange} />
 
-      {/* ✅ 글쓰기 버튼 노출 규칙
-          - market/lost/group: 항상 노출
-          - notice: 관리자일 때만 노출 */}
+      {/* 글쓰기 버튼 노출 규칙: market/lost/group 항상, notice는 관리자만 */}
       {(((tab !== 'notice') as boolean) || (tab === 'notice' && isAdmin)) && (
         <FloatingWriteButton activeTab={tab} />
       )}

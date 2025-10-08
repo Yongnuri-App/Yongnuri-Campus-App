@@ -10,7 +10,6 @@ import { resolveRoomIdForOpen } from '@/storage/chatStore'; // ✅ 기존 방 �
 import type { RootStackScreenProps } from '@/types/navigation';
 import { getLocalIdentity } from '@/utils/localIdentity';
 import { getProfileByEmail, toDisplayName } from '@/utils/session';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, {
   useCallback,
   useEffect,
@@ -19,7 +18,6 @@ import React, {
   useState,
 } from 'react';
 import {
-  Alert,
   Dimensions,
   Image,
   NativeScrollEvent,
@@ -30,6 +28,8 @@ import {
   View,
 } from 'react-native';
 import styles from './MarketDetailPage.styles';
+
+import { getMarketPost } from '@/api/market';
 
 /** AsyncStorage 키 상수 */
 const POSTS_KEY = 'market_posts_v1';
@@ -105,26 +105,51 @@ export default function MarketDetailPage({
   /** 상세 로드 */
   const loadItem = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem(POSTS_KEY);
-      const list: MarketPost[] = raw ? JSON.parse(raw) : [];
-      const found = list.find((p) => String(p.id) === String(id)) ?? null;
+      const data = await getMarketPost(id);
+      console.log('[MarketDetailPage] 상세 조회 성공(정규화전)', data);
 
-      setItem(found);
-      if (!found) {
-        Alert.alert('알림', '해당 게시글을 찾을 수 없어요.', [
-          { text: '확인', onPress: () => navigation.goBack() },
-        ]);
-        return;
-      }
-      // 좋아요 카운트 동기화
-      syncCount(found.likeCount ?? 0);
-    } catch (e) {
-      console.log('market detail load error', e);
-      Alert.alert('오류', '게시글을 불러오지 못했어요.', [
-        { text: '확인', onPress: () => navigation.goBack() },
-      ]);
+      const imageUrls: string[] = Array.isArray(data?.images)
+        ? data.images.map((it: any) => it?.imageUrl).filter(Boolean)
+        : [];
+
+      const statusNorm =
+        data?.status === 'SELLING'
+          ? 'ON_SALE'
+          : data?.status === 'RESERVED'
+          ? 'RESERVED'
+          : 'SOLD';
+
+      const createdAt = data?.createdAt || data?.created_at || new Date().toISOString();
+
+      // ✅ 학과/닉네임 매핑 (authorDept, authorDepartment 등 유연하게 커버)
+      const authorNickname = data?.authorNickname || '익명';
+      const authorDept =
+        data?.authorDept ||
+        data?.authorDepartment ||
+        data?.department ||
+        '';
+
+      setItem({
+        id: String(data?.post_id ?? data?.id ?? id),
+        title: data?.title ?? '',
+        description: data?.content ?? '',
+        mode: Number(data?.price ?? 0) === 0 ? 'donate' : 'sell',
+        price: Number(data?.price ?? 0),
+        location: data?.location ?? '',
+        images: imageUrls,
+        likeCount: Number(data?.bookmarkCount ?? 0),
+        createdAt,
+        authorEmail: data?.authorEmail ?? null,
+        authorName: authorNickname,
+        authorDept,                // ✅ 학과 필드 추가
+        status: statusNorm,
+      });
+
+      syncCount(Number(data?.bookmarkCount ?? 0));
+    } catch (e: any) {
+      console.log('[MarketDetailPage] 상세 조회 오류', e?.response?.data || e);
     }
-  }, [id, navigation, syncCount]);
+  }, [id, syncCount]);
 
   useEffect(() => {
     const unsub = navigation.addListener('focus', () => loadItem());
@@ -434,12 +459,19 @@ export default function MarketDetailPage({
         {/* ===== 본문 ===== */}
         <View style={styles.body}>
           {/* 이메일 기반 최신 프로필 표시 + 폴백 */}
-          <ProfileRow
-            emailForLookup={item.authorEmail ?? null}
-            preferNickname
-            fallbackName={authorNickname}
-            fallbackDept={authorDeptLabel || ' '}
-          />
+          {item.authorEmail ? (
+            <ProfileRow
+              emailForLookup={item.authorEmail}
+              preferNickname
+              fallbackName={item.authorName || '익명'}
+              fallbackDept={item.authorDept || ''}   // ✅ 추가
+            />
+          ) : (
+            <ProfileRow
+              name={item.authorName || '익명'}
+              dept={item.authorDept || ''}            // ✅ 추가
+            />
+          )}
 
           <View style={styles.divider} />
 

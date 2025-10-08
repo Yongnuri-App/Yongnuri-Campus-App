@@ -1,4 +1,3 @@
-// components/ProfileRow.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { memo, useCallback, useEffect, useState } from 'react';
 import { Image, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
@@ -7,30 +6,31 @@ import styles from './ProfileRow.styles';
 import { getProfileByEmail, toDisplayName } from '../../utils/session';
 
 type Props = {
-  /** 명시 텍스트 (바인딩 모드가 아닐 때만 사용) */
+  /** 윗줄(닉네임/이름) — 있으면 무조건 우선 */
   name?: string;
+  /** 아랫줄(✅ 학과/전공) — 있으면 무조건 우선 */
   dept?: string;
 
   right?: React.ReactNode;
   onPress?: () => void;
   style?: ViewStyle;
 
-  /** ✅ 현재 로그인 사용자 (세션의 이메일만 읽고 DB(users_all_v1)에서 조회) */
+  /** 현재 로그인 사용자 — 조회 보조(부모가 값 주면 사용 안 함) */
   bindCurrentUser?: boolean;
 
-  /** ✅ 특정 이메일의 최신 닉/학부를 DB(users_all_v1)에서 조회 (상세/타유저용) */
+  /** 특정 이메일 조회 — 보조(부모가 값 주면 사용 안 함) */
   emailForLookup?: string | null;
 
-  /** 닉네임 우선 표시 (기본 true) */
+  /** 닉네임 우선 표시 (조회 시에만 적용) */
   preferNickname?: boolean;
 
-  /** (선택) 조회 실패/없을 때 폴백 UI용 */
+  /** 폴백 */
   fallbackName?: string;
   fallbackDept?: string;
 };
 
 const AUTH_EMAIL_KEY = 'auth_email';
-const AUTH_USER_EMAIL_KEY = 'auth_user_email'; // 호환 키
+const AUTH_USER_EMAIL_KEY = 'auth_user_email';
 
 function ProfileRow({
   name,
@@ -44,55 +44,54 @@ function ProfileRow({
   fallbackName,
   fallbackDept,
 }: Props) {
-  const binding = bindCurrentUser || !!emailForLookup;
-  const [stateName, setStateName] = useState<string>(binding ? '' : (name ?? ''));
-  const [stateDept, setStateDept] = useState<string>(binding ? '' : (dept ?? ''));
   const isFocused = useIsFocused();
 
-  // 바인딩 안 할 때만 외부 props 반영
-  useEffect(() => {
-    if (!binding && typeof name !== 'undefined') setStateName(name);
-  }, [name, binding]);
-  useEffect(() => {
-    if (!binding && typeof dept !== 'undefined') setStateDept(dept);
-  }, [dept, binding]);
+  // 조회값(부모가 안 줄 때만 사용)
+  const [loadedName, setLoadedName] = useState<string>('');
+  const [loadedDept, setLoadedDept] = useState<string>('');
 
-  const loadByEmail = useCallback(async (email: string) => {
-    try {
-      const u = await getProfileByEmail(email);
-      if (u) {
-        const displayName = toDisplayName(u, preferNickname);
-        const displayDept = u.department ?? '';
-        setStateName(displayName || fallbackName || '사용자');
-        setStateDept(displayDept || fallbackDept || '');
-      } else {
-        setStateName(fallbackName || '사용자');
-        setStateDept(fallbackDept || '');
+  const loadByEmail = useCallback(
+    async (email: string) => {
+      try {
+        const u = await getProfileByEmail(email);
+        if (u) {
+          const displayName = toDisplayName(u, preferNickname);
+          const displayDept: string =
+            (u as any)?.major ??
+            (u as any)?.department ??
+            (u as any)?.dept ??
+            '';
+          setLoadedName(displayName || fallbackName || '사용자');
+          setLoadedDept(displayDept || fallbackDept || '');
+        } else {
+          setLoadedName(fallbackName || '사용자');
+          setLoadedDept(fallbackDept || '');
+        }
+      } catch (e) {
+        console.log('ProfileRow loadByEmail error', e);
+        setLoadedName(fallbackName || '사용자');
+        setLoadedDept(fallbackDept || '');
       }
-    } catch (e) {
-      console.log('ProfileRow loadByEmail error', e);
-      setStateName(fallbackName || '사용자');
-      setStateDept(fallbackDept || '');
-    }
-  }, [preferNickname, fallbackName, fallbackDept]);
+    },
+    [preferNickname, fallbackName, fallbackDept]
+  );
 
   const loadForCurrentUser = useCallback(async () => {
-    // 세션에서는 **이메일만** 읽고, 표시용은 항상 DB(users_all_v1)에서 조회
     const [[, email1], [, email2]] = await AsyncStorage.multiGet([
       AUTH_EMAIL_KEY,
       AUTH_USER_EMAIL_KEY,
     ]);
     const email = (email1 || email2 || '').toLowerCase();
-    if (email) {
-      await loadByEmail(email);
-    } else {
-      setStateName(fallbackName || '사용자');
-      setStateDept(fallbackDept || '');
+    if (email) await loadByEmail(email);
+    else {
+      setLoadedName(fallbackName || '사용자');
+      setLoadedDept(fallbackDept || '');
     }
   }, [loadByEmail, fallbackName, fallbackDept]);
 
-  // 최초/변경/포커스시 로드
+  // ⚠️ 부모가 name/dept를 주면 “조회는 보조일 뿐” → 절대 덮어쓰지 않음
   useEffect(() => {
+    if (name !== undefined || dept !== undefined) return;
     if (emailForLookup) loadByEmail(emailForLookup.toLowerCase());
     else if (bindCurrentUser) loadForCurrentUser();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -100,9 +99,16 @@ function ProfileRow({
 
   useEffect(() => {
     if (!isFocused) return;
+    if (name !== undefined || dept !== undefined) return;
     if (emailForLookup) loadByEmail(emailForLookup.toLowerCase());
     else if (bindCurrentUser) loadForCurrentUser();
-  }, [isFocused, emailForLookup, bindCurrentUser, loadByEmail, loadForCurrentUser]);
+  }, [isFocused, emailForLookup, bindCurrentUser, loadByEmail, loadForCurrentUser, name, dept]);
+
+  const finalName =
+    (typeof name === 'string' && name.trim() !== '') ? name : (loadedName || fallbackName || '사용자');
+
+  const finalDept =
+    (typeof dept === 'string' && dept.trim() !== '') ? dept : (loadedDept || fallbackDept || '');
 
   const Avatar = (
     <Image source={require('../../assets/images/profile.png')} style={styles.avatar} />
@@ -111,11 +117,11 @@ function ProfileRow({
   const Content = (
     <View style={styles.profileTextCol}>
       <Text style={styles.profileName} numberOfLines={1}>
-        {stateName || '사용자'}
+        {finalName}
       </Text>
-      {!!stateDept && (
+      {!!finalDept && (
         <Text style={styles.profileDept} numberOfLines={1}>
-          {stateDept}
+          {finalDept}
         </Text>
       )}
     </View>
