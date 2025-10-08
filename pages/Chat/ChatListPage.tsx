@@ -1,18 +1,46 @@
-// /pages/Chat/ChatListPage.tsx
-// (변경점)
-// - enterRoom 폴백 경로에서 sellerNickname / buyerNickname 힌트 전달
-//   → ChatRoom이 상대 닉네임 계산 시 소스 확장으로 누락 방지
+// pages/Chat/ChatListPage.tsx
+/**
+ * 채팅 리스트 페이지
+ * - 카테고리 필터(전체/중고/분실/공동구매)
+ * - 스와이프(오른쪽) → 삭제 버튼 (내 목록에서만 제거)
+ * - 롱프레스 등 확장 액션은 추후 추가 가능(차단/신고 등)
+ *
+ * ⚠️ 훅 규칙 준수:
+ *   FlatList의 renderItem 콜백 안에서 훅(useRef 등)을 호출하지 않기 위해
+ *   아이템 전담 컴포넌트(ChatRowItem)로 분리했다.
+ */
 
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useMemo, useState } from 'react';
-import { FlatList, Image, Text, TouchableOpacity, View } from 'react-native';
+import React, {
+  memo,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  Alert,
+  FlatList,
+  Image,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import 'react-native-gesture-handler';
+import { Swipeable } from 'react-native-gesture-handler';
 
 import BottomTabBar, { TabKey } from '../../components/Bottom/BottomTabBar';
-import CategoryChips, { CategoryItem } from '../../components/CategoryChips/CategoryChips';
+import CategoryChips, {
+  CategoryItem,
+} from '../../components/CategoryChips/CategoryChips';
 import HeaderIcons from '../../components/Header/HeaderIcons';
 import styles from './ChatListPage.styles';
 
-import { loadChatRooms, markRoomRead } from '@/storage/chatStore';
+import {
+  deleteChatRoom,
+  loadChatRooms,
+  markRoomRead,
+} from '@/storage/chatStore';
 import type { ChatCategory, ChatRoomSummary } from '@/types/chat';
 
 const CHAT_CATEGORIES: CategoryItem[] = [
@@ -22,6 +50,7 @@ const CHAT_CATEGORIES: CategoryItem[] = [
   { id: 'group', label: '공동구매' },
 ];
 
+/** 마지막 메시지 시간을 "n분 전" 등으로 표시 */
 const timeAgo = (ts: number) => {
   const now = Date.now();
   const base = Number.isFinite(ts) ? ts : now;
@@ -38,11 +67,111 @@ const timeAgo = (ts: number) => {
 
 type Props = { navigation: any };
 
+/** 리스트 한 줄 전담 컴포넌트(여기서 훅 사용 OK) */
+type ChatRowItemProps = {
+  item: ChatRoomSummary;
+  onPress: (room: ChatRoomSummary) => void;
+  onDeleted: (roomId: string) => void;
+};
+
+const ChatRowItem = memo(function ChatRowItem({
+  item,
+  onPress,
+  onDeleted,
+}: ChatRowItemProps) {
+  // ✅ 훅은 컴포넌트 최상단에서만
+  const swipeRef = useRef<Swipeable | null>(null);
+
+  // 스와이프 닫기
+  const closeSwipe = () => swipeRef.current?.close?.();
+
+  // 삭제 로직 (내 목록에서만 제거)
+  const handleDelete = () => {
+    closeSwipe();
+    Alert.alert(
+      '채팅방 삭제',
+      '이 채팅방을 목록에서 삭제할까요?\n(상대방 목록에는 그대로 남습니다)',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteChatRoom(item.roomId); // 저장소에서 제거
+            onDeleted(item.roomId); // 상위 상태 즉시 갱신
+          },
+        },
+      ]
+    );
+  };
+
+  return (
+    <Swipeable
+      ref={swipeRef}
+      // 오른쪽(왼→오 스와이프) 액션: 삭제
+      renderRightActions={() => (
+        <View style={styles.swipeActionContainer}>
+          <TouchableOpacity
+            style={styles.deleteAction}
+            activeOpacity={0.9}
+            onPress={handleDelete}
+          >
+            <Text style={styles.deleteActionText}>삭제</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      overshootRight={false}
+      friction={2}
+    >
+      <TouchableOpacity
+        style={styles.chatRow}
+        activeOpacity={0.8}
+        onPress={() => onPress(item)}
+      >
+        {/* 아바타 */}
+        <View style={styles.avatar}>
+          {item.avatarUri ? (
+            <Image
+              source={{ uri: item.avatarUri }}
+              style={{ width: 44, height: 44, borderRadius: 22 }}
+            />
+          ) : (
+            <Image
+              source={require('../../assets/images/person.png')}
+              style={styles.avatarIcon}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+
+        {/* 텍스트 영역 */}
+        <View style={styles.chatTexts}>
+          <View style={styles.rowTop}>
+            <Text style={styles.nickname} numberOfLines={1}>
+              {item.nickname || '상대방'}
+            </Text>
+            <Text style={styles.time}>
+              {item.lastTs ? timeAgo(item.lastTs) : ''}
+            </Text>
+          </View>
+          <Text style={styles.lastMessage} numberOfLines={1}>
+            {item.lastMessage || '메시지가 없습니다'}
+          </Text>
+        </View>
+
+        {/* 안 읽은 점 */}
+        {item.unreadCount > 0 && <View style={styles.unreadDot} />}
+      </TouchableOpacity>
+    </Swipeable>
+  );
+});
+
 export default function ChatListPage({ navigation }: Props) {
   const [tab, setTab] = useState<TabKey>('chat');
   const [chip, setChip] = useState<string>('all');
   const [rooms, setRooms] = useState<ChatRoomSummary[]>([]);
 
+  // 화면 포커스될 때마다 로컬 저장소에서 최신 목록 로딩
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
@@ -50,18 +179,26 @@ export default function ChatListPage({ navigation }: Props) {
         const data = await loadChatRooms();
         if (mounted) setRooms(Array.isArray(data) ? data : []);
       })();
-      return () => { mounted = false; };
+      return () => {
+        mounted = false;
+      };
     }, [])
   );
 
+  // 카테고리 필터 + 최신 메시지 시간순 정렬
   const filtered = useMemo(() => {
-    const list = chip === 'all' ? rooms : rooms.filter(r => r.category === (chip as ChatCategory));
+    const list =
+      chip === 'all'
+        ? rooms
+        : rooms.filter((r) => r.category === (chip as ChatCategory));
     return [...list].sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
   }, [chip, rooms]);
 
-  const enterRoom = async (room: ChatRoomSummary) => {
+  /** 채팅방 입장 */
+  const enterRoom = useCallback(async (room: ChatRoomSummary) => {
     await markRoomRead(room.roomId);
 
+    // 기존 저장된 네비게이션 파라미터가 있으면 그대로 사용
     if (room.origin?.params) {
       navigation.navigate('ChatRoom', {
         ...room.origin.params,
@@ -70,7 +207,7 @@ export default function ChatListPage({ navigation }: Props) {
       return;
     }
 
-    // ✅ 폴백: 닉네임/아이디 힌트 최대한 전파
+    // 폴백: 최대한 힌트 전달(상대 닉/상품/위치 등)
     navigation.navigate('ChatRoom', {
       roomId: room.roomId,
       source: room.category === 'group' ? 'groupbuy' : room.category,
@@ -79,62 +216,30 @@ export default function ChatListPage({ navigation }: Props) {
       productTitle: room.productTitle,
       productPrice: room.productPrice,
       productImageUri: room.productImageUri,
-
-      // ⬇️ 있으면 전달 (타입에 옵션 필드로 두면 안전)
       sellerNickname: (room as any).sellerNickname,
       buyerNickname: (room as any).buyerNickname,
-
       sellerEmail: room.sellerEmail,
       sellerId: room.sellerId,
       place: room.place,
       purpose: room.purpose,
       recruitLabel: room.recruitLabel,
     });
-  };
+  }, [navigation]);
 
-  const renderItem = ({ item }: { item: ChatRoomSummary }) => (
-    <TouchableOpacity
-      style={styles.chatRow}
-      activeOpacity={0.8}
-      onPress={() => enterRoom(item)}
-    >
-      <View style={styles.avatar}>
-        {item.avatarUri ? (
-          <Image source={{ uri: item.avatarUri }} style={{ width: 44, height: 44, borderRadius: 22 }} />
-        ) : (
-          <Image
-            source={require('../../assets/images/person.png')}
-            style={styles.avatarIcon}
-            resizeMode="contain"
-          />
-        )}
-      </View>
-
-      <View style={styles.chatTexts}>
-        <View style={styles.rowTop}>
-          <Text style={styles.nickname} numberOfLines={1}>
-            {item.nickname || '상대방'}
-          </Text>
-          <Text style={styles.time}>
-            {item.lastTs ? timeAgo(item.lastTs) : ''}
-          </Text>
-        </View>
-        <Text style={styles.lastMessage} numberOfLines={1}>
-          {item.lastMessage || '메시지가 없습니다'}
-        </Text>
-      </View>
-
-      {item.unreadCount > 0 && <View style={styles.unreadDot} />}
-    </TouchableOpacity>
-  );
+  /** 삭제 후 상위 리스트 즉시 갱신(낙관적 업데이트) */
+  const handleDeleted = useCallback((roomId: string) => {
+    setRooms((prev) => prev.filter((r) => r.roomId !== roomId));
+  }, []);
 
   return (
     <View style={styles.container}>
+      {/* 상단 헤더 */}
       <View style={styles.header}>
         <Text style={styles.title}>채팅</Text>
         <HeaderIcons />
       </View>
 
+      {/* 카테고리 칩스 */}
       <CategoryChips
         value={chip}
         onChange={setChip}
@@ -142,10 +247,17 @@ export default function ChatListPage({ navigation }: Props) {
         containerStyle={{ marginTop: 4, marginBottom: 8 }}
       />
 
+      {/* 채팅방 리스트 */}
       <FlatList
         data={filtered}
         keyExtractor={(it) => it.roomId}
-        renderItem={renderItem}
+        renderItem={({ item }) => (
+          <ChatRowItem
+            item={item}
+            onPress={enterRoom}
+            onDeleted={handleDeleted}
+          />
+        )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
@@ -161,6 +273,7 @@ export default function ChatListPage({ navigation }: Props) {
         showsVerticalScrollIndicator={false}
       />
 
+      {/* 하단 탭바 */}
       <BottomTabBar
         value={tab}
         onChange={(next) => {

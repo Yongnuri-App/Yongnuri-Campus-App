@@ -1,10 +1,4 @@
-// -----------------------------------------------------------
-// 채팅방 요약 저장/로드 모듈 (AsyncStorage 기반)
-// (변경점)
-// - updateRoomOnSendSmart(args)에 nickname?: string 추가
-//   → 헤더 계산이 늦게 완료됐을 때 리스트 닉네임까지 동기화 가능
-// - 나머지 로직/주석은 동일
-// -----------------------------------------------------------
+// storage/chatStore.ts
 
 import type {
   ChatCategory,
@@ -242,4 +236,81 @@ export async function markRoomRead(roomId: string) {
   if (idx === -1) return;
   rooms[idx].unreadCount = 0;
   await persist(rooms);
+}
+
+function getThreadKeyFromRoom(room?: ChatRoomSummary): string | null {
+  if (!room) return null;
+  return makeThreadKey(room.origin?.params) ?? null;
+}
+
+/**
+ * ✅ 채팅방 삭제(내 목록에서만 제거)
+ * - chat_rooms_v1 배열에서 해당 roomId 항목 제거
+ * - chat_thread_index_v1에서 이 roomId를 가리키는 쓰레드 키도 제거
+ *   (그래야 이후 같은 컨텍스트로 열 때 '새 방'이 만들어짐)
+ */
+export async function deleteChatRoom(roomId: string): Promise<void> {
+  const rooms = await loadChatRooms();
+  const idx = rooms.findIndex((r) => r.roomId === roomId);
+  if (idx === -1) return;
+
+  // 삭제 대상 방 정보 보관(쓰레드 키 제거용)
+  const target = rooms[idx];
+
+  // 1) 방 목록에서 제거
+  rooms.splice(idx, 1);
+  await persist(rooms);
+
+  // 2) 쓰레드 인덱스에서 roomId 매핑 제거
+  const index = await loadThreadIndex();
+  // (a) roomId로 역참조 제거
+  for (const [k, v] of Object.entries(index)) {
+    if (v === roomId) delete index[k];
+  }
+  // (b) 안전 차원: 해당 방의 쓰레드키가 남아있다면 그것도 제거
+  const tKey = getThreadKeyFromRoom(target);
+  if (tKey && index[tKey]) delete index[tKey];
+
+  await saveThreadIndex(index);
+}
+
+/**
+ * ✅ 여러 개 방 한 번에 삭제(선택사항)
+ */
+export async function deleteChatRooms(roomIds: string[]): Promise<void> {
+  if (!Array.isArray(roomIds) || roomIds.length === 0) return;
+  const rooms = await loadChatRooms();
+  const roomIdSet = new Set(roomIds);
+
+  // 미리 대상 방들의 쓰레드 키 수집
+  const targets = rooms.filter((r) => roomIdSet.has(r.roomId));
+  const targetKeys = new Set(
+    targets
+      .map((r) => getThreadKeyFromRoom(r))
+      .filter((k): k is string => !!k)
+  );
+
+  // 1) 목록에서 필터링 삭제
+  const next = rooms.filter((r) => !roomIdSet.has(r.roomId));
+  await persist(next);
+
+  // 2) 쓰레드 인덱스 정리
+  const index = await loadThreadIndex();
+  for (const [k, v] of Object.entries(index)) {
+    if (roomIdSet.has(v) || targetKeys.has(k)) {
+      delete index[k];
+    }
+  }
+  await saveThreadIndex(index);
+}
+
+/**
+ * ✅ 맥락(originParams) 기반 삭제(선택사항)
+ * - roomId를 모르는 상황에서, 동일 쓰레드 컨텍스트로 열린 방을 찾아 삭제
+ */
+export async function deleteByContext(originParams: any): Promise<void> {
+  const canonicalId = await findExistingRoomIdByContext(originParams);
+  if (canonicalId) {
+    await deleteChatRoom(canonicalId);
+  }
 }

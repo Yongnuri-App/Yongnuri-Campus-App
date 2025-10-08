@@ -6,7 +6,8 @@ export default StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
-  // 피그마: 상단 여백/폰트/크기 반영
+
+  // 🧭 상단 헤더
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -20,18 +21,19 @@ export default StyleSheet.create({
     fontSize: 24,
     lineHeight: 25,
     color: '#1E1E1E',
-    marginLeft: 8, // 여백 추가
+    marginLeft: 8,
   },
 
-  // 리스트
+  // 📜 리스트
   listContent: {
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: 22,
   },
   chatRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 14,
+    backgroundColor: '#FFFFFF', // Swipeable과 겹칠 때 배경 분리
   },
   avatar: {
     width: 44,
@@ -90,5 +92,33 @@ export default StyleSheet.create({
   separator: {
     height: 1,
     backgroundColor: '#EFEFEF',
+  },
+
+  // 👉 스와이프 액션(오른쪽) 영역 스타일
+  swipeActionContainer: {
+    width: 88,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  deleteAction: {
+    flex: 1,
+    borderRadius: 1,
+    minHeight: 48,
+    paddingHorizontal: 20,
+    backgroundColor: '#EB3B3B', // 삭제는 빨강 계열이 직관적
+    justifyContent: 'center',
+    alignItems: 'center',
+    // 살짝 그림자
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  deleteActionText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

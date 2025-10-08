@@ -2,6 +2,8 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React from 'react';
+import 'react-native-gesture-handler'; // ✅ 가장 위에서 1회 임포트(엔트리에서 해도 됨)
+import { GestureHandlerRootView } from 'react-native-gesture-handler'; // ✅ 추가
 
 import { RootStackParamList } from './types/navigation';
 
@@ -49,90 +51,92 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName="Loading"
-        screenOptions={{ headerShown: false }}
-      >
-        <Stack.Screen name="Loading" component={LoadingScreen} />
-        <Stack.Screen name="Login" component={LoginPage} />
-        <Stack.Screen name="Signup" component={SignUpPage} />
-        <Stack.Screen name="PasswordReset" component={PasswordResetPage} />
+    // ✅ 제스처 루트로 전체 앱을 감싸기
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <NavigationContainer>
+        <Stack.Navigator
+          initialRouteName="Loading"
+          screenOptions={{ headerShown: false }}
+        >
+          <Stack.Screen name="Loading" component={LoadingScreen} />
+          <Stack.Screen name="Login" component={LoginPage} />
+          <Stack.Screen name="Signup" component={SignUpPage} />
+          <Stack.Screen name="PasswordReset" component={PasswordResetPage} />
 
-        <Stack.Screen
-          name="Main"
-          component={MainPage}
-          options={{ headerShown: false, animation: 'none' }}
-        />
-        <Stack.Screen name="Search" component={SearchPage} />
-        <Stack.Screen name="Notification" component={NotificationPage} />
+          <Stack.Screen
+            name="Main"
+            component={MainPage}
+            options={{ headerShown: false, animation: 'none' }}
+          />
+          <Stack.Screen name="Search" component={SearchPage} />
+          <Stack.Screen name="Notification" component={NotificationPage} />
 
-        {/* 마켓/공동구매/분실물 */}
-        <Stack.Screen name="SellItem" component={SellItemPage} />
-        <Stack.Screen name="MarketDetail" component={MarketDetailPage} />
-        <Stack.Screen name="GroupBuyDetail" component={GroupBuyDetailPage} />
-        <Stack.Screen name="GroupBuyRecruit" component={GroupBuyRecruitPage} />
-        <Stack.Screen name="LostPost" component={LostPostPage} />
-        <Stack.Screen name="LostDetail" component={LostDetailPage} />
+          {/* 마켓/공동구매/분실물 */}
+          <Stack.Screen name="SellItem" component={SellItemPage} />
+          <Stack.Screen name="MarketDetail" component={MarketDetailPage} />
+          <Stack.Screen name="GroupBuyDetail" component={GroupBuyDetailPage} />
+          <Stack.Screen name="GroupBuyRecruit" component={GroupBuyRecruitPage} />
+          <Stack.Screen name="LostPost" component={LostPostPage} />
+          <Stack.Screen name="LostDetail" component={LostDetailPage} />
 
-        {/* 채팅/신고 */}
-        <Stack.Screen
-          name="ChatList"
-          component={ChatListPage}
-          options={{ headerShown: false, animation: 'none' }}
-        />
-        <Stack.Screen name="ChatRoom" component={ChatRoomPage} />
-        <Stack.Screen name="Report" component={ReportPage} />
+          {/* 채팅/신고 */}
+          <Stack.Screen
+            name="ChatList"
+            component={ChatListPage}
+            options={{ headerShown: false, animation: 'none' }}
+          />
+          <Stack.Screen name="ChatRoom" component={ChatRoomPage} />
+          <Stack.Screen name="Report" component={ReportPage} />
 
-        {/* 마이페이지 */}
-        <Stack.Screen name="MyPage" component={MyPagePage} />
-        <Stack.Screen name="MyPersonalInfo" component={PersonalInfoPage} />
-        <Stack.Screen name="MyFavorites" component={FavoritesPage} />
-        <Stack.Screen name="MyBlockedUsers" component={BlockedUsersPage} />
-        <Stack.Screen name="MyTradeHistory" component={TradeHistoryPage} />
-        <Stack.Screen name="MyInquiry" component={InquiryPage} />
-        <Stack.Screen name="MyWithdraw" component={WithdrawPage} />
+          {/* 마이페이지 */}
+          <Stack.Screen name="MyPage" component={MyPagePage} />
+          <Stack.Screen name="MyPersonalInfo" component={PersonalInfoPage} />
+          <Stack.Screen name="MyFavorites" component={FavoritesPage} />
+          <Stack.Screen name="MyBlockedUsers" component={BlockedUsersPage} />
+          <Stack.Screen name="MyTradeHistory" component={TradeHistoryPage} />
+          <Stack.Screen name="MyInquiry" component={InquiryPage} />
+          <Stack.Screen name="MyWithdraw" component={WithdrawPage} />
 
-        {/* 공지 상세 + 작성/수정 */}
-        <Stack.Screen name="NoticeDetail" component={NoticeDetailPage} />
-        <Stack.Screen name="AdminNoticeCreate" component={AdminNoticeCreatePage} />
-        <Stack.Screen name="NoticeWrite" component={AdminNoticeCreatePage} />
+          {/* 공지 상세 + 작성/수정 */}
+          <Stack.Screen name="NoticeDetail" component={NoticeDetailPage} />
+          <Stack.Screen name="AdminNoticeCreate" component={AdminNoticeCreatePage} />
+          <Stack.Screen name="NoticeWrite" component={AdminNoticeCreatePage} />
 
-        {/* 관리자 게이트 */}
-        <Stack.Screen name="AdminGate" component={AdminPage} />
+          {/* 관리자 게이트 */}
+          <Stack.Screen name="AdminGate" component={AdminPage} />
 
-        {/* ✅ 관리자: 문의하기 공지 설정 */}
-        <Stack.Screen name="AdminInquiryNotice" component={InquiryNoticeSettingPage} />
+          {/* ✅ 관리자: 문의하기 공지 설정 */}
+          <Stack.Screen name="AdminInquiryNotice" component={InquiryNoticeSettingPage} />
 
-        {/* ✅ 관리자: 회원 정보 목록 */}
-        <Stack.Screen name="AdminMemberList" component={MemberListPage} />
+          {/* ✅ 관리자: 회원 정보 목록 */}
+          <Stack.Screen name="AdminMemberList" component={MemberListPage} />
 
-        {/* ✅ 관리자: 신고 관리 목록 */}
-        <Stack.Screen name="AdminReportManage" component={AdminReportManagePage} />
+          {/* ✅ 관리자: 신고 관리 목록 */}
+          <Stack.Screen name="AdminReportManage" component={AdminReportManagePage} />
 
-        {/* ✅ 관리자: 전체 공지 목록 & 등록
-            - iOS 스와이프 백 제스처 확실히 활성화 */}
-        <Stack.Screen
-          name="AdminAllNotice"
-          component={AllNoticePage}
-          options={{
-            headerShown: false,
-            animation: 'slide_from_right',
-            gestureEnabled: true,
-            fullScreenGestureEnabled: true, // iOS: 화면 어디서나 스와이프 백
-          }}
-        />
-        <Stack.Screen
-          name="AdminAllNoticeCreate"
-          component={AllNoticeCreatePage}
-          options={{
-            headerShown: false,
-            animation: 'slide_from_right',
-            gestureEnabled: true,
-            fullScreenGestureEnabled: true,
-          }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+          {/* ✅ 관리자: 전체 공지 목록 & 등록 */}
+          <Stack.Screen
+            name="AdminAllNotice"
+            component={AllNoticePage}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+              gestureEnabled: true,
+              fullScreenGestureEnabled: true,
+            }}
+          />
+          <Stack.Screen
+            name="AdminAllNoticeCreate"
+            component={AllNoticeCreatePage}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+              gestureEnabled: true,
+              fullScreenGestureEnabled: true,
+            }}
+          />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </GestureHandlerRootView>
   );
 }
