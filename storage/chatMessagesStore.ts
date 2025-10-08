@@ -1,3 +1,4 @@
+//storage/chatMessagesStore.ts
 // -----------------------------------------------------------
 // 채팅방별 메시지 로그 AsyncStorage(JSON) 유틸
 // - 메시지 저장 키: chat_msgs_v1:{roomId}

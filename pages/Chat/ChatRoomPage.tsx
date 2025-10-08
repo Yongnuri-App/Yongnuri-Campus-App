@@ -8,7 +8,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Text, TouchableOpacity, View } from 'react-native';
 import type { RootStackParamList } from '../../types/navigation';
 import styles from './ChatRoomPage.styles';
@@ -32,7 +32,7 @@ import { getLocalIdentity } from '@/utils/localIdentity';
 import marketTradeRepo from '@/repositories/trades/MarketTradeRepo';
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 
-import { updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
+import { resolveRoomIdForOpen, updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
 
 const calendarIcon = require('../../assets/images/calendar.png');
 
@@ -148,9 +148,45 @@ export default function ChatRoomPage() {
     isLost ? (raw?.purpose === 'found' ? 'found' : 'lost') : undefined;
   const recruitLabel: string = isGroupBuy ? (raw?.recruitLabel ?? '') : '';
 
-  // 방 아이디 파생
+  // 방 아이디 파생(제안값)
   const proposedId = raw?.roomId ?? deriveRoomIdFromParams(raw);
-  const [roomId] = useState<string | null>(proposedId ?? null);
+  // 실제 사용할 정규 roomId (동적으로 갱신)
+  const [roomId, setRoomId] = useState<string | null>(proposedId ?? null);
+
+  // ✅ 최초 마운트/params 변경 시, 정규 roomId로 정렬 + 필요하면 메시지 이관
+  useEffect(() => {
+    (async () => {
+      if (!proposedId) {
+        setRoomId(null);
+        return;
+      }
+      try {
+        // 1) 정규 roomId 계산 (이미 같은 스레드가 있으면 그 방의 roomId 반환)
+        const canonical = await resolveRoomIdForOpen(raw, proposedId);
+        const finalId = canonical ?? proposedId;
+
+        // 2) 만약 제안값과 정규값이 다르면, 제안값 밑에 저장된 메시지를 정규 roomId로 이관
+        if (finalId !== proposedId) {
+          const K = 'chat_messages_';
+          const from = await AsyncStorage.getItem(K + proposedId);
+          const to = await AsyncStorage.getItem(K + finalId);
+          if (from && !to) {
+            await AsyncStorage.setItem(K + finalId, from);
+            await AsyncStorage.removeItem(K + proposedId);
+          }
+        }
+
+        // 3) 화면/훅 모두 정규 roomId로 통일
+        setRoomId(finalId);
+      } catch {
+        // 실패해도 제안값으로 진행
+        setRoomId(proposedId);
+      }
+    })();
+    // proposedId 또는 raw가 바뀌었을 때만 재평가
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposedId]);
+
   const initialMessage: string | undefined = raw?.initialMessage;
 
   // ✅ 게시자/나 정보 (이하 로직 동일)
@@ -266,11 +302,12 @@ export default function ChatRoomPage() {
     toLabel(raw?.initialSaleStatus as ApiSaleStatus | undefined)
   );
 
+  // ✅ initialMessage를 훅에 넘겨서 "비어있을 때 1회 시딩"을 훅이 보장하도록
   const {
     messages, setMessages,
     attachments, extraBottomPad,
     loadAndSeed, addAttachments, removeAttachmentAt, send, pushSystemAppointment
-  } = useChatRoom(roomId ?? '');
+  } = useChatRoom(roomId ?? '', roomId ? initialMessage : undefined);
 
   const isLostContext = useMemo(() => {
     const s =
@@ -460,7 +497,6 @@ export default function ChatRoomPage() {
 
   useEffect(() => {
     if (!roomId) return;
-    loadAndSeed();
     if (!identityReady) return;
     if (!headerTitle) return;
 
@@ -497,40 +533,6 @@ export default function ChatRoomPage() {
       nickname: headerTitle,
     }).catch(() => {});
   }, [roomId, identityReady, headerTitle]);
-
-  const initialKickRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!roomId) return;
-    const msg = (raw?.initialMessage ?? '').toString().trim();
-    if (!msg) return;
-
-    const key = `${roomId}|${msg}`;
-    if (initialKickRef.current === key) return;
-    initialKickRef.current = key;
-
-    send(msg);
-    try { navigation.setParams({ initialMessage: undefined }); } catch {}
-  }, [roomId, raw?.initialMessage, send, navigation]);
-
-  const lastSyncedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!roomId || !Array.isArray(messages) || messages.length === 0) return;
-    const last = messages[messages.length - 1];
-    const key = `${String(last?.id ?? '')}-${String(last?.time ?? '')}`;
-    if (!last?.id && !last?.time) return;
-    if (lastSyncedRef.current === key) return;
-    lastSyncedRef.current = key;
-
-    const preview = buildPreviewFromMessage(last);
-    const ts = toMs(last?.time);
-    updateRoomOnSendSmart({
-      roomId,
-      originParams: raw,
-      preview,
-      lastTs: ts,
-      nickname: headerTitle,
-    }).catch(e => console.log('updateRoomOnSendSmart error', e));
-  }, [messages, roomId, raw, headerTitle]);
 
   // ====== ✅ 카드 존재여부 검사(헤더로 주입) ======
   const checkPostExistsExternally = useCallback(async (meta: { source: 'market'|'lost'|'group', postId: string }) => {

@@ -1,12 +1,15 @@
 import React, { memo, useMemo, useState } from 'react';
 import {
-    Modal,
-    ScrollView,
-    Text,
-    TouchableOpacity,
-    View,
+  Image,
+  Modal,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import styles from './LocationPicker.styles';
+
+const downIcon = require('../../assets/images/down.png');
 
 type Option = { label: string; value: string };
 
@@ -32,7 +35,7 @@ const DEFAULT_OPTIONS: Option[] = [
   { label: '체육과학대학', value: '체육과학대학' },
   { label: 'AI바이오융합대학', value: 'AI바이오융합대학' },
   { label: '문화예술대학', value: '문화예술대학' },
-  { label: '본관 앞 광장', value: '본관 앞 광장' },
+  { label: '인성관', value: '인성관' },
   { label: '학생회관', value: '학생회관' },
   { label: '중앙도서관', value: '중앙도서관' },
   { label: '용오름대학', value: '용오름대학' },
@@ -81,7 +84,13 @@ const LocationPicker: React.FC<Props> = ({
           >
             {selectedValue || placeholder}
           </Text>
-          <Text style={styles.dropdownIcon}>⌄</Text>
+          <Image
+            source={downIcon}
+            style={styles.dropdownIcon}     // 스타일은 아래 styles 파일 참고
+            resizeMode="contain"           // 이미지 비율 유지하며 영역에 맞춤
+            accessibilityRole="image"
+            accessibilityLabel="열기"
+          />
         </View>
       </TouchableOpacity>
 

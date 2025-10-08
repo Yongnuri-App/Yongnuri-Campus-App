@@ -36,8 +36,7 @@ export default StyleSheet.create({
     color: '#1E1E1E',
   },
   dropdownIcon: {
-    fontSize: 16,
-    color: '#979797',
+    width: 23,
     marginLeft: 8,
   },
 

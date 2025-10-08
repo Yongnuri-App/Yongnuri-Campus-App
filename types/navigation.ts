@@ -72,6 +72,9 @@ export type ChatRoomParams =
       productPrice: number;
       productImageUri?: string;
 
+      /** ✅ 상대 닉네임(판매자) — 리스트/헤더/스레드키 정합성을 위해 필수 */
+      sellerNickname: string;
+
       /** (선택) 초기 판매 상태 */
       initialSaleStatus?: SaleStatusApi;
     } & OwnerMeta &
@@ -82,7 +85,7 @@ export type ChatRoomParams =
       postId: string;
 
       /** 상단 카드용 정보 */
-      posterNickname: string;
+      posterNickname: string;   // 이미 필수 OK
       postTitle: string;
       place: string;
       purpose: 'lost' | 'found';
@@ -98,12 +101,13 @@ export type ChatRoomParams =
       postId: string;
 
       /** 상단 카드용 정보 */
-      authorNickname: string;
+      authorNickname: string;   // 이미 필수 OK
       postTitle: string;
       recruitLabel: string;
       postImageUri?: string;
     } & OwnerMeta &
       ChatCommonMeta);
+
 
 /** -----------------------------------------------------------
  * 네비게이션 스택 파라미터 (기존 라우트 유지)

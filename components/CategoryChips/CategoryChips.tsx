@@ -20,7 +20,7 @@ export const DEFAULT_CATEGORIES: CategoryItem[] = [
   { id: '체육과학대학', label: '체육과학대학' },
   { id: 'AI바이오융합대학', label: 'AI바이오융합대학' },
   { id: '문화예술대학', label: '문화예술대학' },
-  { id: '본관 앞 광장', label: '본관 앞 광장' },
+  { id: '인성관', label: '인성관' },
   { id: '학생회관', label: '학생회관' },
   { id: '중앙도서관', label: '중앙도서관' },
   { id: '용오름대학', label: '용오름대학' },
