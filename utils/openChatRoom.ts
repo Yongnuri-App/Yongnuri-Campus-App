@@ -4,6 +4,8 @@
 // - 항상 opponent 정보(opponentEmail 또는 opponentId)를 채워서 ChatRoom으로 이동
 // - roomId를 seller/buyer/post 조합으로 안정적으로 생성
 // - productTitle(문자열)/productPrice(숫자)는 undefined 방지 보정
+// - ❗️중요: ChatRoomParams가 string을 요구하는 필드(예: sellerNickname 등)는
+//          빈 문자열로라도 보정하여 항상 string을 보장한다.
 // ----------------------------------------------------------
 import type { RootStackParamList } from '@/types/navigation';
 import { getLocalIdentity } from '@/utils/localIdentity';
@@ -36,14 +38,20 @@ type MinimalUser = {
 const normStr = (v: unknown, fallback = ''): string =>
   (typeof v === 'string' && v.trim().length > 0 ? v : String(v ?? fallback));
 
+/** 제목/가격 보정: ChatRoomParams가 기대하는 타입으로 강제 */
 const ensureTitle = (t?: string) => (t && t.trim().length > 0 ? t : '제목 없음');
 const ensurePrice = (p?: number) => (typeof p === 'number' && Number.isFinite(p) ? p : 0);
+
+/** ❗️닉네임 보정: 항상 string 리턴 (undefined 금지) */
+const ensureNick = (v?: string | null, fallback = ''): string =>
+  typeof v === 'string' && v.trim().length > 0 ? v.trim() : fallback;
 
 /** roomId: post + sellerKey + buyerKey 조합(이메일 우선 → 없으면 id) */
 const keyLike = (u?: MinimalUser | null) => {
   const src = u?.email ?? u?.id ?? '';
   return String(src).trim().toLowerCase();
 };
+
 export function buildMarketRoomId(postId: string, seller: MinimalUser, buyer: MinimalUser) {
   return `m_${postId}__s_${keyLike(seller)}__b_${keyLike(buyer)}`;
 }
@@ -86,17 +94,17 @@ export async function openChatAsBuyer(
     // 판매자 정보
     sellerId: args.seller.id != null ? String(args.seller.id) : undefined,
     sellerEmail: args.seller.email ?? undefined,
-    sellerNickname: args.seller.nickname ?? undefined,
+    sellerNickname: ensureNick(args.seller.nickname), // ✅ 항상 string
 
     // 구매자 정보(현재 로그인 사용자)
     buyerId: buyer.id != null ? String(buyer.id) : undefined,
     buyerEmail: buyer.email ?? undefined,
-    buyerNickname: undefined,
+    buyerNickname: ensureNick(buyer.nickname), // ✅ 항상 string (정보 없으면 '')
 
     // ✅ opponent=판매자 (현재 로그인 사용자의 상대)
     opponentId: args.seller.id != null ? String(args.seller.id) : undefined,
     opponentEmail: args.seller.email ?? undefined,
-    opponentNickname: args.seller.nickname ?? undefined,
+    opponentNickname: ensureNick(args.seller.nickname), // ✅ 항상 string
     opponentDept: args.seller.dept ?? undefined,
     opponentAvatarUri: args.seller.avatarUri ?? undefined,
 
@@ -150,17 +158,17 @@ export async function openChatAsSellerWithBuyer(
     // 판매자 정보
     sellerId: seller.id != null ? String(seller.id) : undefined,
     sellerEmail: seller.email ?? undefined,
-    sellerNickname: seller.nickname ?? undefined,
+    sellerNickname: ensureNick(seller.nickname), // ✅ 항상 string
 
     // 구매자 정보
     buyerId: args.buyer.id != null ? String(args.buyer.id) : undefined,
     buyerEmail: args.buyer.email ?? undefined,
-    buyerNickname: args.buyer.nickname ?? undefined,
+    buyerNickname: ensureNick(args.buyer.nickname), // ✅ 항상 string
 
     // ✅ opponent=구매자
     opponentId: args.buyer.id != null ? String(args.buyer.id) : undefined,
     opponentEmail: args.buyer.email ?? undefined,
-    opponentNickname: args.buyer.nickname ?? undefined,
+    opponentNickname: ensureNick(args.buyer.nickname), // ✅ 항상 string
     opponentDept: args.buyer.dept ?? undefined,
     opponentAvatarUri: args.buyer.avatarUri ?? undefined,
 

@@ -137,7 +137,7 @@ const ChatRowItem = memo(function ChatRowItem({
             />
           ) : (
             <Image
-              source={require('../../assets/images/person.png')}
+              source={require('../../assets/images/yongnuri-icon.png')}
               style={styles.avatarIcon}
               resizeMode="contain"
             />

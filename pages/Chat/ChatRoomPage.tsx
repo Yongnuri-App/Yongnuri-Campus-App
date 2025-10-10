@@ -139,7 +139,7 @@ export default function ChatRoomPage() {
     if (!isMarket) return '';
     const price = raw?.productPrice;
     if (typeof price === 'number' && price > 0) return `₩ ${price.toLocaleString('ko-KR')}`;
-    if (price === 0) return '나눔';
+    if (price === 0) return '나눔🩵';
     return '';
   }, [isMarket, raw?.productPrice]);
 

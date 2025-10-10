@@ -26,6 +26,13 @@ export default StyleSheet.create({
     borderRadius: 15,
     backgroundColor: COLORS.border,
     marginRight: 10,
+    alignItems: 'center', // ✅ 아이콘 중앙 정렬
+    justifyContent: 'center', // ✅ 아이콘 중앙 정렬
+  },
+  avatarIcon: {
+    width: 20, // ✅ 아이콘 크기 (아바타 크기에 맞게 조절)
+    height: 20,
+    marginBottom: 3,
   },
   bubbleOthers: {
     maxWidth: '70%',

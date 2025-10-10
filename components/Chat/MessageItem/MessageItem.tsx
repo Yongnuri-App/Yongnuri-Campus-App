@@ -1,4 +1,3 @@
-// /src/components/Chat/MessageItem/MessageItem.tsx
 import type { ChatMessage } from '@/types/chat';
 import React from 'react';
 import { Image, Text, View } from 'react-native';
@@ -37,7 +36,15 @@ export default function MessageItem({ item, mine }: Props) {
       </View>
     ) : (
       <View style={styles.rowLeft}>
-        <View style={styles.avatar} />
+        {/* ✅ 아바타 영역 */}
+        <View style={styles.avatar}>
+          <Image
+            source={require('../../../assets/images/yongnuri-icon-black.png')}
+            style={styles.avatarIcon}
+            resizeMode="contain"
+          />
+        </View>
+
         <View style={styles.imageBubbleOthers}>
           <Image source={{ uri: item.uri }} style={styles.msgImageOthers} />
         </View>
@@ -57,7 +64,15 @@ export default function MessageItem({ item, mine }: Props) {
       </View>
     ) : (
       <View style={styles.rowLeft}>
-        <View style={styles.avatar} />
+        {/* ✅ 아바타 영역 */}
+        <View style={styles.avatar}>
+          <Image
+            source={require('../../../assets/images/yongnuri-icon-black.png')}
+            style={styles.avatarIcon}
+            resizeMode="contain"
+          />
+        </View>
+
         <View style={styles.bubbleOthers}>
           <Text style={styles.bubbleTextOthers}>{item.text}</Text>
         </View>
@@ -66,7 +81,7 @@ export default function MessageItem({ item, mine }: Props) {
     );
   }
 
-  // ===== 시스템 메시지 (문의사항 스타일) =====
+  // ===== 시스템 메시지 =====
   if (item.type === 'system') {
     return (
       <View style={styles.systemWrap}>

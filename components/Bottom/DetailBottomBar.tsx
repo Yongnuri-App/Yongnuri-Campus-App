@@ -18,6 +18,7 @@ import {
   View,
 } from 'react-native';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useImagePicker } from '../../hooks/useImagePicker';
 import type { ChatRoomParams, RootStackParamList } from '../../types/navigation';
 import styles from './DetailBottomBar.styles';
@@ -170,8 +171,14 @@ const DetailBottomBar: React.FC<Props> = ({
           category = 'lost';
           roomId = `lost-${p.postId}-${p.posterNickname}`;
           nickname = p.posterNickname;
-          productTitle = p.postTitle;     // 분실물은 제목 사용
+          productTitle = p.postTitle;
           productImageUri = p.postImageUri;
+
+          try {
+            const myNick = await AsyncStorage.getItem('auth_user_nickname');
+            (chatAutoNavigateParams as any).buyerNickname = myNick || undefined;     // 분실물용
+            (chatAutoNavigateParams as any).opponentNickname = myNick || undefined;  // 일반 호환
+          } catch {}
         } else {
           // source === 'groupbuy'
           const p = chatAutoNavigateParams;

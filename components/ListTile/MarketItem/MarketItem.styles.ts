@@ -58,7 +58,7 @@ export default StyleSheet.create({
     fontStyle: 'normal',
     fontWeight: '700',
     fontSize: 16,
-    lineHeight: 20,
+    lineHeight: 22,
     color: '#000000',
   },
 

@@ -14,10 +14,10 @@ import NoticeItem from '../../components/ListTile/NoticeItem/NoticeItem';
 import { getIsAdmin } from '../../utils/auth';
 import styles from './MainPage.styles';
 
-import type { RootStackScreenProps } from '../../types/navigation';
-import { getMarketList } from '../../api/market';
-import { getLostFoundList } from '../../api/lost';
 import { getGroupBuyList } from '../../api/groupBuy';
+import { getLostFoundList } from '../../api/lost';
+import { getMarketList } from '../../api/market';
+import type { RootStackScreenProps } from '../../types/navigation';
 
 /** AsyncStorage 키 매핑 (탭별) */
 const POSTS_KEY_MAP = {
@@ -417,7 +417,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
                 id={item.id}
                 title={item.title}
                 subtitle={`${item.location} · ${timeAgo(item.createdAt)}`}
-                price={item.mode === 'donate' ? '나눔' : `${item.price.toLocaleString('ko-KR')}원`}
+                price={item.mode === 'donate' ? '나눔🩵' : `${item.price.toLocaleString('ko-KR')}원`}
                 likeCount={item.likeCount ?? 0}
                 image={item.images && item.images.length > 0 ? item.images[0] : undefined}
                 onPress={handlePressMarketItem}

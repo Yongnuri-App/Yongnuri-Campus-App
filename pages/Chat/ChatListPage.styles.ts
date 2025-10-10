@@ -45,8 +45,9 @@ export default StyleSheet.create({
     marginRight: 12,
   },
   avatarIcon: {
-    width: 22,
-    height: 22,
+    width: 25,
+    height: 25,
+    marginBottom: 3,
     opacity: 0.8,
   },
   chatTexts: {
