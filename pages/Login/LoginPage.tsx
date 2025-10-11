@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Keyboard,
@@ -13,26 +14,25 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  ActivityIndicator,
 } from 'react-native';
 
-import { setIsAdmin, clearIsAdmin } from '../../utils/auth';
-import { ADMIN_EMAIL, ADMIN_PASSWORD } from '../../utils/admin';
 import { RootStackParamList } from '../../types/navigation';
+import { ADMIN_EMAIL, ADMIN_PASSWORD } from '../../utils/admin';
+import { clearIsAdmin, setIsAdmin } from '../../utils/auth';
 import styles from './LoginPage.styles';
 
 import {
-  setSessionFromUser,
-  USERS_ALL_KEY,
-  StoredUser,
-  clearSession,
-} from '../../utils/session';
-import {
-  setAuthEmailNormalized,
   ensureLocalIdentity,
+  setAuthEmailNormalized,
 } from '../../utils/localIdentity';
+import {
+  clearSession,
+  setSessionFromUser,
+  StoredUser,
+  USERS_ALL_KEY,
+} from '../../utils/session';
 
-// 🔗 추가: API 연결
+// 🔗 API
 import { authApi } from '../../api/auth';
 import { setAuthToken } from '../../api/client';
 
@@ -53,12 +53,73 @@ export default function LoginPage({ navigation }: Props) {
     const idx = list.findIndex(
       (u) => u.email?.toLowerCase() === record.email.toLowerCase()
     );
-    if (idx >= 0) {
-      list[idx] = { ...list[idx], ...record };
-    } else {
-      list.unshift(record);
-    }
+    if (idx >= 0) list[idx] = { ...list[idx], ...record };
+    else list.unshift(record);
     await AsyncStorage.setItem(USERS_ALL_KEY, JSON.stringify(list));
+  };
+
+  /** ✅ 로그인 성공 공통 처리: 토큰 저장 + axios 헤더 + 세션/프로필 업서트 */
+  const handleLoginSuccess = async (emLower: string, tokens: { accessToken: string; refreshToken?: string }) => {
+    const { accessToken, refreshToken } = tokens;
+
+    // 1) 토큰 저장 (호환 키 포함)
+    await AsyncStorage.multiSet([
+      [ACCESS_TOKEN_KEY, accessToken],
+      ['accessToken', accessToken],
+    ]);
+    if (refreshToken) {
+      await AsyncStorage.multiSet([
+        [REFRESH_TOKEN_KEY, refreshToken],
+        ['refreshToken', refreshToken],
+      ]);
+    }
+
+    // 2) axios Authorization 전역 세팅
+    setAuthToken(accessToken);
+
+    // 3) 내 정보 조회 (없으면 스킵)
+    let me: any = null;
+    try {
+      const meRes = await authApi.me();
+      me = meRes?.data ?? null;
+    } catch (err) {
+      console.log('[LOGIN] /users/me failed (continue without profile)', err);
+    }
+
+    // 4) 로컬 DB 업서트 & 세션 저장
+    const profile = {
+      email: emLower,
+      name: me?.name ?? '',
+      nickname: me?.nickname ?? '',
+      department: me?.major ?? me?.department ?? '',
+      studentId: me?.studentId ? String(me?.studentId) : '',
+      isAdmin: !!me?.isAdmin || emLower === ADMIN_EMAIL.toLowerCase(), // 서버 값 우선, 없으면 관리자 메일 매칭
+    };
+
+    await upsertUser({
+      email: profile.email,
+      name: profile.name,
+      nickname: profile.nickname,
+      department: profile.department,
+      studentId: profile.studentId,
+      password: '', // 서버 로그인이라 클라 보관 X
+      isAdmin: profile.isAdmin,
+      createdAt: new Date().toISOString(),
+    });
+
+    await setSessionFromUser(profile);
+    await setAuthEmailNormalized(emLower);
+    await ensureLocalIdentity();
+
+    // 5) 관리자 플래그(앱 로컬 정책용)
+    if (profile.isAdmin) await setIsAdmin(true);
+    else await clearIsAdmin();
+
+    // 6) 홈 이동
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Main', params: { initialTab: 'market' } }],
+    });
   };
 
   const onPressLogin = async () => {
@@ -76,112 +137,29 @@ export default function LoginPage({ navigation }: Props) {
       await clearIsAdmin();
       await clearSession();
 
-      // 1) 관리자 하드코딩 로그인 (기존 유지)
-      if (
-        em.toLowerCase() === ADMIN_EMAIL.toLowerCase() &&
-        password === ADMIN_PASSWORD
-      ) {
-        await setIsAdmin(true);
+      // ✅ (A) 관리자 하드코딩 로그인 → 서버에서 실제 토큰을 받아 사용
+      if (em.toLowerCase() === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASSWORD) {
+        console.log('[LOGIN] ▶ /auth/login (admin)');
+        const res = await authApi.login({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
+        console.log('[LOGIN] ◀ /auth/login (admin)', res?.status, !!res?.data?.accessToken);
+        const accessToken: string | undefined = res?.data?.accessToken;
+        const refreshToken: string | undefined = res?.data?.refreshToken;
+        if (!accessToken) throw new Error('서버에서 accessToken을 받지 못했습니다.');
 
-        await upsertUser({
-          email: ADMIN_EMAIL.toLowerCase(),
-          name: '관리자',
-          nickname: '관리자',
-          department: '',
-          studentId: '',
-          password: 'ADMIN',
-          isAdmin: true,
-          createdAt: new Date().toISOString(),
-        });
-
-        await setSessionFromUser({
-          email: ADMIN_EMAIL.toLowerCase(),
-          name: '관리자',
-          nickname: '관리자',
-          studentId: '',
-          department: '',
-          isAdmin: true,
-        });
-
-        await setAuthEmailNormalized(ADMIN_EMAIL.toLowerCase());
-        await ensureLocalIdentity();
-
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Main', params: { initialTab: 'market' } }],
-        });
+        await handleLoginSuccess(ADMIN_EMAIL.toLowerCase(), { accessToken, refreshToken });
         return;
       }
 
-      // 2) 일반 사용자: 서버 로그인
+      // ✅ (B) 일반 사용자 로그인
       console.log('[LOGIN] ▶ /auth/login request', { email: em });
       const res = await authApi.login({ email: em, password });
       console.log('[LOGIN] ◀ /auth/login response', res?.status, res?.data);
 
       const accessToken: string | undefined = res?.data?.accessToken;
       const refreshToken: string | undefined = res?.data?.refreshToken;
-      if (!accessToken) {
-        throw new Error('서버에서 accessToken을 받지 못했습니다.');
-      }
+      if (!accessToken) throw new Error('서버에서 accessToken을 받지 못했습니다.');
 
-      // ✅ 토큰 저장 (기존 키 유지 + 호환 키 동시 저장)
-      await AsyncStorage.multiSet([
-        [ACCESS_TOKEN_KEY, accessToken], // 'access_token' (기존)
-        ['accessToken', accessToken],    // ← createGroupBuyPost에서 찾는 키
-      ]);
-      if (refreshToken) {
-        await AsyncStorage.multiSet([
-          [REFRESH_TOKEN_KEY, refreshToken], // 'refresh_token' (기존)
-          ['refreshToken', refreshToken],     // 호환 키
-        ]);
-      }
-
-      // axios 헤더 주입 (헤더 인증 쓰는 API 대비)
-      setAuthToken(accessToken);
-
-      // 2-1) (선택) 내 정보 조회 시도 → 세션/로컬DB 동기화
-      let me: any = null;
-      try {
-        const meRes = await authApi.me();
-        console.log('[LOGIN] ◀ /users/me response', meRes?.status, meRes?.data);
-        me = meRes?.data ?? null;
-      } catch (err) {
-        console.log('[LOGIN] /users/me failed (continue without profile)', err);
-      }
-
-      const emLower = em.toLowerCase();
-      const profile = {
-        email: emLower,
-        name: me?.name ?? '',
-        nickname: me?.nickname ?? '',
-        department: me?.major ?? me?.department ?? '',
-        studentId: me?.studentId ? String(me?.studentId) : '',
-        isAdmin: !!me?.isAdmin,
-      };
-
-      // 로컬 DB 업서트(프로필이 비어도 이메일 기준으로 레코드 남겨둠)
-      await upsertUser({
-        email: profile.email,
-        name: profile.name,
-        nickname: profile.nickname,
-        department: profile.department,
-        studentId: profile.studentId,
-        password: '', // 서버 로그인이라 클라이언트에 패스워드 보관 X
-        isAdmin: profile.isAdmin,
-        createdAt: new Date().toISOString(),
-      });
-
-      // 세션 저장
-      await setSessionFromUser(profile);
-
-      // 이메일 스코프/디바이스 ID
-      await setAuthEmailNormalized(emLower);
-      await ensureLocalIdentity();
-
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Main', params: { initialTab: 'market' } }],
-      });
+      await handleLoginSuccess(em.toLowerCase(), { accessToken, refreshToken });
     } catch (e: any) {
       console.log('[LOGIN] ✖ error', {
         message: e?.message,

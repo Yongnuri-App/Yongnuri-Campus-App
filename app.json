@@ -37,8 +37,8 @@
     },
     "extra": {
       "apiBaseUrl": "http://192.168.0.7:8080",
-      "ADMIN_ID": "202178028@yiu.ac.kr",
-      "ADMIN_PW": "1234",
+      "ADMIN_ID": "admin@example.com",
+      "ADMIN_PW": "admin1234!",
       "profilePath": "/mypage"
     }
   }

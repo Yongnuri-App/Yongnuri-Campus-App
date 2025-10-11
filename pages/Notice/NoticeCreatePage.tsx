@@ -1,26 +1,34 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { CommonActions, useRoute, RouteProp, useNavigation } from '@react-navigation/native';
+// pages/Admin/NoticeCreatePage.tsx
+
+import { CommonActions, RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
+  Image,
   SafeAreaView,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  Image,
 } from 'react-native';
 
-import type { RootStackParamList } from '../../types/navigation';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import DatePickerSheet from '../../components/TimePicker/DatePickerSheet';
-import styles from './NoticeCreatePage.styles';
 import { useImagePicker } from '../../hooks/useImagePicker';
+import type { RootStackParamList } from '../../types/navigation';
+import styles from './NoticeCreatePage.styles';
+
+// ✅ API 연결: 공지 API
+import {
+  createNotice,
+  updateNotice,
+  type CreateNoticeRequest,
+  type NoticeResponse,
+} from '../../api/notices';
 
 type NoticeWriteRoute = RouteProp<RootStackParamList, 'AdminNoticeCreate' | 'NoticeWrite'>;
 
-const NOTICE_KEY = 'notice_posts_v1';
 const MAX = 10;
 
 export default function NoticeCreatePage() {
@@ -32,38 +40,19 @@ export default function NoticeCreatePage() {
   const mode = isNoticeWrite ? route.params?.mode ?? 'create' : 'create';
   const editId = isNoticeWrite ? route.params?.id : undefined;
 
-  // ✅ 이미지: 재사용 훅 사용 (UI는 PhotoPicker가 처리)
+  // ✅ 이미지: 현재는 로컬 미리보기/선택만. 서버 업로드는 추후 API 확정 후 연결.
   const { images, setImages, openAdd, removeAt } = useImagePicker({ max: MAX });
 
   // 폼 상태
   const [title, setTitle] = useState('');
-  const [desc, setDesc] = useState('');
-  const [applyUrl, setApplyUrl] = useState('');
+  const [desc, setDesc] = useState('');        // 서버에는 content로 매핑
+  const [applyUrl, setApplyUrl] = useState(''); // 서버에는 link로 매핑
   const [applyDate, setApplyDate] = useState<Date | null>(null);
   const [dateOpen, setDateOpen] = useState(false);
 
-  // 기존 수정 데이터 로드
-  useEffect(() => {
-    if (mode !== 'edit' || !editId) return;
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(NOTICE_KEY);
-        const list = raw ? JSON.parse(raw) : [];
-        const found = list.find((n: any) => n.id === editId);
-        if (!found) return;
-
-        setTitle(found.title ?? '');
-        setDesc(found.description ?? '');
-        setApplyUrl(found.applyUrl ?? '');
-        setImages(Array.isArray(found.images) ? found.images : []);
-        if (found.endDate) {
-          setApplyDate(new Date(found.endDate));
-        }
-      } catch (e) {
-        console.log('공지 수정 로드 오류', e);
-      }
-    })();
-  }, [mode, editId, setImages]);
+  // ⚠️ 기존 로컬 저장소 기반의 '수정' 로드는 제거.
+  // 실제 수정 화면 진입 시에는 상세 API로 불러와서 초기값 세팅하는 흐름이 일반적임.
+  // 지금은 파라미터로 넘어온 값이 없으므로, 필요 시 NoticeDetail에서 route.params로 넘겨도 됨.
 
   // 날짜 유틸
   const now = useMemo(() => new Date(), []);
@@ -80,57 +69,57 @@ export default function NoticeCreatePage() {
     [title, desc]
   );
 
-  // 등록/수정 저장
+  // 공통: ISO 문자열(yyyy-MM-ddTHH:mm:ss)로 맞춰 주기
+  const toIsoEndOfDay = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59).toISOString();
+
+  // 등록/수정 저장 (API 연결)
   const submit = useCallback(async () => {
     if (!canSubmit) {
       Alert.alert('알림', '제목과 설명을 입력해주세요.');
       return;
     }
+
     try {
       const start = new Date();
       const end = applyDate ?? start;
 
-      const raw = await AsyncStorage.getItem(NOTICE_KEY);
-      const list = raw ? JSON.parse(raw) : [];
+      // 서버 DTO로 매핑
+      const payload: CreateNoticeRequest = {
+        title: title.trim(),
+        content: desc.trim(),
+        isImages: images.length > 0,     // ✔ 현재는 이미지가 있는지만 서버에 전달
+        link: applyUrl.trim() || undefined,
+        startDate: start.toISOString(),
+        endDate: toIsoEndOfDay(end),
+        // status는 기본값(RECRUITING) 사용. 필요 시 드롭다운 추가하여 선택 값 전송
+        // status: 'RECRUITING',
+      };
+
+      let res: NoticeResponse;
 
       if (mode === 'edit' && editId) {
-        // 수정
-        const idx = list.findIndex((n: any) => n.id === editId);
-        if (idx !== -1) {
-          list[idx] = {
-            ...list[idx],
-            title: title.trim(),
-            description: desc.trim(),
-            images,
-            endDate: new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59).toISOString(),
-            applyUrl: applyUrl.trim() || null,
-          };
-        }
+        // PATCH
+        res = await updateNotice(editId, payload);
+        Alert.alert('완료', `공지 수정 완료 (#${res.id})`);
       } else {
-        // 신규 등록
-        const newItem = {
-          id: `${Date.now()}`,
-          title: title.trim(),
-          description: desc.trim(),
-          images,
-          startDate: start.toISOString(),
-          endDate: new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59).toISOString(),
-          createdAt: start.toISOString(),
-          applyUrl: applyUrl.trim() || null,
-        };
-        list.unshift(newItem);
+        // POST
+        res = await createNotice(payload);
+        Alert.alert('완료', `공지 등록 완료 (#${res.id})`);
       }
 
-      await AsyncStorage.setItem(NOTICE_KEY, JSON.stringify(list));
-
-      // 초기화 후 메인 탭으로 이동
+      // 폼 초기화
       setTitle('');
       setDesc('');
       setApplyUrl('');
       setImages([]);
       setApplyDate(null);
 
-      // ⚠️ types 기준으로 존재하는 탭으로 넘기자. (notice 탭이 없다면 market 등으로)
+      // 다음 화면 이동: 공지 상세로 가거나, 목록/메인으로 이동
+      // ✅ 상세로 이동하는 예시:
+      navigation.navigate('NoticeDetail', { id: String(res.id), isAdmin: true });
+
+      // ✅ 지금 구조 유지: Main으로 리셋 (초기 Tab은 프로젝트 상황에 맞게)
       navigation.dispatch(
         CommonActions.reset({
           index: 0,
@@ -138,10 +127,16 @@ export default function NoticeCreatePage() {
         })
       );
     } catch (e: any) {
-      console.log(e);
-      Alert.alert('오류', e?.message ?? '저장에 실패했어요. 잠시 후 다시 시도해주세요.');
+      // 백엔드 표준 에러(message)를 우선 사용
+      const msg =
+        e?.response?.data?.message ||
+        e?.response?.data?.error ||
+        e?.message ||
+        '서버 통신 중 오류가 발생했습니다.';
+      console.log('[NOTICE SUBMIT ERR]', e?.response?.data ?? e);
+      Alert.alert('오류', msg);
     }
-  }, [canSubmit, images, title, desc, applyUrl, applyDate, mode, editId, navigation, setImages]);
+  }, [canSubmit, images, title, desc, applyUrl, applyDate, mode, editId, navigation]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -168,6 +163,8 @@ export default function NoticeCreatePage() {
           onAddPress={openAdd}
           onRemoveAt={removeAt}
         />
+        {/* TODO: 이미지 업로드 API 스펙 확정 후, 공지 생성 성공 시
+                res.id 기준 업로드 엔드포인트 호출 → 성공하면 썸네일/이미지 표시 동기화. */}
 
         {/* 제목 */}
         <Text style={styles.label}>제목</Text>
@@ -176,7 +173,7 @@ export default function NoticeCreatePage() {
           placeholder="글 제목"
           value={title}
           onChangeText={setTitle}
-          maxLength={80}
+          maxLength={150} // 서버 @Size(max=150)와 맞춤
         />
 
         {/* 설명 */}

@@ -1,3 +1,3 @@
 // utils/admin.ts
-export const ADMIN_EMAIL = '202178028@yiu.ac.kr';
-export const ADMIN_PASSWORD = '1234';
+export const ADMIN_EMAIL = 'admin@example.com';   // DEV 전용
+export const ADMIN_PASSWORD = 'admin1234!';   // DEV 전용

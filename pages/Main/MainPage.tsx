@@ -1,3 +1,4 @@
+// pages/Main/MainPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -17,9 +18,13 @@ import styles from './MainPage.styles';
 import { getGroupBuyList } from '../../api/groupBuy';
 import { getLostFoundList } from '../../api/lost';
 import { getMarketList } from '../../api/market';
+
+// ✅ 공지 서버 API
+import { getNotices, type NoticeResponse } from '../../api/notices';
+
 import type { RootStackScreenProps } from '../../types/navigation';
 
-/** AsyncStorage 키 매핑 (탭별) */
+/** AsyncStorage 키 매핑 (탭별) — 공지는 이제 서버에서 불러오므로 폴백 이외에 사용 안 함 */
 const POSTS_KEY_MAP = {
   market: 'market_posts_v1',
   lost: 'lost_found_posts_v1',
@@ -70,20 +75,12 @@ type GroupListItem = {
   status?: 'RECRUITING' | 'COMPLETED' | 'DELETED';
 };
 
-type NoticeListItem = {
-  id: string;
-  title: string;
-  description?: string;
-  images?: string[];
-  startDate: string;  // ISO
-  endDate: string;    // ISO
-  createdAt: string;  // ISO
-};
+/** 서버 공지 응답을 그대로 들고 있다가 렌더 직전에 매핑할 거라 별도 타입 생략 */
 
 /** 카테고리 id → 위치 라벨(API/클라이언트 필터용) */
 function getLocationLabelFromId(id: string): string {
   if (id === 'all') return '전체';
-  return DEFAULT_CATEGORIES.find(c => c.id === id)?.label ?? '전체';
+  return DEFAULT_CATEGORIES.find((c) => c.id === id)?.label ?? '전체';
 }
 
 /** 서버 status → 한글 배지 */
@@ -99,7 +96,8 @@ function mapStatusToBadge(
 }
 
 /** "n분 전 / n시간 전 / n일 전" */
-function timeAgo(iso: string) {
+function timeAgo(iso?: string | null) {
+  if (!iso) return '';
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
   if (m < 1) return '방금 전';
@@ -111,7 +109,8 @@ function timeAgo(iso: string) {
 }
 
 /** YYYY-MM-DD */
-function formatDateYMD(iso: string) {
+function formatDateYMD(iso?: string | null) {
+  if (!iso) return '';
   const d = new Date(iso);
   const yyyy = d.getFullYear();
   const mm = `${d.getMonth() + 1}`.padStart(2, '0');
@@ -119,9 +118,14 @@ function formatDateYMD(iso: string) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-/** 공지 종료 여부 */
-function isClosed(isoEnd: string) {
-  return new Date(isoEnd).getTime() < Date.now();
+/** 공지 종료 여부 (종료일 지났거나 상태가 COMPLETED/DELETED 면 닫힘) */
+function isNoticeClosed(item: NoticeResponse) {
+  const byStatus =
+    item.status === 'COMPLETED' || item.status === 'DELETED';
+  const byTime = item.endDate
+    ? new Date(item.endDate).getTime() < Date.now()
+    : false;
+  return byStatus || byTime;
 }
 
 export default function MainPage({ navigation, route }: RootStackScreenProps<'Main'>) {
@@ -134,8 +138,13 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
   const [marketItems, setMarketItems] = useState<MarketListItem[]>([]);
   const [lostItems, setLostItems] = useState<LostListItem[]>([]);
   const [groupItems, setGroupItems] = useState<GroupListItem[]>([]);
-  const [noticeItems, setNoticeItems] = useState<NoticeListItem[]>([]);
+
+  // ✅ 공지: 서버 응답을 그대로 들고 있음
+  const [noticeItems, setNoticeItems] = useState<NoticeResponse[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+
+  // 각 탭별 로딩 (선택)
+  const [noticeLoading, setNoticeLoading] = useState(false);
 
   // 관리자 여부
   const [isAdmin, setIsAdmin] = useState(false);
@@ -158,7 +167,9 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
         if (mounted) setIsAdmin(false);
       }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // 포커스될 때마다 관리자 재확인
@@ -173,7 +184,9 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
           if (!canceled) setIsAdmin(false);
         }
       })();
-      return () => { canceled = true; };
+      return () => {
+        canceled = true;
+      };
     }, [])
   );
 
@@ -341,31 +354,49 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
         return;
       }
 
-      // ----- 공지/기타: 기존 로컬 저장소 유지 -----
-      const key = POSTS_KEY_MAP[which as keyof typeof POSTS_KEY_MAP];
-      if (!key) return;
-      try {
-        const raw = await AsyncStorage.getItem(key);
-        const list = (raw ? JSON.parse(raw) : []) as any[];
-        list.sort(
-          (a, b) =>
-            new Date(b.createdAt ?? b.startDate).getTime() -
-            new Date(a.createdAt ?? a.startDate).getTime()
-        );
+      // ----- 공지: ✅ 서버 목록 호출 (/board/notices) -----
+      if (which === 'notice') {
+        try {
+          setNoticeLoading(true);
+          console.log('[MainPage] GET /board/notices');
+          const rows = await getNotices(); // NoticeResponse[]
 
-        if (which === 'notice') setNoticeItems(list as NoticeListItem[]);
-      } catch (e) {
-        console.log('load posts error', e);
-        if (which === 'notice') setNoticeItems([]);
+          // 최신순으로 정렬 (createdAt 기준, 없으면 startDate)
+          const sorted = [...rows].sort((a, b) => {
+            const at = new Date(a.createdAt ?? a.startDate ?? 0).getTime();
+            const bt = new Date(b.createdAt ?? b.startDate ?? 0).getTime();
+            return bt - at;
+          });
+
+          setNoticeItems(sorted);
+        } catch (e) {
+          console.log('[MainPage] notice list load error', (e as any)?.response?.data || e);
+
+          // (선택) 과거 로컬 캐시 폴백: 있으면 보여주고, 없으면 빈 배열.
+          try {
+            const raw = await AsyncStorage.getItem(POSTS_KEY_MAP.notice);
+            const local = raw ? JSON.parse(raw) : [];
+            setNoticeItems(local);
+          } catch {
+            setNoticeItems([]);
+          }
+        } finally {
+          setNoticeLoading(false);
+        }
+        return;
       }
+
+      // ----- 기타 탭: 필요 시 여기에 -----
     },
     [category]
   );
 
-  // 탭 포커스마다 재로딩
+  // 탭 포커스마다 재로딩 (작성 후 메인 돌아오면 자동 최신화)
   useFocusEffect(
     useCallback(() => {
-      (async () => { await loadPosts(tab); })();
+      (async () => {
+        await loadPosts(tab);
+      })();
     }, [tab, loadPosts])
   );
 
@@ -379,7 +410,9 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
   /** 카테고리 바뀔 때 market/lost 재요청 */
   useEffect(() => {
     if (tab === 'market' || tab === 'lost') {
-      (async () => { await loadPosts(tab, category); })();
+      (async () => {
+        await loadPosts(tab, category);
+      })();
     }
   }, [category, tab, loadPosts]);
 
@@ -387,11 +420,15 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
   const filteredMarket = useMemo(() => marketItems, [marketItems]);
   const filteredLost = useMemo(() => lostItems, [lostItems]);
   const filteredGroup = useMemo(() => groupItems, [groupItems]);
+  const filteredNotice = useMemo(() => noticeItems, [noticeItems]);
 
   /** 상세 이동 */
-  const handlePressMarketItem = useCallback((id: string) => {
-    navigation.navigate('MarketDetail', { id });
-  }, [navigation]);
+  const handlePressMarketItem = useCallback(
+    (id: string) => {
+      navigation.navigate('MarketDetail', { id });
+    },
+    [navigation]
+  );
 
   return (
     <View style={styles.container}>
@@ -446,8 +483,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => {
               // 'RETURNED'면 회수, 그 외 목적에 따라 분실/습득
-              const typeLabel =
-                item.status === 'RETURNED' ? '회수' : (item.type === 'found' ? '습득' : '분실');
+              const typeLabel = item.status === 'RETURNED' ? '회수' : item.type === 'found' ? '습득' : '분실';
 
               return (
                 <LostItem
@@ -488,7 +524,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
                 recruitCount={item.recruit?.count ?? null}
                 image={item.images && item.images.length > 0 ? item.images[0] : undefined}
                 likeCount={item.likeCount ?? 0}
-                isClosed={String(item.status ?? '').toUpperCase() === 'COMPLETED'} // ✅ 상태 반영
+                isClosed={String(item.status ?? '').toUpperCase() === 'COMPLETED'}
                 onPress={() => navigation.navigate('GroupBuyDetail', { id: item.id })}
               />
             )}
@@ -508,24 +544,30 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
 
         {tab === 'notice' && (
           <FlatList
-            data={noticeItems}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <NoticeItem
-                id={item.id}
-                title={item.title}
-                termText={`${formatDateYMD(item.startDate)} ~ ${formatDateYMD(item.endDate)}`}
-                timeAgoText={timeAgo(item.createdAt ?? item.startDate)}
-                status={isClosed(item.endDate) ? 'closed' : 'open'}
-                image={item.images?.[0]}
-                onPress={() => {
-                  navigation.navigate('NoticeDetail', { id: item.id });
-                }}
-              />
-            )}
+            data={filteredNotice}
+            keyExtractor={(item) => String(item.id)}
+            renderItem={({ item }) => {
+              // ✅ 이미지: 목록 응답은 thumbnailUrl만 올 수 있음(문서 기준)
+              const imageUri =
+                item.thumbnailUrl ??
+                (Array.isArray((item as any).images) ? (item as any).images?.[0]?.imageUrl : undefined) ??
+                undefined;
+
+              return (
+                <NoticeItem
+                  id={String(item.id)}
+                  title={item.title}
+                  termText={`${formatDateYMD(item.startDate)} ~ ${formatDateYMD(item.endDate)}`}
+                  timeAgoText={timeAgo(item.createdAt ?? item.startDate)}
+                  status={isNoticeClosed(item) ? 'closed' : 'open'}
+                  image={imageUri}
+                  onPress={() => navigation.navigate('NoticeDetail', { id: String(item.id) })}
+                />
+              );
+            }}
             ListEmptyComponent={
               <Text style={{ color: '#979797', marginTop: 24, textAlign: 'center' }}>
-                공지사항이 아직 없어요.
+                {noticeLoading ? '불러오는 중…' : '공지사항이 아직 없어요.'}
               </Text>
             }
             showsVerticalScrollIndicator={false}
@@ -533,7 +575,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
             initialNumToRender={6}
             windowSize={10}
             removeClippedSubviews
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            refreshControl={<RefreshControl refreshing={refreshing || noticeLoading} onRefresh={onRefresh} />}
           />
         )}
 

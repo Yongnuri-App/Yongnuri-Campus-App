@@ -1,9 +1,9 @@
 // App.tsx
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import React from 'react';
-import 'react-native-gesture-handler'; // ✅ 가장 위에서 1회 임포트(엔트리에서 해도 됨)
-import { GestureHandlerRootView } from 'react-native-gesture-handler'; // ✅ 추가
+import React, { useEffect } from 'react'; // ✅ useEffect 추가
+import 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { RootStackParamList } from './types/navigation';
 
@@ -20,7 +20,6 @@ import MarketDetailPage from './pages/Market/MarketDetailPage';
 import SellItemPage from './pages/Market/SellItemPage';
 import BlockedUsersPage from './pages/My/BlockedUsers/BlockedUsersPage';
 import FavoritesPage from './pages/My/Favorites/MyFavoritesPage';
-import InquiryPage from './pages/My/Inquiry/InquiryPage';
 import MyPagePage from './pages/My/MyPage/MyPage';
 import PersonalInfoPage from './pages/My/PersonalInfo/PersonalInfoPage';
 import TradeHistoryPage from './pages/My/TradeHistory/TradeHistoryPage';
@@ -47,17 +46,35 @@ import AdminReportManagePage from './pages/Admin/ReportManage/AdminReportManageP
 import AllNoticeCreatePage from './pages/Admin/AllNotice/AllNoticeCreatePage';
 import AllNoticePage from './pages/Admin/AllNotice/AllNoticePage';
 
+// ✅ 부팅 시 토큰 복구
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setAuthToken } from './api/client';
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
+  // ✅ 앱 시작 시 저장된 토큰을 불러와 axios Authorization 헤더에 세팅
+  useEffect(() => {
+    (async () => {
+      try {
+        // 우선순위: 'accessToken' → 'access_token'
+        const t1 = await AsyncStorage.getItem('accessToken');
+        const t2 = !t1 ? await AsyncStorage.getItem('access_token') : null;
+        const token = t1 || t2;
+        if (token) {
+          setAuthToken(token);
+          console.log('[App] restored Authorization header');
+        }
+      } catch (e) {
+        console.log('[App] token restore failed', e);
+      }
+    })();
+  }, []);
+
   return (
-    // ✅ 제스처 루트로 전체 앱을 감싸기
     <GestureHandlerRootView style={{ flex: 1 }}>
       <NavigationContainer>
-        <Stack.Navigator
-          initialRouteName="Loading"
-          screenOptions={{ headerShown: false }}
-        >
+        <Stack.Navigator initialRouteName="Loading" screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Loading" component={LoadingScreen} />
           <Stack.Screen name="Login" component={LoginPage} />
           <Stack.Screen name="Signup" component={SignUpPage} />
@@ -94,7 +111,6 @@ export default function App() {
           <Stack.Screen name="MyFavorites" component={FavoritesPage} />
           <Stack.Screen name="MyBlockedUsers" component={BlockedUsersPage} />
           <Stack.Screen name="MyTradeHistory" component={TradeHistoryPage} />
-          <Stack.Screen name="MyInquiry" component={InquiryPage} />
           <Stack.Screen name="MyWithdraw" component={WithdrawPage} />
 
           {/* 공지 상세 + 작성/수정 */}
@@ -105,16 +121,14 @@ export default function App() {
           {/* 관리자 게이트 */}
           <Stack.Screen name="AdminGate" component={AdminPage} />
 
-          {/* ✅ 관리자: 문의하기 공지 설정 */}
+          {/* 관리자: 문의하기 공지 설정 */}
           <Stack.Screen name="AdminInquiryNotice" component={InquiryNoticeSettingPage} />
-
-          {/* ✅ 관리자: 회원 정보 목록 */}
+          {/* 관리자: 회원 정보 목록 */}
           <Stack.Screen name="AdminMemberList" component={MemberListPage} />
-
-          {/* ✅ 관리자: 신고 관리 목록 */}
+          {/* 관리자: 신고 관리 목록 */}
           <Stack.Screen name="AdminReportManage" component={AdminReportManagePage} />
 
-          {/* ✅ 관리자: 전체 공지 목록 & 등록 */}
+          {/* 관리자: 전체 공지 목록 & 등록 */}
           <Stack.Screen
             name="AdminAllNotice"
             component={AllNoticePage}
