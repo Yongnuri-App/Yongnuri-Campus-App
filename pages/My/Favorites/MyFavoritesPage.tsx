@@ -1,5 +1,6 @@
 // pages/My/MyFavorites/MyFavoritesPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Image,
@@ -9,17 +10,21 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import CategoryTabs, { CategoryTab } from '../../../components/CategoryTabs/CategoryTabs';
-import MarketItem from '../../../components/ListTile/MarketItem/MarketItem';
-import LostItem from '../../../components/ListTile/LostItem/LostItem';
 import GroupItem from '../../../components/ListTile/GroupItem/GroupItem';
+import LostItem from '../../../components/ListTile/LostItem/LostItem';
+import MarketItem from '../../../components/ListTile/MarketItem/MarketItem';
 import NoticeItem from '../../../components/ListTile/NoticeItem/NoticeItem';
-import styles from './MyFavoritesPage.styles';
 import { getIdentityScope } from '../../../utils/localIdentity';
+import styles from './MyFavoritesPage.styles';
 
-/* ===== 저장소 키 (베이스) ===== */
+// ✅ 서버 관심목록 API
+import { fetchMyBookmarks, type PostType } from '@/api/bookmarks';
+
+/* ===== 저장소 키 (베이스) =====
+ * - 서버 호출 실패 시(오프라인 등) 기존 로컬 방식으로 폴백
+ */
 const MARKET_POSTS_KEY = 'market_posts_v1';
 const MARKET_LIKED_MAP_KEY = 'market_liked_map_v1';
 
@@ -38,10 +43,10 @@ const perUser = (base: string, id: string | null) => (id ? `${base}__id:${id}` :
 type MarketPost = {
   id: string;
   title: string;
-  description: string;
-  mode: 'sell' | 'donate';
-  price: number;
-  location: string;
+  description?: string;
+  mode?: 'sell' | 'donate';
+  price?: number;
+  location?: string;
   images: string[];
   likeCount: number;
   createdAt: string; // ISO
@@ -51,7 +56,7 @@ type MarketPost = {
 type LostPost = {
   id: string;
   title: string;
-  type: 'lost' | 'found';
+  type?: 'lost' | 'found';
   createdAt: string; // ISO
   images: string[];
   likeCount: number;
@@ -62,12 +67,12 @@ type RecruitMode = 'unlimited' | 'limited' | null;
 type GroupBuyPost = {
   id: string;
   title: string;
-  description: string;
-  recruit: {
+  description?: string;
+  recruit?: {
     mode: RecruitMode;
     count: number | null;
   };
-  applyLink: string;
+  applyLink?: string;
   images: string[];
   likeCount: number;
   createdAt: string; // ISO
@@ -119,6 +124,60 @@ function isClosed(endIso?: string) {
   return new Date(endIso).getTime() < Date.now();
 }
 
+/* ===== 서버 응답 → 우리 카드 모델로 맵핑 도우미 =====
+ * 서버 BookmarkResponseDto: { bookmarkId, postId, postType, title, thumbnailUrl, bookmarkedAt }
+ * - 각 리스트 타일이 요구하는 필드는 프로젝트마다 조금씩 달라서
+ *   일단 "필수만" 채워 카드가 깨지지 않게 보장.
+ * - 상세 정보(가격/모집현황 등)가 필요하면, 여기서 postId로 한 번 더 상세조회(batch)해 확장 가능.
+ */
+const mapMarketFromBookmarks = (rows: Array<{
+  postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string;
+}>): MarketPost[] =>
+  rows.map(r => ({
+    id: String(r.postId),
+    title: r.title,
+    // price/mode/location은 북마크 응답에 없음 → 리스트에선 표시만 유지
+    images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
+    likeCount: 0,
+    createdAt: r.bookmarkedAt,
+  }));
+
+const mapLostFromBookmarks = (rows: Array<{
+  postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string;
+}>): LostPost[] =>
+  rows.map(r => ({
+    id: String(r.postId),
+    title: r.title,
+    images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
+    likeCount: 0,
+    createdAt: r.bookmarkedAt,
+  }));
+
+const mapGroupFromBookmarks = (rows: Array<{
+  postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string;
+}>): GroupBuyPost[] =>
+  rows.map(r => ({
+    id: String(r.postId),
+    title: r.title,
+    images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
+    likeCount: 0,
+    createdAt: r.bookmarkedAt,
+    recruit: { mode: 'unlimited', count: null },
+  }));
+
+const mapNoticeFromBookmarks = (rows: Array<{
+  postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string;
+}>): NoticePost[] =>
+  rows.map(r => ({
+    id: String(r.postId),
+    title: r.title,
+    images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
+    // 공지 리스트는 기간 텍스트를 요구하므로 최소 createdAt로 채워 표시되게 처리
+    startDate: r.bookmarkedAt,
+    endDate: r.bookmarkedAt,
+    createdAt: r.bookmarkedAt,
+  }));
+
 /* ===== 컴포넌트 ===== */
 export default function MyFavoritesPage() {
   const navigation = useNavigation<any>();
@@ -132,7 +191,7 @@ export default function MyFavoritesPage() {
   const [groupFavs, setGroupFavs] = useState<GroupBuyPost[]>([]);
   const [noticeFavs, setNoticeFavs] = useState<NoticePost[]>([]);
 
-  // 현재 로그인/기기 식별자 로드
+  // 현재 로그인/기기 식별자 로드 (로컬 폴백용 키)
   useEffect(() => {
     (async () => {
       const id = await getIdentityScope(); // email(소문자) 우선, 없으면 기기ID
@@ -140,75 +199,108 @@ export default function MyFavoritesPage() {
     })();
   }, []);
 
-  /* ===== 로더들 (개인화된 liked_map 키로 읽기) ===== */
+  /* ===== 서버 로더 (실패 시 로컬 폴백) ===== */
+
+  const tryServerThenLocal = useCallback(
+    async <T,>(postType: PostType, localLoad: () => Promise<T>, mapFn: (rows: any[]) => T): Promise<T> => {
+      try {
+        const rows = await fetchMyBookmarks(postType); // ✅ /board/bookmarks?postType=...
+        // rows: BookmarkResponseDto[]
+        const mapped = mapFn(rows);
+        return mapped;
+      } catch (e) {
+        console.log(`[MyFavorites] server fetch failed for ${postType}, fallback to local`, e);
+        return await localLoad();
+      }
+    },
+    []
+  );
+
   const loadMarketFavorites = useCallback(async () => {
     if (identity === undefined) return; // 초기 로딩 중
-    try {
-      const [rawPosts, rawLikedMap] = await Promise.all([
-        AsyncStorage.getItem(MARKET_POSTS_KEY),
-        AsyncStorage.getItem(perUser(MARKET_LIKED_MAP_KEY, identity)),
-      ]);
-      const posts: MarketPost[] = rawPosts ? JSON.parse(rawPosts) : [];
-      const likedMap: Record<string, boolean> = rawLikedMap ? JSON.parse(rawLikedMap) : {};
-      setMarketFavs(posts.filter(p => likedMap[p.id]));
-    } catch (e) {
-      console.log('load market favorites error', e);
-      setMarketFavs([]);
-    }
-  }, [identity]);
+    // 1) 서버 → 2) 로컬 폴백
+    const localLoad = async (): Promise<MarketPost[]> => {
+      try {
+        const [rawPosts, rawLikedMap] = await Promise.all([
+          AsyncStorage.getItem(MARKET_POSTS_KEY),
+          AsyncStorage.getItem(perUser(MARKET_LIKED_MAP_KEY, identity)),
+        ]);
+        const posts: MarketPost[] = rawPosts ? JSON.parse(rawPosts) : [];
+        const likedMap: Record<string, boolean> = rawLikedMap ? JSON.parse(rawLikedMap) : {};
+        return posts.filter(p => likedMap[p.id]);
+      } catch (e) {
+        console.log('load market favorites (local) error', e);
+        return [];
+      }
+    };
+    const data = await tryServerThenLocal('USED_ITEM', localLoad, mapMarketFromBookmarks);
+    setMarketFavs(data);
+  }, [identity, tryServerThenLocal]);
 
   const loadLostFavorites = useCallback(async () => {
     if (identity === undefined) return;
-    try {
-      const [rawPosts, rawLikedMap] = await Promise.all([
-        AsyncStorage.getItem(LOST_POSTS_KEY),
-        AsyncStorage.getItem(perUser(LOST_LIKED_MAP_KEY, identity)),
-      ]);
-      const posts: LostPost[] = rawPosts ? JSON.parse(rawPosts) : [];
-      const likedMap: Record<string, boolean> = rawLikedMap ? JSON.parse(rawLikedMap) : {};
-      setLostFavs(posts.filter(p => likedMap[p.id]));
-    } catch (e) {
-      console.log('load lost favorites error', e);
-      setLostFavs([]);
-    }
-  }, [identity]);
+    const localLoad = async (): Promise<LostPost[]> => {
+      try {
+        const [rawPosts, rawLikedMap] = await Promise.all([
+          AsyncStorage.getItem(LOST_POSTS_KEY),
+          AsyncStorage.getItem(perUser(LOST_LIKED_MAP_KEY, identity)),
+        ]);
+        const posts: LostPost[] = rawPosts ? JSON.parse(rawPosts) : [];
+        const likedMap: Record<string, boolean> = rawLikedMap ? JSON.parse(rawLikedMap) : {};
+        return posts.filter(p => likedMap[p.id]);
+      } catch (e) {
+        console.log('load lost favorites (local) error', e);
+        return [];
+      }
+    };
+    const data = await tryServerThenLocal('LOST_ITEM', localLoad, mapLostFromBookmarks);
+    setLostFavs(data);
+  }, [identity, tryServerThenLocal]);
 
   const loadGroupFavorites = useCallback(async () => {
     if (identity === undefined) return;
-    try {
-      const [rawPosts, rawLikedMap] = await Promise.all([
-        AsyncStorage.getItem(GROUP_POSTS_KEY),
-        AsyncStorage.getItem(perUser(GROUP_LIKED_MAP_KEY, identity)),
-      ]);
-      const posts: GroupBuyPost[] = rawPosts ? JSON.parse(rawPosts) : [];
-      const likedMap: Record<string, boolean> = rawLikedMap ? JSON.parse(rawLikedMap) : {};
-      setGroupFavs(posts.filter(p => likedMap[p.id]));
-    } catch (e) {
-      console.log('load group favorites error', e);
-      setGroupFavs([]);
-    }
-  }, [identity]);
+    const localLoad = async (): Promise<GroupBuyPost[]> => {
+      try {
+        const [rawPosts, rawLikedMap] = await Promise.all([
+          AsyncStorage.getItem(GROUP_POSTS_KEY),
+          AsyncStorage.getItem(perUser(GROUP_LIKED_MAP_KEY, identity)),
+        ]);
+        const posts: GroupBuyPost[] = rawPosts ? JSON.parse(rawPosts) : [];
+        const likedMap: Record<string, boolean> = rawLikedMap ? JSON.parse(rawLikedMap) : {};
+        return posts.filter(p => likedMap[p.id]);
+      } catch (e) {
+        console.log('load group favorites (local) error', e);
+        return [];
+      }
+    };
+    const data = await tryServerThenLocal('GROUP_BUY', localLoad, mapGroupFromBookmarks);
+    setGroupFavs(data);
+  }, [identity, tryServerThenLocal]);
 
   const loadNoticeFavorites = useCallback(async () => {
     if (identity === undefined) return;
-    try {
-      const [rawPosts, rawLikedMap] = await Promise.all([
-        AsyncStorage.getItem(NOTICE_POSTS_KEY),
-        AsyncStorage.getItem(perUser(NOTICE_LIKED_MAP_KEY, identity)),
-      ]);
-      const posts: NoticePost[] = rawPosts ? JSON.parse(rawPosts) : [];
-      const likedMap: Record<string, boolean> = rawLikedMap ? JSON.parse(rawLikedMap) : {};
-      setNoticeFavs(posts.filter(p => likedMap[p.id]));
-    } catch (e) {
-      console.log('load notice favorites error', e);
-      setNoticeFavs([]);
-    }
-  }, [identity]);
+    const localLoad = async (): Promise<NoticePost[]> => {
+      try {
+        const [rawPosts, rawLikedMap] = await Promise.all([
+          AsyncStorage.getItem(NOTICE_POSTS_KEY),
+          AsyncStorage.getItem(perUser(NOTICE_LIKED_MAP_KEY, identity)),
+        ]);
+        const posts: NoticePost[] = rawPosts ? JSON.parse(rawPosts) : [];
+        const likedMap: Record<string, boolean> = rawLikedMap ? JSON.parse(rawLikedMap) : {};
+        return posts.filter(p => likedMap[p.id]);
+      } catch (e) {
+        console.log('load notice favorites (local) error', e);
+        return [];
+      }
+    };
+    const data = await tryServerThenLocal('NOTICE', localLoad, mapNoticeFromBookmarks);
+    setNoticeFavs(data);
+  }, [identity, tryServerThenLocal]);
 
   /* 포커스 복귀 시 탭별 로딩 */
   useFocusEffect(
     React.useCallback(() => {
-      if (!identity) return; // 아직 아이덴티티 없음
+      if (!identity) return; // 아직 아이덴티티 없음(로컬 폴백 키 준비 전)
       if (activeTab === 'market') loadMarketFavorites();
       if (activeTab === 'lost')   loadLostFavorites();
       if (activeTab === 'group')  loadGroupFavorites();
@@ -232,7 +324,11 @@ export default function MyFavoritesPage() {
   const onPressGroupItem = (id: string) => navigation.navigate('GroupBuyDetail', { id });
   const onPressNoticeItem = (id: string) => navigation.navigate('NoticeDetail', { id });
 
-  /* ===== 렌더러들 ===== */
+  /* ===== 렌더러들 =====
+   * 서버 북마크 응답에는 price / recruit 등 상세 필드가 없으므로,
+   * 리스트 타일이 요구하는 필드는 "표시 가능한 최소값"으로 채운다.
+   * (필요하면 postId로 batch 상세조회 API 추가 가능)
+   */
   const renderMarketList = () => {
     if (marketFavs.length === 0) {
       return (
@@ -242,9 +338,11 @@ export default function MyFavoritesPage() {
       );
     }
     return marketFavs.map((p) => {
-      const subtitle = `${p.authorDept ?? 'AI학부'} · ${timeAgo(p.createdAt)}`;
-      const price =
-        p.mode === 'donate' ? '나눔' : `₩ ${Number(p.price ?? 0).toLocaleString('ko-KR')}`;
+      const subtitle = `${p.authorDept ?? ''}${p.authorDept ? ' · ' : ''}${timeAgo(p.createdAt)}`;
+      const priceText =
+        p.mode === 'donate'
+          ? '나눔'
+          : (typeof p.price === 'number' ? `₩ ${Number(p.price).toLocaleString('ko-KR')}` : ''); // 서버 응답엔 가격이 없으니 비워둠
       const image = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : undefined;
       return (
         <MarketItem
@@ -252,7 +350,7 @@ export default function MyFavoritesPage() {
           id={p.id}
           title={p.title}
           subtitle={subtitle}
-          price={price}
+          price={priceText}
           likeCount={p.likeCount ?? 0}
           image={image}
           onPress={onPressMarketItem}
@@ -270,9 +368,9 @@ export default function MyFavoritesPage() {
       );
     }
     return lostFavs.map((p) => {
-      const subtitle = `${p.authorDept ?? '무도대학'} · ${timeAgo(p.createdAt)}`;
+      const subtitle = `${p.authorDept ?? ''}${p.authorDept ? ' · ' : ''}${timeAgo(p.createdAt)}`;
       const image = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : undefined;
-      const typeLabel = p.type === 'lost' ? '분실' : '습득';
+      const typeLabel = p.type === 'lost' ? '분실' : p.type === 'found' ? '습득' : '분실';
       return (
         <LostItem
           key={p.id}
