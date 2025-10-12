@@ -1,5 +1,4 @@
 // pages/Notice/NoticeDetailPage.tsx
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -28,6 +27,9 @@ import {
 } from '../../api/notices';
 import { toAbsoluteUrl } from '../../api/url';
 
+// ✅ 서버 동기화 하트 토글 훅 추가
+import { useLike } from '@/hooks/useLike';
+
 const LIKED_MAP_KEY = 'notice_liked_map_v1';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -39,7 +41,7 @@ function toUi(raw: NoticeResponse) {
       ? (raw as any).images
           .map((it: any) => it?.imageUrl ?? it?.url ?? null)
           .filter(Boolean)
-          .map((u: string) => toAbsoluteUrl(u)!)   // ✅ 절대 URL로 변환
+          .map((u: string) => toAbsoluteUrl(u)!) // ✅ 절대 URL로 변환
       : [];
 
   console.log('[NOTICE IMG] raw.images =', (raw as any).images);
@@ -74,7 +76,7 @@ function toUi(raw: NoticeResponse) {
   const isClosedTime = endIso ? new Date(endIso).getTime() < Date.now() : false;
   const status = isClosedEnum || isClosedTime ? ('closed' as const) : ('open' as const);
 
-  // ✅ 북마크 키 호환 처리 (isBookmarked 또는 bookmarked)
+  // ✅ 북마크 키 호환 처리 (isBookmarked 또는 bookmarked) — 서버가 내려주면 즉시 반영 가능
   const bookmarkedFlag = (raw as any).isBookmarked ?? (raw as any).bookmarked ?? false;
 
   return {
@@ -98,23 +100,32 @@ export default function NoticeDetailPage({
   navigation,
 }: RootStackScreenProps<'NoticeDetail'>) {
   const { id } = route.params;
-
   const { isAdmin } = usePermissions({ routeParams: route.params });
 
   const [data, setData] = useState<NoticeResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [liked, setLiked] = useState(false);
+
+  // ✅ 하트(북마크) 훅: 로컬(AsyncStorage) + 서버 동기화(/board/bookmarks)
+  // - postType: 'NOTICE' 로 고정
+  // - likedMapKey: 공지용 키 유지
+  const { liked, /* likeCount not used, */ /* setLikedPersisted, */ toggleLike } = useLike({
+    itemId: String(id),
+    likedMapKey: LIKED_MAP_KEY,
+    // 공지 리스트를 캐시에 함께 쓰고 있다면 postsKey 추가 가능
+    initialCount: 0, // 공지는 카운트가 없으니 0 유지
+    postType: 'NOTICE',
+    syncServer: true,
+  });
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
       const res = await getNoticeDetail(id);
-      // 1) 서버 원본 응답 확인
       console.log('[NOTICE DETAIL RAW]', JSON.stringify(res, null, 2));
-      const rawMap = await AsyncStorage.getItem(LIKED_MAP_KEY);
-      const map = rawMap ? (JSON.parse(rawMap) as Record<string, boolean>) : {};
-      setLiked(!!map[String(res.id)]);
 
+      // ✅ 서버가 isBookmarked/bookmarked 내려줄 경우, 여기서 UI 초기 라벨만 참고.
+      // useLike는 로컬 스토리지 기준으로 초기화되므로,
+      // 서버 초기값을 즉시 강제 반영하려면 useLike에 initialLiked를 추가하는 식으로 확장 가능.
       setData(res);
     } catch (e: any) {
       const msg =
@@ -177,18 +188,6 @@ export default function NoticeDetailPage({
     const url = /^https?:\/\//i.test(ui.link) ? ui.link : `https://${ui.link}`;
     Linking.openURL(url).catch(() => Alert.alert('오류', '링크를 열 수 없습니다.'));
   }, [ui?.link]);
-
-  const toggleLike = useCallback(async () => {
-    try {
-      const key = String(id);
-      const rawMap = await AsyncStorage.getItem(LIKED_MAP_KEY);
-      const map = rawMap ? (JSON.parse(rawMap) as Record<string, boolean>) : {};
-      const next = !map[key];
-      map[key] = next;
-      await AsyncStorage.setItem(LIKED_MAP_KEY, JSON.stringify(map));
-      setLiked(next);
-    } catch {}
-  }, [id]);
 
   if (loading || !ui) {
     return (
@@ -285,12 +284,13 @@ export default function NoticeDetailPage({
 
             <Text style={styles.title} numberOfLines={2}>{ui.title}</Text>
 
-            {/* 우측 하트 (로컬 좋아요) */}
+            {/* ✅ 우측 하트: useLike 기반 서버 동기화 토글 */}
             <TouchableOpacity
               style={styles.heartBtn}
-              onPress={toggleLike}
+              onPress={() => toggleLike(!liked)} // 낙관적 업데이트 + 서버동기화 + 실패 시 롤백
               accessibilityRole="button"
               accessibilityLabel="좋아요"
+              activeOpacity={0.8}
             >
               <Image
                 source={

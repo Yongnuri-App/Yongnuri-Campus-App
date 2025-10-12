@@ -5,7 +5,6 @@ import ProfileRow from '@/components/Profile/ProfileRow';
 import { useDeletePost } from '@/hooks/useDeletePost';
 import { useLike } from '@/hooks/useLike';
 import usePermissions from '@/hooks/usePermissions';
-import { updatePostLikeCountInList } from '@/repositories/marketRepo';
 import { resolveRoomIdForOpen } from '@/storage/chatStore'; // ✅ 기존 방 재사용
 import type { RootStackScreenProps } from '@/types/navigation';
 import { getLocalIdentity } from '@/utils/localIdentity';
@@ -95,11 +94,15 @@ export default function MarketDetailPage({
   const hScrollRef = useRef<ScrollView | null>(null);
 
   /** 좋아요 훅 (✅ 유저별 liked_map 키 사용) */
-  const { liked, syncCount, setLikedPersisted } = useLike({
+  const { liked, syncCount, toggleLike } = useLike({
     itemId: id,
     likedMapKey: LIKED_MAP_KEY,
     postsKey: POSTS_KEY,
     initialCount: 0,
+
+    // ✅ 서버 동기화 ON + 마켓 게시글 타입 명시
+    postType: 'USED_ITEM',
+    syncServer: true,
   });
 
   /** 상세 로드 */
@@ -501,12 +504,14 @@ export default function MarketDetailPage({
           variant="detail"
           initialLiked={liked}
           onToggleLike={async (nextLiked) => {
-            // ✅ 유저별 liked_map 키에 저장 + 전역 리스트 카운트 동기화
-            await setLikedPersisted(nextLiked);
+            // ✅ 서버 동기화 포함 토글 (낙관적 → 실패 시 자동 롤백)
+            await toggleLike(nextLiked);
+
+            // (선택) item 상태의 likeCount는 useLike 내부에서 목록까지 함께 갱신하므로
+            // 여기서도 UI 일치성을 위해 즉시 반영해 둔다.
             setItem((prev) => {
               if (!prev) return prev;
               const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));
-              updatePostLikeCountInList(POSTS_KEY, prev.id, nextCount);
               return { ...prev, likeCount: nextCount };
             });
           }}

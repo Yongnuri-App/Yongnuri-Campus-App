@@ -1,4 +1,6 @@
 // pages/LostAndFound/LostDetailPage.tsx
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -11,8 +13,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 import AdminActionSheet from '../../components/Modals/AdminActionSheet/AdminActionSheet';
@@ -23,8 +23,8 @@ import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './LostDetailPage.styles';
 
 // 이메일 기반 표기 훅
-import useDisplayProfile from '../../hooks/useDisplayProfile';
 import ProfileRow from '../../components/Profile/ProfileRow';
+import useDisplayProfile from '../../hooks/useDisplayProfile';
 
 // ✅ API
 import { getLostFoundDetail } from '../../api/lost';
@@ -71,11 +71,14 @@ export default function LostDetailPage({
   const [menuVisible, setMenuVisible] = useState(false);
   const hScrollRef = useRef<ScrollView | null>(null);
 
-  const { liked, syncCount, setLikedPersisted } = useLike({
+  const { liked, syncCount, toggleLike } = useLike({
     itemId: id,
     likedMapKey: LIKED_MAP_KEY,
     postsKey: POSTS_KEY,
     initialCount: 0,
+    // ✅ 서버에 북마크(하트) 상태를 동기화
+    postType: 'LOST_ITEM',
+    syncServer: true,
   });
 
   const { confirmAndDelete } = useDeletePost({
@@ -320,7 +323,7 @@ export default function LostDetailPage({
           variant="detail"
           initialLiked={liked}
           onToggleLike={async (nextLiked: boolean) => {
-            await setLikedPersisted(nextLiked);
+            await toggleLike(nextLiked);
             setItem((prev) => {
               if (!prev) return prev;
               const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));

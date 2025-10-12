@@ -1,10 +1,14 @@
-// hooks/useLike.ts
+// /hooks/useLike.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
 import { getIdentityScope } from '../utils/localIdentity';
 
+// ✅ 추가: 서버 API
+import type { PostType } from '@/api/bookmarks';
+import { addBookmark, removeBookmark } from '@/api/bookmarks';
+
 type UseLikeOptions = {
-  /** 게시글 id */
+  /** 게시글 id (문자열로 보관 중) */
   itemId: string;
   /** 좋아요 맵( { [id]: boolean } ) 저장 키 (베이스 키) */
   likedMapKey: string;
@@ -12,6 +16,11 @@ type UseLikeOptions = {
   postsKey?: string;
   /** 초기 likeCount (상세 불러온 뒤 동기화할 수 있도록 선택값) */
   initialCount?: number;
+
+  /** ✅ 서버 동기화용 (예: 'USED_ITEM') — 없으면 로컬 전용으로만 동작 */
+  postType?: PostType;
+  /** 서버 동기화 on/off (기본 true) */
+  syncServer?: boolean;
 };
 
 const perUserKey = (base: string, identity: string | null) =>
@@ -22,6 +31,8 @@ export function useLike({
   likedMapKey,
   postsKey,
   initialCount = 0,
+  postType,            // ✅ NEW
+  syncServer = true,   // ✅ NEW
 }: UseLikeOptions) {
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState<number>(initialCount);
@@ -71,7 +82,7 @@ export function useLike({
     setLikeCount(Number(count ?? 0));
   }, []);
 
-  // 좋아요 상태/카운트 영속 & 목록 동기화 (개인화된 키 사용)
+  // 로컬 상태/스토리지 반영 + 목록 카운트 동기화 (서버 통신 없이)
   const setLikedPersisted = useCallback(
     async (nextLiked: boolean) => {
       const key = scopedKey || likedMapKey; // 안전 폴백
@@ -89,7 +100,7 @@ export function useLike({
         return nextLiked;
       });
 
-      // 3) 목록(리스트) 동기화 (공유 카운트는 기존 로직 유지)
+      // 3) 목록(리스트) 동기화
       if (postsKey) {
         try {
           const listRaw = await AsyncStorage.getItem(postsKey);
@@ -109,12 +120,42 @@ export function useLike({
     [itemId, likedMapKey, postsKey, scopedKey]
   );
 
+  /** ✅ 공개 API: 토글 + 서버 동기화(옵션). 실패 시 롤백 */
+  const toggleLike = useCallback(
+    async (nextLiked: boolean) => {
+      // 0) 서버 동기화 필요 조건 체크
+      const shouldSync = !!postType && syncServer;
+
+      // 1) 낙관적 업데이트 (로컬 우선 반영)
+      //    - 실패 시 아래에서 롤백
+      const snapshot = { liked, likeCount }; // 롤백 스냅샷
+      await setLikedPersisted(nextLiked);
+
+      if (!shouldSync) return;
+
+      // 2) 서버 호출
+      try {
+        const payload = { postType, postId: Number(itemId) };
+        if (nextLiked) await addBookmark(payload);
+        else await removeBookmark(payload);
+        // 성공 시 그대로 유지
+      } catch (e) {
+        // 3) 실패 시 롤백 (로컬/리스트 모두 되돌림)
+        await setLikedPersisted(snapshot.liked);
+        setLikeCount(snapshot.likeCount);
+        throw e; // 호출 측(Alert 등)에서 처리 가능
+      }
+    },
+    [itemId, liked, likeCount, postType, setLikedPersisted, syncServer]
+  );
+
   return {
     ready,             // 초기 로드 완료 여부
     liked,             // 현재 좋아요 여부
     likeCount,         // 현재 카운트
     syncCount,         // 상세에서 받은 likeCount를 동기화할 때 사용
-    setLikedPersisted, // onToggleLike에서 그대로 호출
+    setLikedPersisted, // (로컬 전용) onToggleLike에서 직접 쓸 수도 있음
+    toggleLike,        // ✅ (권장) 서버 동기화 포함 토글
   };
 }
 

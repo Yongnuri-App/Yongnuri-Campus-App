@@ -1,7 +1,7 @@
 // pages/GroupBuy/GroupBuyDetailPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useMemo, useRef, useState, useCallback } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -15,20 +15,20 @@ import {
   View,
 } from 'react-native';
 
-import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
-import ProfileRow from '../../components/Profile/ProfileRow';
-import { useDeletePost } from '../../hooks/useDeletePost';
-import { useLike } from '../../hooks/useLike';
-import usePermissions from '../../hooks/usePermissions';
-import AdminActionSheet from '../../components/Modals/AdminActionSheet/AdminActionSheet';
-import type { RootStackScreenProps } from '../../types/navigation';
-import styles from './GroupBuyDetailPage.styles';
-import useDisplayProfile from '../../hooks/useDisplayProfile';
 import {
+  applyGroupBuy,
   getGroupBuyDetail,
   updateGroupBuyCurrentCount,
-  applyGroupBuy,
 } from '../../api/groupBuy';
+import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
+import AdminActionSheet from '../../components/Modals/AdminActionSheet/AdminActionSheet';
+import ProfileRow from '../../components/Profile/ProfileRow';
+import { useDeletePost } from '../../hooks/useDeletePost';
+import useDisplayProfile from '../../hooks/useDisplayProfile';
+import { useLike } from '../../hooks/useLike';
+import usePermissions from '../../hooks/usePermissions';
+import type { RootStackScreenProps } from '../../types/navigation';
+import styles from './GroupBuyDetailPage.styles';
 
 const POSTS_KEY = 'groupbuy_posts_v1';
 const LIKED_MAP_KEY = 'groupbuy_liked_map_v1';
@@ -155,11 +155,13 @@ export default function GroupBuyDetailPage({
   /** 중복 로딩 방지 */
   const loadingRef = useRef(false);
 
-  const { liked, syncCount, setLikedPersisted } = useLike({
+  const { liked, syncCount, toggleLike } = useLike({
     itemId: id,
     likedMapKey: LIKED_MAP_KEY,
     postsKey: POSTS_KEY,
     initialCount: 0,
+    postType: 'GROUP_BUY',
+    syncServer: true,
   });
 
   const { confirmAndDelete } = useDeletePost({
@@ -576,7 +578,8 @@ export default function GroupBuyDetailPage({
         <DetailBottomBar
           initialLiked={liked}
           onToggleLike={async (nextLiked) => {
-            await setLikedPersisted(nextLiked);
+            // ✅ 서버 동기화 포함 토글 (실패 시 자동 롤백)
+            await toggleLike(nextLiked);
             setItem((prev) => {
               if (!prev) return prev;
               const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));
