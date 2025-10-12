@@ -21,25 +21,29 @@ import usePermissions from '../../hooks/usePermissions';
 import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './NoticeDetailPage.styles';
 
-// ✅ 서버 API 연결
 import {
   deleteNotice,
   getNoticeDetail,
   type NoticeResponse,
 } from '../../api/notices';
+import { toAbsoluteUrl } from '../../api/url';
 
 const LIKED_MAP_KEY = 'notice_liked_map_v1';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 /** 서버 응답(NoticeResponse) → 화면에서 쓰기 편한 UI 모델로 변환 */
 function toUi(raw: NoticeResponse) {
-  // 이미지 배열: 서버 ImageDto가 { imageUrl } 또는 { url }일 수 있어 유연 파싱
+  // 1) 이미지 배열 (상세 응답에만 images가 옴)
   const imageUrls =
     Array.isArray((raw as any).images)
       ? (raw as any).images
           .map((it: any) => it?.imageUrl ?? it?.url ?? null)
           .filter(Boolean)
+          .map((u: string) => toAbsoluteUrl(u)!)   // ✅ 절대 URL로 변환
       : [];
+
+  console.log('[NOTICE IMG] raw.images =', (raw as any).images);
+  console.log('[NOTICE IMG] final absolute urls =', imageUrls);
 
   const startIso = raw.startDate ?? raw.createdAt;
   const endIso = raw.endDate ?? raw.startDate ?? raw.createdAt;
@@ -65,10 +69,13 @@ function toUi(raw: NoticeResponse) {
     return `${d}일 전`;
   };
 
-  // 상태: 서버 status(ENUM)와 기간 기준을 함께 고려
+  // 상태: ENUM + 기간으로 닫힘 판단
   const isClosedEnum = raw.status === 'COMPLETED' || raw.status === 'DELETED';
   const isClosedTime = endIso ? new Date(endIso).getTime() < Date.now() : false;
   const status = isClosedEnum || isClosedTime ? ('closed' as const) : ('open' as const);
+
+  // ✅ 북마크 키 호환 처리 (isBookmarked 또는 bookmarked)
+  const bookmarkedFlag = (raw as any).isBookmarked ?? (raw as any).bookmarked ?? false;
 
   return {
     id: String(raw.id),
@@ -80,8 +87,9 @@ function toUi(raw: NoticeResponse) {
     status,
     link: raw.link ?? undefined,
     authorName: raw.authorNickname ?? '운영자',
-    authorDept: '관리자', // 서버에 부서가 없으므로 고정 표기
+    authorDept: '관리자',
     createdAt: raw.createdAt,
+    bookmarked: !!bookmarkedFlag,
   };
 }
 
@@ -91,24 +99,18 @@ export default function NoticeDetailPage({
 }: RootStackScreenProps<'NoticeDetail'>) {
   const { id } = route.params;
 
-  // ✅ 공지는 “관리자만 수정/삭제”
   const { isAdmin } = usePermissions({ routeParams: route.params });
 
-  // 서버에서 불러온 상세 데이터
   const [data, setData] = useState<NoticeResponse | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // 좋아요(로컬 맵 기반 토글)
   const [liked, setLiked] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-
-      // 1) 상세 조회
       const res = await getNoticeDetail(id);
-
-      // 2) 로컬 좋아요 맵에서 현재 글의 liked 상태 복원
+      // 1) 서버 원본 응답 확인
+      console.log('[NOTICE DETAIL RAW]', JSON.stringify(res, null, 2));
       const rawMap = await AsyncStorage.getItem(LIKED_MAP_KEY);
       const map = rawMap ? (JSON.parse(rawMap) as Record<string, boolean>) : {};
       setLiked(!!map[String(res.id)]);
@@ -126,18 +128,14 @@ export default function NoticeDetailPage({
     }
   }, [id, navigation]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   useFocusEffect(
     React.useCallback(() => {
-      // 목록 → 상세 재진입 시 최신화
       load();
     }, [load])
   );
 
-  // 삭제(관리자 전용): 서버로 삭제 후 뒤로 이동
   const confirmAndDelete = useCallback(() => {
     Alert.alert('삭제', '정말로 이 공지사항을 삭제할까요?', [
       { text: '취소', style: 'cancel' },
@@ -163,10 +161,8 @@ export default function NoticeDetailPage({
     ]);
   }, [id, navigation]);
 
-  // UI 파생 모델
   const ui = useMemo(() => (data ? toUi(data) : null), [data]);
 
-  // 이미지 슬라이드
   const [index, setIndex] = useState(0);
   const hScrollRef = useRef<ScrollView | null>(null);
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -174,17 +170,14 @@ export default function NoticeDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  // 관리자 모달
   const [adminMenuVisible, setAdminMenuVisible] = useState(false);
 
-  // 링크 열기
   const onPressOpenLink = useCallback(() => {
     if (!ui?.link) return;
     const url = /^https?:\/\//i.test(ui.link) ? ui.link : `https://${ui.link}`;
     Linking.openURL(url).catch(() => Alert.alert('오류', '링크를 열 수 없습니다.'));
   }, [ui?.link]);
 
-  // 좋아요 토글 (로컬 맵만 반영)
   const toggleLike = useCallback(async () => {
     try {
       const key = String(id);
@@ -194,9 +187,7 @@ export default function NoticeDetailPage({
       map[key] = next;
       await AsyncStorage.setItem(LIKED_MAP_KEY, JSON.stringify(map));
       setLiked(next);
-    } catch {
-      // 무시 (UI만 토글 실패 시 조용히)
-    }
+    } catch {}
   }, [id]);
 
   if (loading || !ui) {
@@ -231,7 +222,16 @@ export default function NoticeDetailPage({
               contentOffset={{ x: 0, y: 0 }}
             >
               {images.map((uri, i) => (
-                <Image key={`${uri}-${i}`} source={{ uri }} style={styles.mainImage} />
+                <Image
+                  key={`${uri}-${i}`}
+                  source={{ uri }}
+                  style={styles.mainImage}
+                  onLoad={() => console.log('[IMG LOAD OK]', uri)}
+                  onError={(e) => {
+                    const err = (e?.nativeEvent as any) || {};
+                    console.warn('[IMG LOAD ERR]', uri, err?.error ?? err);
+                  }}
+                />
               ))}
             </ScrollView>
           ) : (
@@ -260,7 +260,7 @@ export default function NoticeDetailPage({
               accessibilityLabel="공지 옵션"
               activeOpacity={0.9}
             >
-              <Image source={require('../../assets/images/tab.png')} style={styles.icon} />
+              <Image source={require('../../assets/images/more_white.png')} style={styles.icon} />
             </TouchableOpacity>
           )}
 
@@ -303,18 +303,15 @@ export default function NoticeDetailPage({
             </TouchableOpacity>
           </View>
 
-          {/* 기간 / 등록시점 */}
           {!!ui.termText && <Text style={styles.term} numberOfLines={1}>{ui.termText}</Text>}
           {!!ui.timeAgoText && <Text style={styles.timeAgo}>{ui.timeAgoText}</Text>}
 
-          {/* 본문 */}
           {!!ui.description && (
             <View style={styles.descCard}>
               <Text style={styles.descText}>{ui.description}</Text>
             </View>
           )}
 
-          {/* 신청 링크 */}
           {!!ui.link && (
             <View style={{ marginTop: 16 }}>
               <Text style={styles.sectionLabel}>신청 링크</Text>

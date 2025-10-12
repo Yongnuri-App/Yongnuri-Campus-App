@@ -18,9 +18,8 @@ import styles from './MainPage.styles';
 import { getGroupBuyList } from '../../api/groupBuy';
 import { getLostFoundList } from '../../api/lost';
 import { getMarketList } from '../../api/market';
-
-// ✅ 공지 서버 API
 import { getNotices, type NoticeResponse } from '../../api/notices';
+import { toAbsoluteUrl } from '../../api/url';
 
 import type { RootStackScreenProps } from '../../types/navigation';
 
@@ -560,7 +559,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
                   termText={`${formatDateYMD(item.startDate)} ~ ${formatDateYMD(item.endDate)}`}
                   timeAgoText={timeAgo(item.createdAt ?? item.startDate)}
                   status={isNoticeClosed(item) ? 'closed' : 'open'}
-                  image={imageUri}
+                  image={toAbsoluteUrl(item.thumbnailUrl)}   // ✅ 여기서 절대화
                   onPress={() => navigation.navigate('NoticeDetail', { id: String(item.id) })}
                 />
               );

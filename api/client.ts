@@ -25,7 +25,7 @@ const PROFILE_PATH = extra.profilePath ?? '/mypage';
  */
 export const api = axios.create({
   baseURL: BASE_URL,
-  headers: { 'Content-Type': 'application/json' },
+  // headers: { 'Content-Type': 'application/json' },
   withCredentials: false,
 });
 
@@ -63,6 +63,10 @@ const toPath = (url?: string) => {
 /** /auth/** 여부 체크 (로그인/회원가입 등 인증 우회 필요 구간) */
 const isAuthFreePath = (path: string) => /^\/auth(\/|$)/.test(path);
 
+/** ✅ FormData 판별 유틸 */
+const isFormData = (v: any) =>
+  typeof FormData !== 'undefined' && v instanceof FormData;
+
 api.interceptors.request.use(
   // ✅ AsyncStorage 접근이 필요하므로 async 인터셉터 사용
   async (config) => {
@@ -81,7 +85,6 @@ api.interceptors.request.use(
       if (config.headers) {
         delete (config.headers as any).Authorization;
       }
-      // 디버깅용 로그
       console.log(`[API REQ] (auth-skip) ${config.method?.toUpperCase()} ${path}`);
       return config;
     }
@@ -99,6 +102,20 @@ api.interceptors.request.use(
           : `Bearer ${token}`;
       }
     }
+
+    // 4) ✅ 핵심: FormData 전송이면 Content-Type을 제거해서 RN/axios가 boundary 자동 설정하게 함
+    if (isFormData(config.data)) {
+      if (config.headers) {
+        delete (config.headers as any)['Content-Type'];
+        delete (config.headers as any)['content-type'];
+      }
+      try {
+        // 혹시 defaults에 남아 있다면 안전하게 제거
+        delete (api.defaults.headers as any).post?.['Content-Type'];
+        delete (api.defaults.headers as any).post?.['content-type'];
+      } catch {}
+    }
+    // else 분기에서 JSON Content-Type을 굳이 지정할 필요는 없음(axios가 자동 설정)
 
     return config;
   },
