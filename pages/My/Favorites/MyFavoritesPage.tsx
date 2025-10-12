@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 
+import { toAbsoluteUrl } from '../../../api/url';
 import CategoryTabs, { CategoryTab } from '../../../components/CategoryTabs/CategoryTabs';
 import GroupItem from '../../../components/ListTile/GroupItem/GroupItem';
 import LostItem from '../../../components/ListTile/LostItem/LostItem';
@@ -18,7 +19,6 @@ import MarketItem from '../../../components/ListTile/MarketItem/MarketItem';
 import NoticeItem from '../../../components/ListTile/NoticeItem/NoticeItem';
 import { getIdentityScope } from '../../../utils/localIdentity';
 import styles from './MyFavoritesPage.styles';
-
 // ✅ 서버 관심목록 API
 import { fetchMyBookmarks, type PostType } from '@/api/bookmarks';
 
@@ -165,18 +165,22 @@ const mapGroupFromBookmarks = (rows: Array<{
     recruit: { mode: 'unlimited', count: null },
   }));
 
+const toAbs = (u?: string | null) => (u ? toAbsoluteUrl(u) ?? u : undefined);
+
 const mapNoticeFromBookmarks = (rows: Array<{
   postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string;
 }>): NoticePost[] =>
-  rows.map(r => ({
-    id: String(r.postId),
-    title: r.title,
-    images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
-    // 공지 리스트는 기간 텍스트를 요구하므로 최소 createdAt로 채워 표시되게 처리
-    startDate: r.bookmarkedAt,
-    endDate: r.bookmarkedAt,
-    createdAt: r.bookmarkedAt,
-  }));
+  rows.map(r => {
+    const abs = toAbs(r.thumbnailUrl);
+    return {
+      id: String(r.postId),
+      title: r.title,
+      images: abs ? [abs] : [],
+      startDate: r.bookmarkedAt,
+      endDate: r.bookmarkedAt,
+      createdAt: r.bookmarkedAt,
+    };
+  });
 
 /* ===== 컴포넌트 ===== */
 export default function MyFavoritesPage() {

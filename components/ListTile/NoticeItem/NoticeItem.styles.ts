@@ -53,7 +53,7 @@ export default StyleSheet.create({
     backgroundColor: '#419EBD',
   },
   badgeClosed: {
-    backgroundColor: '#F070C8',
+    backgroundColor: '#9B9B9B',
   },
   badgeText: {
     fontFamily: 'Inter',
