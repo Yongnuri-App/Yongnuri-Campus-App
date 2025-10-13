@@ -103,7 +103,7 @@ export default function SearchPage({ navigation }: Props) {
           subtitle={`${it.location} · ${timeAgo(it.createdAt)}`}
           price={it.mode === 'donate' ? '나눔' : `${Number(it.price || 0).toLocaleString('ko-KR')}원`}
           likeCount={it.likeCount ?? 0}
-          image={imageUri}
+          image={it.images && it.images.length > 0 ? it.images[0] : undefined}
           onPress={(id) => navigation.navigate('MarketDetail', { id })}
           bottomTag="중고거래"
           // TODO: 필요시 statusBadge도 it.statusBadge로 전달
@@ -127,7 +127,7 @@ export default function SearchPage({ navigation }: Props) {
           subtitle={`${it.location} · ${timeAgo(it.createdAt)}`}
           typeLabel={label}
           likeCount={it.likeCount ?? 0}
-          image={imageUri}
+          image={it.images && it.images.length > 0 ? it.images[0] : undefined}
           onPress={() => navigation.navigate('LostDetail', { id: it.id })}
           bottomTag="분실물"
         />
@@ -145,7 +145,7 @@ export default function SearchPage({ navigation }: Props) {
           timeText={timeAgo(it.createdAt)}
           recruitMode={(it.recruit?.mode ?? 'unlimited') as 'unlimited' | 'limited'}
           recruitCount={it.recruit?.count ?? null}
-          image={imageUri}
+          image={it.images && it.images.length > 0 ? it.images[0] : undefined}
           isClosed={!!it.isClosed}
           onPress={() => navigation.navigate('GroupBuyDetail', { id: it.id })}
           bottomTag="공동구매"
