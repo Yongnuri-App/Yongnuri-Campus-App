@@ -1,4 +1,12 @@
 // pages/Search/SearchPage.tsx
+// -------------------------------------------------------------
+// 검색 페이지
+// - 결과 카드(중고/분실/공동/공지)의 썸네일 경로를
+//   toAbsoluteUrl로 절대 URL로 정규화하여 이미지가 안정적으로 뜨게 함.
+// - 서버가 /uploads/xxx 같은 상대경로를 내려도 문제 없이 표시됨.
+// -------------------------------------------------------------
+
+import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback } from 'react';
 import {
   Alert,
@@ -10,17 +18,21 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 import styles from './SearchPage.styles';
 
-import MarketItem from '../../components/ListTile/MarketItem/MarketItem';
-import LostItem from '../../components/ListTile/LostItem/LostItem';
 import GroupItem from '../../components/ListTile/GroupItem/GroupItem';
+import LostItem from '../../components/ListTile/LostItem/LostItem';
+import MarketItem from '../../components/ListTile/MarketItem/MarketItem';
 import NoticeItem from '../../components/ListTile/NoticeItem/NoticeItem';
-import { useUnifiedSearch, Unified } from '../../hooks/useUnifiedSearch';
+
+import { Unified, useUnifiedSearch } from '../../hooks/useUnifiedSearch';
+
+// ✅ 추가: 상대경로 → 절대 URL 변환 유틸 (axios client의 baseURL 사용)
+import { toAbsoluteUrl } from '../../api/url';
 
 type Props = { navigation: any };
 
+/** "방금 전/분 전/시간 전/일 전" 간단 포맷 */
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -31,6 +43,8 @@ function timeAgo(iso: string) {
   const d = Math.floor(h / 24);
   return `${d}일 전`;
 }
+
+/** YYYY-MM-DD */
 function ymd(iso?: string) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -39,6 +53,8 @@ function ymd(iso?: string) {
   const dd = String(d.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
 }
+
+/** 마감 여부 */
 function isClosed(endIso?: string) {
   return endIso ? new Date(endIso).getTime() < Date.now() : false;
 }
@@ -69,8 +85,17 @@ export default function SearchPage({ navigation }: Props) {
   };
 
   const renderResult = ({ item }: { item: Unified }) => {
+    // ---------------------------------------------------------
+    // 공통: 썸네일 1장만 쓰는 카드들 → 첫 번째 이미지를 절대 URL로 정규화
+    // - 서버가 /files/abc.jpg, uploads/xxx.png 처럼 내려도 안전
+    // - 이미 http(s):// 인 경우는 내부에서 그대로 통과
+    // ---------------------------------------------------------
+
     if (item.kind === 'market') {
       const it = item.data;
+      const firstImage = (it.images && it.images.length > 0) ? it.images[0] : undefined;
+      const imageUri = toAbsoluteUrl(firstImage); // ✅ 핵심
+
       return (
         <MarketItem
           id={it.id}
@@ -78,10 +103,10 @@ export default function SearchPage({ navigation }: Props) {
           subtitle={`${it.location} · ${timeAgo(it.createdAt)}`}
           price={it.mode === 'donate' ? '나눔' : `${Number(it.price || 0).toLocaleString('ko-KR')}원`}
           likeCount={it.likeCount ?? 0}
-          image={it.images && it.images.length > 0 ? it.images[0] : undefined}
+          image={imageUri}
           onPress={(id) => navigation.navigate('MarketDetail', { id })}
           bottomTag="중고거래"
-          // 필요 시 statusBadge 사용 가능: it.statusBadge
+          // TODO: 필요시 statusBadge도 it.statusBadge로 전달
         />
       );
     }
@@ -93,13 +118,16 @@ export default function SearchPage({ navigation }: Props) {
         it.type === 'retrieved' ? '회수' :
         '분실';
 
+      const firstImage = (it.images && it.images.length > 0) ? it.images[0] : undefined;
+      const imageUri = toAbsoluteUrl(firstImage); // ✅ 핵심
+
       return (
         <LostItem
           title={it.title}
           subtitle={`${it.location} · ${timeAgo(it.createdAt)}`}
-          typeLabel={label}                           // ✅ 보강
+          typeLabel={label}
           likeCount={it.likeCount ?? 0}
-          image={it.images && it.images.length > 0 ? it.images[0] : undefined}
+          image={imageUri}
           onPress={() => navigation.navigate('LostDetail', { id: it.id })}
           bottomTag="분실물"
         />
@@ -108,13 +136,16 @@ export default function SearchPage({ navigation }: Props) {
 
     if (item.kind === 'group') {
       const it = item.data;
+      const firstImage = (it.images && it.images.length > 0) ? it.images[0] : undefined;
+      const imageUri = toAbsoluteUrl(firstImage); // ✅ 핵심
+
       return (
         <GroupItem
           title={it.title}
           timeText={timeAgo(it.createdAt)}
           recruitMode={(it.recruit?.mode ?? 'unlimited') as 'unlimited' | 'limited'}
           recruitCount={it.recruit?.count ?? null}
-          image={it.images && it.images.length > 0 ? it.images[0] : undefined}
+          image={imageUri}
           isClosed={!!it.isClosed}
           onPress={() => navigation.navigate('GroupBuyDetail', { id: it.id })}
           bottomTag="공동구매"
@@ -128,6 +159,9 @@ export default function SearchPage({ navigation }: Props) {
     const term = `${ymd(it.startDate ?? it.createdAt)} ~ ${ymd(it.endDate ?? it.startDate ?? it.createdAt)}`;
     const status = isClosed(it.endDate) ? 'closed' : 'open';
 
+    const firstImage = (it.images && it.images.length > 0) ? it.images[0] : undefined;
+    const imageUri = toAbsoluteUrl(firstImage); // ✅ 공지사항도 동일 처리
+
     return (
       <NoticeItem
         id={it.id}
@@ -135,7 +169,7 @@ export default function SearchPage({ navigation }: Props) {
         termText={term}
         timeAgoText={timeAgo(it.createdAt ?? it.startDate)}
         status={status}
-        image={it.images?.[0]}
+        image={imageUri}
         onPress={(id) => navigation.navigate('NoticeDetail', { id })}
         bottomTag="공지사항"
       />
