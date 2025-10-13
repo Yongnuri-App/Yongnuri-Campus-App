@@ -81,17 +81,23 @@ export default function SearchPage({ navigation }: Props) {
           image={it.images && it.images.length > 0 ? it.images[0] : undefined}
           onPress={(id) => navigation.navigate('MarketDetail', { id })}
           bottomTag="중고거래"
+          // 필요 시 statusBadge 사용 가능: it.statusBadge
         />
       );
     }
 
     if (item.kind === 'lost') {
       const it = item.data;
+      const label =
+        it.type === 'found' ? '습득' :
+        it.type === 'retrieved' ? '회수' :
+        '분실';
+
       return (
         <LostItem
           title={it.title}
           subtitle={`${it.location} · ${timeAgo(it.createdAt)}`}
-          typeLabel={it.type === 'found' ? '습득' : '분실'}
+          typeLabel={label}                           // ✅ 보강
           likeCount={it.likeCount ?? 0}
           image={it.images && it.images.length > 0 ? it.images[0] : undefined}
           onPress={() => navigation.navigate('LostDetail', { id: it.id })}
@@ -131,7 +137,7 @@ export default function SearchPage({ navigation }: Props) {
         status={status}
         image={it.images?.[0]}
         onPress={(id) => navigation.navigate('NoticeDetail', { id })}
-        bottomTag="공지사항" // ✅ 중고거래와 동일 위치/디자인
+        bottomTag="공지사항"
       />
     );
   };
