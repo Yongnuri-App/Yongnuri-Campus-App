@@ -129,4 +129,9 @@ export default StyleSheet.create({
     borderRadius: 12,
     opacity: 0.9,
   },
+
+  typePill: {
+    fontSize: 12,
+    color: '#8B8B8B',
+  },
 });

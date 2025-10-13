@@ -81,25 +81,20 @@ function sortKey(u: Unified) {
  *   3) title 키워드 추정
  */
 function normalizeLostType(it: SearchItem): 'lost' | 'found' | 'retrieved' {
+  // 1) 서버가 type을 주면 최우선 (영문/한글 모두 대응)
   const v = (it.type ?? '').toString().trim().toLowerCase();
   if (v) {
-    if (v.includes('found') || v.includes('습득')) return 'found';
-    if (v.includes('retriev') || v.includes('회수') || v === 'return' || v === 'returned')
-      return 'retrieved';
-    if (v.includes('lost') || v.includes('분실')) return 'lost';
+    if (/(found|습득)/.test(v)) return 'found';
+    if (/(retriev|returned|return|회수)/.test(v)) return 'retrieved';
+    if (/(lost|분실)/.test(v)) return 'lost';
   }
 
-  // ✅ statusBadge 기반 추정 (백엔드 합의 전 임시 룰)
+  // 2) statusBadge 기반 — 확정 규칙
   const b = (it.statusBadge ?? '').toString().trim().toUpperCase();
-  // 예: 신고된 습득글을 "REPORTED"로 내리고 있다면 'found'로 간주
-  if (/FOUND|습득|REPORTED/.test(b)) return 'found';
-  if (/RETRIEVED|회수|RETURN/ .test(b)) return 'retrieved';
+  if (/(RETRIEVED|RETURNED|RETURN|회수)/.test(b)) return 'retrieved';
+  if (/(FOUND|REPORTED|습득)/.test(b)) return 'found';
 
-  // 제목 키워드 추정 (최후의 수단)
-  const title = (it.title ?? '').toLowerCase();
-  if (/(습득|주웠|found)/.test(title)) return 'found';
-  if (/(회수|찾았|retriev|return)/.test(title)) return 'retrieved';
-
+  // 3) 아무 정보 없으면 기본 분실
   return 'lost';
 }
 
@@ -172,20 +167,51 @@ export async function fetchUnifiedSearch(query: string): Promise<Unified[]> {
       };
     }
 
+    // api/search.ts (group 매핑 부분만 교체)
     if (kind === 'group') {
+      const sb = (it.statusBadge ?? '').toString().trim().toUpperCase();
+      const closedByStatus = /(COMPLETED|DONE|FINISH|ENDED|CLOSED|마감|완료)/.test(sb);
+      const closedByDate = it.endDate ? new Date(it.endDate).getTime() < Date.now() : false;
+
+      // ✅ 백에서 추가로 내려주는 정원/현재인원 반영
+      const limitRaw =
+        (it as any).limit ??
+        (it as any).maxCount ??
+        (it as any).recruitLimit ??
+        null; // 여러 이름 대비
+      const currentRaw =
+        (it as any).currentCount ??
+        (it as any).current ??
+        0;
+
+      const limit =
+        limitRaw === null || limitRaw === undefined || limitRaw === ''
+          ? null
+          : Number(limitRaw);
+
+      const current = Number(currentRaw) || 0;
+
+      // 정원이 유효하면, 현재인원이 정원 이상이면 마감
+      const closedByCapacity = limit != null && limit > 0 ? current >= limit : false;
+
+      const isClosed = closedByStatus || closedByDate || closedByCapacity;
+
       return {
         kind,
         id,
         data: {
           ...base,
+          // ✅ recruit 정보도 제대로 내려주기
           recruit: {
-            mode: it.recruit?.mode ?? 'unlimited',
-            count: it.recruit?.count ?? null,
+            mode: limit == null ? 'unlimited' : 'limited',
+            count: limit,
+            current, // 필요하면 쓰려고 같이 보관
           },
-          isClosed: !!(it.endDate && new Date(it.endDate).getTime() < Date.now()),
+          isClosed,
         },
       };
     }
+
 
     return { kind, id, data: { ...base } }; // notice
   });
