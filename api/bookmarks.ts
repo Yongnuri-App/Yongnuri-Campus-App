@@ -15,6 +15,7 @@ export interface BookmarkResponseDto {
   title: string;
   thumbnailUrl?: string | null;
   bookmarkedAt: string;
+  likeCount?: number | null;
 }
 
 /** 관심 추가 */

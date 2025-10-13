@@ -131,36 +131,36 @@ function isClosed(endIso?: string) {
  * - 상세 정보(가격/모집현황 등)가 필요하면, 여기서 postId로 한 번 더 상세조회(batch)해 확장 가능.
  */
 const mapMarketFromBookmarks = (rows: Array<{
-  postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string;
+  postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string; likeCount?: number | null;
 }>): MarketPost[] =>
   rows.map(r => ({
     id: String(r.postId),
     title: r.title,
     // price/mode/location은 북마크 응답에 없음 → 리스트에선 표시만 유지
     images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
-    likeCount: 0,
+    likeCount: typeof r.likeCount === 'number' ? r.likeCount : 0,
     createdAt: r.bookmarkedAt,
   }));
 
 const mapLostFromBookmarks = (rows: Array<{
-  postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string;
+  postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string; likeCount?: number | null;
 }>): LostPost[] =>
   rows.map(r => ({
     id: String(r.postId),
     title: r.title,
     images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
-    likeCount: 0,
+    likeCount: typeof r.likeCount === 'number' ? r.likeCount : 0,
     createdAt: r.bookmarkedAt,
   }));
 
 const mapGroupFromBookmarks = (rows: Array<{
-  postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string;
+  postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string; likeCount?: number | null;
 }>): GroupBuyPost[] =>
   rows.map(r => ({
     id: String(r.postId),
     title: r.title,
     images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
-    likeCount: 0,
+    likeCount: typeof r.likeCount === 'number' ? r.likeCount : 0,
     createdAt: r.bookmarkedAt,
     recruit: { mode: 'unlimited', count: null },
   }));
