@@ -16,27 +16,29 @@ import {
   NativeScrollEvent,
   NativeSyntheticEvent,
 } from 'react-native';
-import styles from './ReportPage.styles';
-import type { RootStackScreenProps } from '../../types/navigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import styles from './ReportPage.styles';
 
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import { useImagePicker } from '../../hooks/useImagePicker';
+import type { RootStackScreenProps } from '../../types/navigation';
 
-// ✅ 유틸로 분리된 타입/액션 사용 (여기서 알림 아이콘까지 처리됨)
+// ✅ 관리자 검토용 로컬 유틸(그대로 유지)
 import {
-  ReportType,
+  ReportType,           // '부적절한 콘텐츠' | '사기/스팸' | '욕설/혐오' | '기타'
   StoredReport,
   approveReport,
   rejectReport,
 } from '../../utils/reportActions';
 
-const REPORT_TYPES: ReportType[] = [
-  '부적절한 콘텐츠',
-  '사기/스팸',
-  '욕설/혐오',
-  '기타',
-];
+// ✅ 서버 연동용 API
+import {
+  createReport,
+  mapKindToPostType,
+  mapReportReason,
+} from '../../api/report';
+
+const REPORT_TYPES: ReportType[] = ['부적절한 콘텐츠', '사기/스팸', '욕설/혐오', '기타'];
 const REPORTS_KEY = 'reports_v1';
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -48,18 +50,16 @@ export default function ReportPage({
   const reviewId = (route.params as any)?.reportId as string | undefined;
   const isReview = mode === 'review' && !!reviewId;
 
-  // ---------- compose 모드 입력 상태 ----------
+  // ---------- compose 상태 ----------
   const [typeOpen, setTypeOpen] = useState(false);
   const [typeValue, setTypeValue] = useState<ReportType | null>(null);
   const [content, setContent] = useState('');
-  const { images, openAdd, removeAt, max, setImages } = useImagePicker({
-    max: 10,
-  });
+  const { images, openAdd, removeAt, max, setImages } = useImagePicker({ max: 10 });
 
-  // ---------- review 모드 로드 상태 ----------
+  // ---------- review 로드 ----------
   const [loaded, setLoaded] = useState<StoredReport | null>(null);
 
-  // ---------- 이미지 뷰어(모달) ----------
+  // ---------- 이미지 뷰어 ----------
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
   const hScrollRef = useRef<ScrollView | null>(null);
@@ -72,25 +72,25 @@ export default function ReportPage({
     setViewerIndex(Math.round(x / SCREEN_W));
   };
 
-  // ----- 입력으로 넘어온 타겟 파라미터(호환 + 확장) -----
+  // ----- 신고 타겟 파라미터 -----
   const p = (route.params as any) ?? {};
   const targetLabelParam = p.targetLabel as string | undefined;
   const targetNicknameParam = p.targetNickname as string | undefined;
   const targetDeptParam = p.targetDept as string | undefined;
   const targetEmailParam = p.targetEmail as string | null | undefined;
 
-  // ✅ 승인 시 정확한 삭제/문구를 위해 저장
-  const targetPostIdParam = p.targetPostId as string | undefined;
-  const targetStorageKeyParam = p.targetStorageKey as string | undefined;
-  const targetPostTitleParam = p.targetPostTitle as string | undefined;
+  // 서버로 보낼 메타
+  const targetPostIdParam = p.targetPostId as string | number | undefined;
   const targetKindParam = p.targetKind as
     | 'market'
     | 'lost'
     | 'groupbuy'
     | 'notice'
+    | 'chat'
+    | 'admin'
     | undefined;
 
-  // compose 모드 표시용 라벨(우선순위: label → nickname+dept 조합)
+  // compose 표시 라벨
   const targetLabelCompose = useMemo(() => {
     if (targetLabelParam && targetLabelParam.trim()) return targetLabelParam.trim();
     if (targetNicknameParam || targetDeptParam) {
@@ -103,7 +103,7 @@ export default function ReportPage({
     return '';
   }, [targetLabelParam, targetNicknameParam, targetDeptParam]);
 
-  // review 모드 라벨
+  // review 표시 라벨
   const targetLabelReview = useMemo(() => {
     if (!loaded) return '';
     if (loaded.target?.label) return loaded.target.label;
@@ -115,10 +115,9 @@ export default function ReportPage({
     return left || right || '';
   }, [loaded]);
 
-  // 최종 표시 라벨
   const targetLabel = isReview ? targetLabelReview : targetLabelCompose;
 
-  // review 로드
+  // review 로컬 로드
   useEffect(() => {
     if (!isReview) return;
     (async () => {
@@ -138,7 +137,7 @@ export default function ReportPage({
     })();
   }, [isReview, reviewId, setImages]);
 
-  // compose 제출
+  // ===== compose 제출 → 서버 /report =====
   const onSubmitCompose = async () => {
     if (!typeValue) {
       Alert.alert('안내', '신고 유형을 선택해주세요.');
@@ -150,43 +149,44 @@ export default function ReportPage({
     }
 
     try {
-      const newItem: StoredReport = {
-        id: String(Date.now()),
-        target: {
-          email: targetEmailParam ?? null,
-          label: targetLabelCompose || undefined,
+      // 서버 enum으로 변환
+      const postType = mapKindToPostType(targetKindParam);
+      const reason = mapReportReason(typeValue);
 
-          // ✅ 승인 시 삭제/문구에 사용
-          postId: targetPostIdParam,
-          storageKey: targetStorageKeyParam,
-          postTitle: targetPostTitleParam,
-          kind: targetKindParam,
-        },
-        type: typeValue,
-        content: content.trim(),
-        images,
-        createdAt: new Date().toISOString(),
-        status: 'PENDING',
+      // 숫자인 postId만 보냄 (문자면 서버 Long 파싱 오류 방지)
+      const toNumeric = (v: any): number | undefined => {
+        if (typeof v === 'number' && Number.isFinite(v)) return v;
+        if (typeof v === 'string' && /^\d+$/.test(v.trim())) return Number(v.trim());
+        return undefined;
       };
+      const postIdNumeric = toNumeric(targetPostIdParam);
 
-      const raw = await AsyncStorage.getItem(REPORTS_KEY);
-      const list: StoredReport[] = raw ? JSON.parse(raw) : [];
-      list.unshift(newItem);
-      await AsyncStorage.setItem(REPORTS_KEY, JSON.stringify(list));
+      // 이미지: 서버 명세가 URL 배열만 허용 → http(s)만 필터
+      const httpImages = (images ?? []).filter((u) => /^https?:\/\//i.test(u));
+
+      await createReport({
+        postType,
+        postId: postIdNumeric,     // undefined면 생략되어 전송됨
+        reason,
+        content: content.trim(),
+        imageUrls: httpImages,
+        // reportedId는 현재 이메일만 있어 숫자 ID가 없으므로 보내지 않음(서버 Long 파싱 에러 회피)
+      });
 
       Alert.alert('제출 완료', '신고가 접수되었습니다. 확인 후 조치하겠습니다.', [
         { text: '확인', onPress: () => navigation.goBack() },
       ]);
     } catch (e: any) {
-      console.log(e);
-      Alert.alert(
-        '오류',
-        e?.message || '제출에 실패했어요. 잠시 후 다시 시도해주세요.'
-      );
+      console.log('report submit error', e?.response?.data || e);
+      const msg =
+        e?.response?.data?.message ||
+        e?.message ||
+        '제출에 실패했어요. 잠시 후 다시 시도해주세요.';
+      Alert.alert('오류', msg);
     }
   };
 
-  // ✅ 관리자 처리: 반려/승인 (utils/reportActions 가 알림 + 아이콘까지 처리)
+  // ===== 관리자 처리 (로컬 유지) =====
   const onPressOutline = async () => {
     if (!isReview || !reviewId) return;
     try {
@@ -203,7 +203,7 @@ export default function ReportPage({
   const onPressFilled = async () => {
     if (!isReview || !reviewId) return;
     try {
-      await approveReport(reviewId); // ✅ 글 삭제 + 작성자 개인 알림(아이콘 포함)
+      await approveReport(reviewId);
       Alert.alert('처리 완료', '인정 처리되어 게시글이 삭제되었습니다.', [
         { text: '확인', onPress: () => navigation.goBack() },
       ]);
@@ -230,9 +230,7 @@ export default function ReportPage({
             resizeMode="contain"
           />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {isReview ? '신고 상세' : '신고하기'}
-        </Text>
+        <Text style={styles.headerTitle}>{isReview ? '신고 상세' : '신고하기'}</Text>
         <View style={styles.rightSpacer} />
       </View>
 
@@ -275,10 +273,7 @@ export default function ReportPage({
                       {typeValue}
                     </Text>
                   ) : (
-                    <Text
-                      style={styles.selectTextPlaceholder}
-                      numberOfLines={1}
-                    >
+                    <Text style={styles.selectTextPlaceholder} numberOfLines={1}>
                       신고 유형을 선택해주세요.
                     </Text>
                   )}
@@ -335,7 +330,7 @@ export default function ReportPage({
             ) : (
               <TextInput
                 style={styles.textArea}
-                placeholder="신고 내용을 작성해주세요. 예시) 부적절한 사진이 올라와있어요. 합의되지 않은 무리한 요구를 했어요."
+                placeholder="신고 내용을 작성해주세요. 예) 부적절한 사진, 합의되지 않은 요구 등"
                 placeholderTextColor="#979797"
                 value={content}
                 onChangeText={setContent}
@@ -365,12 +360,7 @@ export default function ReportPage({
                 )}
               </View>
             ) : (
-              <PhotoPicker
-                images={images}
-                max={max}
-                onAddPress={openAdd}
-                onRemoveAt={removeAt}
-              />
+              <PhotoPicker images={images} max={max} onAddPress={openAdd} onRemoveAt={removeAt} />
             )}
           </View>
         </ScrollView>
@@ -407,7 +397,7 @@ export default function ReportPage({
         )}
       </KeyboardAvoidingView>
 
-      {/* ✅ 전체화면 이미지 뷰어 */}
+      {/* 전체화면 이미지 뷰어 */}
       <Modal
         visible={viewerOpen}
         transparent
@@ -444,11 +434,7 @@ export default function ReportPage({
                 showsVerticalScrollIndicator={false}
                 showsHorizontalScrollIndicator={false}
               >
-                <RNImage
-                  source={{ uri }}
-                  style={styles.viewerImage}
-                  resizeMode="contain"
-                />
+                <RNImage source={{ uri }} style={styles.viewerImage} resizeMode="contain" />
               </ScrollView>
             ))}
           </ScrollView>

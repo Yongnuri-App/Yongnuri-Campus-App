@@ -72,9 +72,9 @@ type GroupListItem = {
   likeCount: number;
   createdAt: string;
   status?: 'RECRUITING' | 'COMPLETED' | 'DELETED';
+  /** ✅ 추가: 현재 인원 */
+  currentCount?: number | null;
 };
-
-/** 서버 공지 응답을 그대로 들고 있다가 렌더 직전에 매핑할 거라 별도 타입 생략 */
 
 /** 카테고리 id → 위치 라벨(API/클라이언트 필터용) */
 function getLocationLabelFromId(id: string): string {
@@ -125,6 +125,21 @@ function isNoticeClosed(item: NoticeResponse) {
     ? new Date(item.endDate).getTime() < Date.now()
     : false;
   return byStatus || byTime;
+}
+
+/** ✅ 공구 마감 판정: 서버 COMPLETED이거나, 제한모드에서 현재 ≥ 제한 */
+function isGroupClosed(
+  mode: 'unlimited' | 'limited' | null,
+  currentCount?: number | null,
+  limit?: number | null,
+  status?: string | null
+) {
+  const serverCompleted = String(status ?? '').toUpperCase() === 'COMPLETED';
+  if (serverCompleted) return true;
+  if (mode !== 'limited') return false;
+  const cur = Number(currentCount ?? 0);
+  const lim = Number(limit ?? Number.MAX_SAFE_INTEGER);
+  return cur >= lim;
 }
 
 export default function MainPage({ navigation, route }: RootStackScreenProps<'Main'>) {
@@ -247,7 +262,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
           const data = await getLostFoundList(typeLabel);
           let rows: any[] = Array.isArray(data) ? data : [];
 
-          // 서버가 location 필터를 무시하는 경우를 대비해 클라이언트에서 한 번 더 필터링
+          // 서버가 location 필터를 무시하는 경우 대비
           if (typeLabel && typeLabel !== '전체') {
             rows = rows.filter((d: any) => (d?.location ?? '').trim() === typeLabel);
           }
@@ -321,6 +336,18 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
             const limitVal = d.limit; // number | null
             const statusUp = String(d.status ?? '').toUpperCase();
 
+            // ✅ 서버가 키를 다르게 줄 수도 있어 대비
+            const current =
+              typeof d.currentCount === 'number' ? d.currentCount :
+              typeof d.current_count === 'number' ? d.current_count :
+              null;
+
+            const images =
+              d.thumbnailUrl ? [d.thumbnailUrl] :
+              Array.isArray(d.images) && d.images.length
+                ? [...d.images].sort((a:any,b:any)=> (a.sequence??0)-(b.sequence??0)).map((x:any)=>x.imageUrl)
+                : [];
+
             return {
               id,
               title: d.title ?? '',
@@ -330,10 +357,12 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
                 count: limitVal == null ? null : Number(limitVal),
               },
               applyLink: '',
-              images: d.thumbnailUrl ? [d.thumbnailUrl] : [],
+              images,
               likeCount: Number(d.bookmarkCount ?? 0),
               createdAt,
               status: (statusUp as 'RECRUITING' | 'COMPLETED' | 'DELETED') || undefined,
+              /** ✅ 현재 인원 저장 */
+              currentCount: current,
             };
           });
 
@@ -353,14 +382,14 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
         return;
       }
 
-      // ----- 공지: ✅ 서버 목록 호출 (/board/notices) -----
+      // ----- 공지: 서버 목록 호출 (/board/notices) -----
       if (which === 'notice') {
         try {
           setNoticeLoading(true);
           console.log('[MainPage] GET /board/notices');
           const rows = await getNotices(); // NoticeResponse[]
 
-          // 최신순으로 정렬 (createdAt 기준, 없으면 startDate)
+          // 최신순 정렬 (createdAt 기준, 없으면 startDate)
           const sorted = [...rows].sort((a, b) => {
             const at = new Date(a.createdAt ?? a.startDate ?? 0).getTime();
             const bt = new Date(b.createdAt ?? b.startDate ?? 0).getTime();
@@ -371,7 +400,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
         } catch (e) {
           console.log('[MainPage] notice list load error', (e as any)?.response?.data || e);
 
-          // (선택) 과거 로컬 캐시 폴백: 있으면 보여주고, 없으면 빈 배열.
+          // (선택) 과거 로컬 캐시 폴백
           try {
             const raw = await AsyncStorage.getItem(POSTS_KEY_MAP.notice);
             const local = raw ? JSON.parse(raw) : [];
@@ -384,13 +413,11 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
         }
         return;
       }
-
-      // ----- 기타 탭: 필요 시 여기에 -----
     },
     [category]
   );
 
-  // 탭 포커스마다 재로딩 (작성 후 메인 돌아오면 자동 최신화)
+  // 탭 포커스마다 재로딩
   useFocusEffect(
     useCallback(() => {
       (async () => {
@@ -515,18 +542,26 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
           <FlatList
             data={filteredGroup}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <GroupItem
-                title={item.title}
-                timeText={timeAgo(item.createdAt)}
-                recruitMode={item.recruit?.mode === 'limited' ? 'limited' : 'unlimited'}
-                recruitCount={item.recruit?.count ?? null}
-                image={item.images && item.images.length > 0 ? item.images[0] : undefined}
-                likeCount={item.likeCount ?? 0}
-                isClosed={String(item.status ?? '').toUpperCase() === 'COMPLETED'}
-                onPress={() => navigation.navigate('GroupBuyDetail', { id: item.id })}
-              />
-            )}
+            renderItem={({ item }) => {
+              const mode = item.recruit?.mode === 'limited' ? 'limited' : 'unlimited';
+              const limit = item.recruit?.count ?? null;
+
+              // ✅ 최종 배지 판단: 서버 status + 현재/제한으로 보정
+              const closed = isGroupClosed(mode, item.currentCount, limit, item.status);
+
+              return (
+                <GroupItem
+                  title={item.title}
+                  timeText={timeAgo(item.createdAt)}
+                  recruitMode={mode}
+                  recruitCount={item.recruit?.count ?? null}
+                  image={item.images && item.images.length > 0 ? item.images[0] : undefined}
+                  likeCount={item.likeCount ?? 0}
+                  isClosed={closed}
+                  onPress={() => navigation.navigate('GroupBuyDetail', { id: item.id })}
+                />
+              );
+            }}
             ListEmptyComponent={
               <Text style={{ color: '#979797', marginTop: 24, textAlign: 'center' }}>
                 공동구매 모집글이 없어요. 오른쪽 아래 버튼으로 첫 글을 올려보세요!
@@ -546,7 +581,6 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
             data={filteredNotice}
             keyExtractor={(item) => String(item.id)}
             renderItem={({ item }) => {
-              // ✅ 이미지: 목록 응답은 thumbnailUrl만 올 수 있음(문서 기준)
               const imageUri =
                 item.thumbnailUrl ??
                 (Array.isArray((item as any).images) ? (item as any).images?.[0]?.imageUrl : undefined) ??
@@ -559,7 +593,7 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
                   termText={`${formatDateYMD(item.startDate)} ~ ${formatDateYMD(item.endDate)}`}
                   timeAgoText={timeAgo(item.createdAt ?? item.startDate)}
                   status={isNoticeClosed(item) ? 'closed' : 'open'}
-                  image={toAbsoluteUrl(item.thumbnailUrl)}   // ✅ 여기서 절대화
+                  image={toAbsoluteUrl(imageUri)}
                   onPress={() => navigation.navigate('NoticeDetail', { id: String(item.id) })}
                 />
               );
