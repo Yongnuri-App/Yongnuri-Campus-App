@@ -3,59 +3,49 @@ import React from 'react';
 import {
   FlatList,
   Image,
+  RefreshControl,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import styles from './AdminReportManagePage.styles';
 import type { RootStackScreenProps } from '../../../types/navigation';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const REPORTS_KEY = 'reports_v1';
-
-type ReportType = '부적절한 콘텐츠' | '사기/스팸' | '욕설/혐오' | '기타';
-type ReportStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
-
-type StoredReport = {
-  id: string;
-  target: {
-    email?: string | null;
-    nickname?: string;
-    dept?: string;
-    label?: string;
-  };
-  type: ReportType;
-  content: string;
-  images: string[];
-  createdAt: string;       // ISO
-  reporterEmail?: string | null;
-  status?: ReportStatus;   // ✅ 처리 상태
-};
+import {
+  getAdminReportListWithFallback,
+  type AdminReportRow,
+} from '../../../api/report';
 
 export default function AdminReportManagePage({
   navigation,
 }: RootStackScreenProps<'AdminReportManage'>) {
-  const [reports, setReports] = React.useState<StoredReport[]>([]);
+  const [reports, setReports] = React.useState<AdminReportRow[]>([]);
+  const [loading, setLoading] = React.useState(false);
 
-  const normalizeStatus = (s?: ReportStatus): ReportStatus => (s === 'APPROVED' || s === 'REJECTED') ? s : 'PENDING';
+  const normalizeStatus = (s?: string): 'PENDING' | 'APPROVED' | 'REJECTED' => {
+    if (s === 'APPROVED' || s === 'REJECTED') return s;
+    return 'PENDING';
+  };
 
   const load = React.useCallback(async () => {
+    setLoading(true);
     try {
-      const raw = await AsyncStorage.getItem(REPORTS_KEY);
-      const listRaw: StoredReport[] = raw ? JSON.parse(raw) : [];
-      // 상태 정규화 + 정렬
-      const list = listRaw.map(r => ({ ...r, status: normalizeStatus(r.status) }));
-      const rank = (st: ReportStatus) => (st === 'PENDING' ? 0 : 1);
+      const rows = await getAdminReportListWithFallback();
+      // 상태 정규화 + 정렬(PENDING 우선, 그다음 최신순)
+      const list = rows.map(r => ({ ...r, status: normalizeStatus(r.status) }));
+      const rank = (st: string) => (st === 'PENDING' ? 0 : 1);
       list.sort((a, b) => {
-        const ra = rank(a.status!);
-        const rb = rank(b.status!);
-        if (ra !== rb) return ra - rb; // PENDING 먼저
-        return (b.createdAt || '').localeCompare(a.createdAt || ''); // 최신순
+        const ra = rank(String(a.status));
+        const rb = rank(String(b.status));
+        if (ra !== rb) return ra - rb;
+        return (b.createdAt || '').localeCompare(a.createdAt || '');
       });
       setReports(list);
     } catch (e) {
       console.log('admin report load error', e);
       setReports([]);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -67,15 +57,9 @@ export default function AdminReportManagePage({
 
   const firstLine = (s?: string) => (s || '').split(/\r?\n/)[0].trim();
 
-  const renderItem = ({ item }: { item: StoredReport }) => {
-    const nickname =
-      item?.target?.nickname ||
-      (item?.target?.label ? item.target.label.split(' - ')[0] : '') ||
-      (item?.target?.email ? item.target.email.split('@')[0] : '') ||
-      '익명';
-
-    const reason =
-      item.type + (item.content?.trim() ? ` · ${firstLine(item.content)}` : '');
+  const renderItem = ({ item }: { item: AdminReportRow }) => {
+    const nickname = item.reportStudentNickName || '익명';
+    const reason = (item.reportReason || '') + (item.content?.trim() ? ` · ${firstLine(item.content)}` : '');
 
     const status = item.status || 'PENDING';
     const showBadge = status !== 'PENDING';
@@ -85,9 +69,7 @@ export default function AdminReportManagePage({
       <TouchableOpacity
         style={styles.row}
         activeOpacity={0.85}
-        onPress={() =>
-          navigation.navigate('Report', { mode: 'review', reportId: item.id })
-        }
+        onPress={() => navigation.navigate('Report', { mode: 'review', reportId: item.id })}
       >
         <View style={styles.rowTextCol}>
           <Text numberOfLines={1} style={styles.nickname}>
@@ -145,13 +127,14 @@ export default function AdminReportManagePage({
       <FlatList
         style={{ flex: 1 }}
         data={reports}
-        keyExtractor={(it) => it.id}
+        keyExtractor={(it, i) => it.id || String(i)}
         renderItem={renderItem}
         ListEmptyComponent={ListEmpty}
         contentContainerStyle={
           reports.length === 0 ? styles.emptyContainer : styles.listContainer
         }
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
       />
 
       <View style={styles.bottomHandleWrap}>
