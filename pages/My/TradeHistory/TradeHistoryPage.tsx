@@ -25,19 +25,33 @@ import MarketItem from '../../../components/ListTile/MarketItem/MarketItem';
 import styles from './TradeHistoryPage.styles';
 
 // ✅ Repo & Identity
-import groupRepo, { type GroupPost } from '../../../repositories/posts/asyncStorage/GroupRepo';
-import lostRepo, { type LostPost } from '../../../repositories/posts/asyncStorage/LostRepo';
-import marketRepo, { type MarketPost } from '../../../repositories/posts/asyncStorage/MarketRepo';
+// import groupRepo, { type GroupPost } from '../../../repositories/posts/asyncStorage/GroupRepo';
+// import lostRepo, { type LostPost } from '../../../repositories/posts/asyncStorage/LostRepo';
+// import marketRepo, { type MarketPost } from '../../../repositories/posts/asyncStorage/MarketRepo';
 import { getLocalIdentity } from '../../../utils/localIdentity';
 
 // ✅ '거래완료' 스냅샷 저장소(구매 내역은 여기서 읽어옴)
-import marketTradeRepo, { type MarketTradeRecord } from '../../../repositories/trades/MarketTradeRepo';
+// import marketTradeRepo, { type MarketTradeRecord } from '../../../repositories/trades/MarketTradeRepo';
 
 // ✅ 회수 칩 데이터(로컬 TradeHistory 저장소) – 오너 기준 필터 사용
 import {
-  getRecoveredLostItemsByOwner,
-  type RecoveredLostItem,
+  type RecoveredLostItem
 } from '../../../storage/tradeHistoryStore';
+
+// 백엔드 API + 매퍼
+import {
+  fetchGroupBuyHistory,
+  fetchLostItemHistory,
+  fetchUsedItemHistory,
+  mapGroupHistory,
+  mapLostHistory,
+  mapUsedItemToMarketPost,
+  mapUsedItemToTradeRecords,
+  type GroupPost,
+  type LostPost,
+  type MarketPost,
+  type MarketTradeRecord,
+} from '../../../api/history';
 
 // ✅ 이벤트 채널 상수 (useLostClose에서 export)
 import { EVT_TRADE_HISTORY_UPDATED } from '../../../hooks/useLostClose';
@@ -71,7 +85,7 @@ const sameEmail = (a?: string | null, b?: string | null) =>
 const sameId = (a?: string | number | null, b?: string | number | null) =>
   a != null && b != null && String(a) === String(b);
 
-function toKPrice(price?: number | string): string {
+function toKPrice(price?: number | string | null): string {
   if (price === undefined || price === null || price === '') return '가격없음';
   const n = typeof price === 'string' ? Number(price) : price;
   if (!Number.isFinite(n)) return String(price);
@@ -153,74 +167,68 @@ export default function TradeHistoryPage() {
     if (!isMarketSell) return;
     setLoading(true);
     try {
-      const all = await marketRepo.list();
-      const mine = (all || []).filter((p: MarketPost) => {
-        const authorEmailNorm = normEmail(p.authorEmail ?? null);
-        if (authorEmailNorm && myEmail) return sameEmail(authorEmailNorm, myEmail);
-        if (!authorEmailNorm && !myEmail) return sameId(p.authorId ?? null, myId ?? null);
-        return false;
-      });
+      const rows = await fetchUsedItemHistory('sell');
+      const mine = mapUsedItemToMarketPost(rows);
+      // 최신순 정렬(서버가 내려주면 생략 가능)
       mine.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setMarketMine(mine);
     } catch (e) {
       console.warn('TradeHistory market sell load error:', e);
       setMarketMine([]);
     } finally { setLoading(false); }
-  }, [isMarketSell, myEmail, myId]);
+  }, [isMarketSell]);
 
   /** ✅ 중고거래: 내가 '구매'한 거래완료 목록(구매 탭) — marketTradeRepo에서 조회 */
   const loadMarketBought = useCallback(async () => {
     if (!isMarketBuy) return;
     setLoading(true);
     try {
-      const list = await marketTradeRepo.listByBuyer({
-        buyerEmail: myEmail,
-        buyerId: myId,
-      });
+      const rows = await fetchUsedItemHistory('buy');
+      const list = mapUsedItemToTradeRecords(rows);
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setMarketBought(list);
     } catch (e) {
       console.warn('TradeHistory market buy load error:', e);
       setMarketBought([]);
     } finally { setLoading(false); }
-  }, [isMarketBuy, myEmail, myId]);
+  }, [isMarketBuy]);
 
   /** 분실물: 내 글만 + type 필터 (회수 제외) */
   const loadLostMine = useCallback(async () => {
-    if (!isLost || isLostRetrieved) return; // 회수는 별도 로직
+    if (!isLost || isLostRetrieved) return; // 회수는 별도 로더
     setLoading(true);
     try {
-      const all = await lostRepo.list();
-      const mine = (all || []).filter((p: LostPost) => {
-        const authorEmailNorm = normEmail(p.authorEmail ?? null);
-        if (authorEmailNorm && myEmail) return sameEmail(authorEmailNorm, myEmail);
-        if (!authorEmailNorm && !myEmail) return sameId(p.authorId ?? null, myId ?? null);
-        return false;
-      });
-
-      const filtered = mine.filter(p =>
-        (isLostFound && p.type === 'found') || (isLostLost && p.type === 'lost')
-      );
-
-      filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setLostMine(filtered);
+      // 현재 UI filter 키: 'found' | 'lost' | 'retrieved'
+      const filterKey = isLostFound ? 'found' : 'lost';
+      const rows = await fetchLostItemHistory(filterKey as 'found' | 'lost');
+      const list = mapLostHistory(rows);
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setLostMine(list);
     } catch (e) {
       console.warn('TradeHistory lost load error:', e);
       setLostMine([]);
     } finally { setLoading(false); }
-  }, [isLost, isLostFound, isLostLost, isLostRetrieved, myEmail, myId]);
+  }, [isLost, isLostFound, isLostRetrieved]);
 
   /** ✅ 분실물: 회수 칩 데이터 로드 (오너 이메일 기준 필터) */
   const loadLostRecovered = useCallback(async () => {
     if (!isLostRetrieved) return;
     setLoading(true);
     try {
-      // ✅ 내 이메일이 있으면 내 항목만 필터, 없으면 전체 반환
-      const list = await getRecoveredLostItemsByOwner(myEmail ?? '');
-      // 저장소에서 최신순 정렬 보장하지만, 혹시 몰라 재정렬
-      const sorted = [...list].sort((a, b) =>
-        new Date(b.recoveredAt).getTime() - new Date(a.recoveredAt).getTime()
+      const rows = await fetchLostItemHistory('returned'); // ✅ UI 'retrieved' → API 'returned' 매핑
+      const list = mapLostHistory(rows);
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setLostRecovered(
+        list.map((r) => ({
+          // 기존 LostItem 렌더러에 맞춰 최소 필드만 사용
+          recordId: r.id,                 // key
+          postId: r.id,                   // 상세 이동용 (id 동일 가정)
+          title: r.title,
+          image: (r.images ?? [])[0],
+          recoveredAt: r.createdAt,
+          ownerEmail: myEmail ?? undefined // 서버가 자동으로 본인 기준 필터링하므로 정보성으로만 둠
+        }))
       );
-      setLostRecovered(sorted);
     } catch (e) {
       console.warn('TradeHistory lost recovered load error:', e);
       setLostRecovered([]);
@@ -229,23 +237,18 @@ export default function TradeHistoryPage() {
 
   /** 공동구매: 내가 등록한 글만 (등록 칩 전용) */
   const loadGroupMine = useCallback(async () => {
-    if (!isGroupRegister) return;        // 신청 탭은 아직 미구현 → 빈 상태
+    if (!isGroupRegister) return;
     setLoading(true);
     try {
-      const all = await groupRepo.list();
-      const mine = (all || []).filter((p: GroupPost) => {
-        const authorEmailNorm = normEmail(p.authorEmail ?? null);
-        if (authorEmailNorm && myEmail) return sameEmail(authorEmailNorm, myEmail);
-        if (!authorEmailNorm && !myEmail) return sameId(p.authorId ?? null, myId ?? null);
-        return false;
-      });
+      const rows = await fetchGroupBuyHistory('registered');
+      const mine = mapGroupHistory(rows);
       mine.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setGroupMine(mine);
     } catch (e) {
       console.warn('TradeHistory group load error:', e);
       setGroupMine([]);
     } finally { setLoading(false); }
-  }, [isGroupRegister, myEmail, myId]);
+  }, [isGroupRegister]);
 
   /** 최초 로드: 내 계정 식별자 저장 */
   useEffect(() => {
