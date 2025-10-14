@@ -32,12 +32,10 @@ import styles from './GroupBuyDetailPage.styles';
 
 const POSTS_KEY = 'groupbuy_posts_v1';
 const LIKED_MAP_KEY = 'groupbuy_liked_map_v1';
-const COUNT_MAP_KEY = 'groupbuy_current_count_map_v1'; // 현재 인원 캐시(서버가 0을 돌려줄 때 대비)
+const COUNT_MAP_KEY = 'groupbuy_current_count_map_v1'; // 현재 인원 캐시
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
-// 캐시 유효 시간(서버가 잠깐 0을 돌려줘도 이 시간 안에는 캐시 우선)
 const COUNT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24시간
-// PATCH 직후 서버가 이전값을 돌려주는 플리킹 방지 보호 구간
 const PATCH_PROTECT_MS = 4000;
 
 type RecruitMode = 'unlimited' | 'limited' | null;
@@ -117,22 +115,16 @@ function pickWithCache(
   serverValue: number,
   cache: CountMap,
   id: string | number,
-  patchedGuard?: { value: number; ts: number } | null
+  patchedGuard?: { value: number; ts: number } | null,
 ): number {
   const now = Date.now();
-
-  // PATCH 직후 보호 구간: 서버값이 뒤늦게 와도 당장 덮지 않음
   if (patchedGuard && now - patchedGuard.ts <= PATCH_PROTECT_MS) {
     return patchedGuard.value;
   }
-
-  // 서버가 0을 돌려주고, 최근(24h) 캐시에 신뢰할 값이 있으면 캐시 우선
   const cached = cache[String(id)];
   if (serverValue === 0 && cached && now - cached.ts <= COUNT_CACHE_TTL_MS) {
     return cached.value;
   }
-
-  // 그 외엔 서버값 신뢰
   return serverValue;
 }
 
@@ -148,11 +140,8 @@ export default function GroupBuyDetailPage({
   const [pickerOpen, setPickerOpen] = useState(false);
   const hScrollRef = useRef<ScrollView | null>(null);
 
-  /** 최신 currentCount 보존용 ref (플리커 방지) */
   const currentCountRef = useRef<number>(0);
-  /** PATCH 직후 보호용 */
   const lastPatchedRef = useRef<{ value: number; ts: number } | null>(null);
-  /** 중복 로딩 방지 */
   const loadingRef = useRef(false);
 
   const { liked, syncCount, toggleLike } = useLike({
@@ -178,29 +167,25 @@ export default function GroupBuyDetailPage({
   /** 서버 → 화면 상태 매핑 */
   const mapServerToState = useCallback(
     (d: any, prev?: GroupBuyPost | null, countFromCache?: number): GroupBuyPost => {
-      // 이미지 정렬
       const images =
         Array.isArray(d?.images) && d.images.length
           ? [...d.images]
               .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
-              .map((x) => x.imageUrl)
+              .map((x: any) => x.imageUrl)
           : d?.thumbnailUrl
           ? [d.thumbnailUrl]
           : [];
 
-      // 서버 currentCount
       let nextCurrent = coerceCurrentCount(d, prev?.currentCount ?? currentCountRef.current);
 
-      // 캐시/보호 로직 적용
-      const cacheLike: CountMap = countFromCache != null
-        ? { [String(id)]: { value: countFromCache, ts: Date.now() } }
-        : {};
+      const cacheLike: CountMap =
+        countFromCache != null
+          ? { [String(id)]: { value: countFromCache, ts: Date.now() } }
+          : {};
       nextCurrent = pickWithCache(nextCurrent, cacheLike, id, lastPatchedRef.current);
 
-      // ref 갱신
       currentCountRef.current = typeof nextCurrent === 'number' ? nextCurrent : 0;
 
-      // 닉네임/학과 표기 확정: authorNickname(윗줄), authorDepartment(아랫줄)
       const mapped: GroupBuyPost = {
         id: String(d.id ?? d.post_id),
         title: d.title ?? '',
@@ -214,16 +199,24 @@ export default function GroupBuyDetailPage({
         likeCount: Number(d.bookmarkCount ?? 0),
         createdAt: d.createdAt ?? d.created_at ?? new Date().toISOString(),
 
-        authorName: d.authorNickname ?? undefined, // 윗줄
-        authorDept: d.authorDepartment ?? '',       // 아랫줄(학과)
+        authorName: d.authorNickname ?? undefined,
+        authorDept: d.authorDepartment ?? '',
         authorEmail: d.authorEmail ?? null,
+        authorId:
+          d.authorId ??
+          d.author_id ??
+          d.writerId ??
+          d.writer_id ??
+          d.userId ??
+          d.user_id ??
+          undefined,
 
         currentCount: currentCountRef.current,
         status: d.status,
       };
       return mapped;
     },
-    [id]
+    [id],
   );
 
   /** 상세 로드 */
@@ -244,10 +237,7 @@ export default function GroupBuyDetailPage({
 
       syncCount(Number(d?.bookmarkCount ?? 0));
     } catch (e) {
-      console.log(
-        '[GroupBuyDetail] server load failed -> local fallback',
-        (e as any)?.response?.data || e
-      );
+      console.log('[GroupBuyDetail] server load failed -> local fallback', (e as any)?.response?.data || e);
       try {
         const raw = await AsyncStorage.getItem(POSTS_KEY);
         const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
@@ -272,11 +262,10 @@ export default function GroupBuyDetailPage({
     }
   }, [id, navigation, syncCount, mapServerToState]);
 
-  /** 포커스 시마다 최신화 */
   useFocusEffect(
     useCallback(() => {
       loadDetail();
-    }, [loadDetail])
+    }, [loadDetail]),
   );
 
   /** 권한 */
@@ -289,20 +278,19 @@ export default function GroupBuyDetailPage({
   /** 프로필 라인: 윗줄(닉네임) / 아랫줄(학과) */
   const { name: lookupName, dept: lookupDept } = useDisplayProfile(
     item?.authorEmail ?? null,
-    true
+    true,
   );
 
-  // ✅ useMemo 의존성 경고 방지: 로컬 변수로 분리
   const authorName = item?.authorName;
   const authorDept = item?.authorDept;
 
   const profileName = useMemo(
-    () => (authorName || lookupName || '사용자'),
-    [authorName, lookupName]
+    () => authorName || lookupName || '사용자',
+    [authorName, lookupName],
   );
   const profileDept = useMemo(
-    () => (authorDept || lookupDept || ''),
-    [authorDept, lookupDept]
+    () => authorDept || lookupDept || '',
+    [authorDept, lookupDept],
   );
 
   /** 이미지 인덱스 */
@@ -318,11 +306,12 @@ export default function GroupBuyDetailPage({
       mode: 'compose',
       targetNickname: profileName,
       targetDept: profileDept,
-      targetEmail: item.authorEmail ?? null,
+      targetEmail: item.authorEmail ?? undefined, // ✅ undefined로 정규화
       targetPostId: String(item.id),
       targetStorageKey: POSTS_KEY,
       targetPostTitle: item.title,
       targetKind: 'groupbuy',
+      targetUserId: item.authorId,
     });
   }, [item, navigation, profileName, profileDept]);
 
@@ -339,10 +328,8 @@ export default function GroupBuyDetailPage({
       const res = await applyGroupBuy(id);
       Alert.alert('신청 완료', res?.message ?? '공동구매 신청이 완료되었습니다.');
 
-      // 최신 상세 재조회(현재 인원 반영)
       await loadDetail();
 
-      // 신청 폼 링크가 있으면 열어줌
       if (item.applyLink) {
         const url = /^https?:\/\//i.test(item.applyLink)
           ? item.applyLink
@@ -376,17 +363,15 @@ export default function GroupBuyDetailPage({
     lastPatchedRef.current = { value: n, ts: Date.now() };
     currentCountRef.current = n;
     setItem((cur) => (cur ? { ...cur, currentCount: n } : cur));
-    await saveCountToMap(id, n); // 홈 나갔다가 돌아와도 유지
+    await saveCountToMap(id, n);
 
     try {
       await updateGroupBuyCurrentCount(id, n);
-
-      // 2) 너무 빠른 stale 응답 방지를 위해 조금 지연 후 재조회
       setTimeout(() => {
         loadDetail();
       }, 350);
 
-      // 3) 로컬 목록 캐시에도 반영(실패 무시)
+      // 목록 캐시에도 반영
       try {
         const raw = await AsyncStorage.getItem(POSTS_KEY);
         const list: GroupBuyPost[] = raw ? JSON.parse(raw) : [];
@@ -413,7 +398,8 @@ export default function GroupBuyDetailPage({
     );
   }
 
-  const images = Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
+  const images =
+    Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
   const thumbUri = images[0];
 
   const RightTopButton = () =>
@@ -513,12 +499,10 @@ export default function GroupBuyDetailPage({
             <Text style={styles.recruitLineLabel}>현재 모집 인원</Text>
 
             {!isOwner ? (
-              // 작성자 아님: 숫자만 표시
               <View style={styles.countStaticWrap}>
                 <Text style={styles.countStaticText}>{item.currentCount ?? 0}</Text>
               </View>
             ) : (
-              // 작성자: 드롭다운 선택
               <View style={styles.countPickerWrap}>
                 <TouchableOpacity
                   onPress={() => setPickerOpen((v) => !v)}
@@ -582,7 +566,10 @@ export default function GroupBuyDetailPage({
             await toggleLike(nextLiked);
             setItem((prev) => {
               if (!prev) return prev;
-              const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));
+              const nextCount = Math.max(
+                0,
+                (prev.likeCount ?? 0) + (nextLiked ? 1 : -1),
+              );
               return { ...prev, likeCount: nextCount };
             });
           }}
@@ -605,7 +592,9 @@ export default function GroupBuyDetailPage({
           visible={menuVisible}
           onClose={() => setMenuVisible(false)}
           showEdit={!isAdmin && isOwner}
-          onEdit={() => navigation.navigate('GroupBuyRecruit', { mode: 'edit', id })}
+          onEdit={() =>
+            navigation.navigate('GroupBuyRecruit', { mode: 'edit', id })
+          }
           onDelete={confirmAndDelete}
           editLabel="수정"
           deleteLabel="삭제"

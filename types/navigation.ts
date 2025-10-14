@@ -18,18 +18,6 @@ type OwnerMeta = {
 export type SaleStatusApi = 'ON_SALE' | 'RESERVED' | 'SOLD';
 export type LostStatusApi = 'OPEN' | 'RESOLVED';
 
-/** 상세/채팅 진입 시점의 초기 판매상태(있으면 헤더/셀렉터 초기값에 사용) */
-// type MarketMeta = {
-//   initialSaleStatus?: SaleStatusApi;
-// };
-
-// /** -----------------------------------------------------------
-//  * 공통: 채팅 상대/참여자/카드 공용 필드
-//  * - opponent*: "현재 로그인 사용자 기준의 상대" (매우 중요)
-//  * - buyer*/seller*: 거래 스냅샷 기록 시 사용
-//  * - roomId: 동일 조합이면 항상 동일하게 생성된 값을 권장
-//  * - postCreatedAt: (선택) 정렬 보조나 스냅샷 기록에 사용
-//  * ---------------------------------------------------------*/
 type ChatCommonMeta = {
   /** 채팅방 고유 ID (없으면 내부에서 deriveRoomIdFromParams로 보강) */
   roomId?: string;
@@ -85,7 +73,7 @@ export type ChatRoomParams =
       postId: string;
 
       /** 상단 카드용 정보 */
-      posterNickname: string;   // 이미 필수 OK
+      posterNickname: string;
       postTitle: string;
       place: string;
       purpose: 'lost' | 'found';
@@ -101,16 +89,15 @@ export type ChatRoomParams =
       postId: string;
 
       /** 상단 카드용 정보 */
-      authorNickname: string;   // 이미 필수 OK
+      authorNickname: string;
       postTitle: string;
       recruitLabel: string;
       postImageUri?: string;
     } & OwnerMeta &
       ChatCommonMeta);
 
-
 /** -----------------------------------------------------------
- * 네비게이션 스택 파라미터 (기존 라우트 유지)
+ * 네비게이션 스택 파라미터
  * ---------------------------------------------------------*/
 export type RootStackParamList = {
   Loading: undefined;
@@ -158,20 +145,24 @@ export type RootStackParamList = {
         targetLabel?: string;
         targetNickname?: string;
         targetDept?: string;
-        targetEmail?: string | null;
+        /** nullable 대신 undefined 사용 */
+        targetEmail?: string;
 
-        // ✅ 추가: 삭제/알림에 꼭 필요한 메타
-        targetPostId?: string;                // 글 ID
-        targetStorageKey?: string;            // 저장소 키 (예: 'market_posts_v1')
-        targetPostTitle?: string;             // 글 제목 (알림 문구용)
-        targetKind?: 'market' | 'lost' | 'groupbuy' | 'notice'; // 힌트
+        // ✅ 삭제/알림용 메타
+        targetPostId?: string; // 글 ID
+        targetStorageKey?: string; // 예: 'market_posts_v1'
+        targetPostTitle?: string; // 글 제목
+        targetKind?: 'market' | 'lost' | 'groupbuy' | 'notice' | 'chat' | 'admin';
+
+        /** ✅ 추가: 신고 대상 사용자 DB id (권한/식별 보조) */
+        targetUserId?: string | number;
       }
     | {
         mode: 'review';
         reportId: string;
       };
 
-  // ✅ 채팅방 (업데이트된 파라미터)
+  // ✅ 채팅방
   ChatRoom: ChatRoomParams;
 
   // ✅ 관리자

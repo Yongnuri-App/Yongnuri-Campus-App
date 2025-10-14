@@ -99,27 +99,35 @@ export default function LostDetailPage({
       console.log('[LostDetailPage] 상세 조회 성공(정규화전)', res);
 
       const normalized: LostPost = {
-        // ⬇️ 서버가 id 또는 post_id 중 무엇이든 올 수 있으니 둘 다 대응
         id: String((res as any).id ?? (res as any).post_id),
-
         type: res.purpose === 'LOST' ? 'lost' : 'found',
         title: res.title,
         content: res.content,
         location: res.location,
-        images: (res.images ?? []).map((it) => it.imageUrl),
+        images: (res.images ?? []).map((it: any) => it.imageUrl),
         likeCount: 0,
-        createdAt: (res as any).createdAt ?? (res as any).created_at ?? new Date().toISOString(),
-
+        createdAt:
+          (res as any).createdAt ??
+          (res as any).created_at ??
+          new Date().toISOString(),
         authorEmail: (res as any).authorEmail ?? null,
         authorName: (res as any).authorNickname ?? undefined,
-        authorDept: (res as any).authorDepartment ?? (res as any).department ?? undefined,
+        authorDept:
+          (res as any).authorDepartment ?? (res as any).department ?? undefined,
+        authorId:
+          (res as any).authorId ??
+          (res as any).author_id ??
+          (res as any).writerId ??
+          (res as any).writer_id ??
+          (res as any).userId ??
+          (res as any).user_id ??
+          undefined,
       };
 
       setItem(normalized);
       syncCount(0);
     } catch (e) {
       console.log('lost detail api error -> try local fallback', e);
-      // 3) 실패 시 로컬 저장소 폴백 (기존 로직 유지)
       try {
         const raw = await AsyncStorage.getItem(POSTS_KEY);
         const list: LostPost[] = raw ? JSON.parse(raw) : [];
@@ -144,10 +152,8 @@ export default function LostDetailPage({
 
   useFocusEffect(
     React.useCallback(() => {
-      // 포커스될 때 상세 1회 로드
       loadDetail();
-      // 별도 cleanup 필요 없음
-    }, [loadDetail])
+    }, [loadDetail]),
   );
 
   /** 권한 파생 */
@@ -158,18 +164,19 @@ export default function LostDetailPage({
   });
 
   /** 프로필 표기: 이메일 조회(있으면) → 닉네임 폴백 */
-  // 이메일 기반 최신 표기값
-  const { name: lookupName, dept: lookupDept } =
-    useDisplayProfile(item?.authorEmail ?? null, true);
+  const { name: lookupName, dept: lookupDept } = useDisplayProfile(
+    item?.authorEmail ?? null,
+    true,
+  );
 
   const profileName = useMemo(
-    () => (lookupName || item?.authorName || '사용자'),
-    [lookupName, item?.authorName]
+    () => lookupName || item?.authorName || '사용자',
+    [lookupName, item?.authorName],
   );
 
   const profileDept = useMemo(
-    () => (lookupDept || item?.authorDept || ''),
-    [lookupDept, item?.authorDept]
+    () => lookupDept || item?.authorDept || '',
+    [lookupDept, item?.authorDept],
   );
 
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -184,12 +191,12 @@ export default function LostDetailPage({
       mode: 'compose',
       targetNickname: profileName,
       targetDept: profileDept,
-      targetEmail: item.authorEmail ?? null,
-
+      targetEmail: item.authorEmail ?? undefined, // ✅ undefined로 정규화
       targetPostId: String(item.id),
       targetStorageKey: POSTS_KEY,
       targetPostTitle: item.title,
       targetKind: 'lost',
+      targetUserId: item.authorId,
     });
   }, [item, navigation, profileName, profileDept]);
 
@@ -201,7 +208,8 @@ export default function LostDetailPage({
     );
   }
 
-  const images = Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
+  const images =
+    Array.isArray(item.images) && item.images.length > 0 ? item.images : [];
 
   const renderRightTopButton = () => {
     if (isAdmin || isOwner) {
@@ -213,7 +221,10 @@ export default function LostDetailPage({
           accessibilityLabel="게시글 옵션"
           activeOpacity={0.9}
         >
-          <Image source={require('../../assets/images/more_white.png')} style={styles.icon} />
+          <Image
+            source={require('../../assets/images/more_white.png')}
+            style={styles.icon}
+          />
         </TouchableOpacity>
       );
     }
@@ -225,7 +236,10 @@ export default function LostDetailPage({
         accessibilityLabel="신고하기"
         activeOpacity={0.9}
       >
-        <Image source={require('../../assets/images/alert_white.png')} style={styles.icon} />
+        <Image
+          source={require('../../assets/images/alert_white.png')}
+          style={styles.icon}
+        />
       </TouchableOpacity>
     );
   };
@@ -249,7 +263,11 @@ export default function LostDetailPage({
               contentOffset={{ x: 0, y: 0 }}
             >
               {images.map((uri, i) => (
-                <Image key={`${uri}-${i}`} source={{ uri }} style={styles.mainImage} />
+                <Image
+                  key={`${uri}-${i}`}
+                  source={{ uri }}
+                  style={styles.mainImage}
+                />
               ))}
             </ScrollView>
           ) : (
@@ -266,7 +284,10 @@ export default function LostDetailPage({
             accessibilityLabel="뒤로가기"
             activeOpacity={0.9}
           >
-            <Image source={require('../../assets/images/back_white.png')} style={styles.icon} />
+            <Image
+              source={require('../../assets/images/back_white.png')}
+              style={styles.icon}
+            />
           </TouchableOpacity>
 
           {/* 우상단: 역할별 버튼 */}
@@ -294,7 +315,9 @@ export default function LostDetailPage({
                 item.type === 'lost' ? styles.badgeLost : styles.badgeFound,
               ]}
             >
-              <Text style={styles.badgeText}>{item.type === 'lost' ? '분실' : '습득'}</Text>
+              <Text style={styles.badgeText}>
+                {item.type === 'lost' ? '분실' : '습득'}
+              </Text>
             </View>
             <Text style={styles.title} numberOfLines={1}>
               {item.title}
@@ -326,7 +349,10 @@ export default function LostDetailPage({
             await toggleLike(nextLiked);
             setItem((prev) => {
               if (!prev) return prev;
-              const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));
+              const nextCount = Math.max(
+                0,
+                (prev.likeCount ?? 0) + (nextLiked ? 1 : -1),
+              );
               return { ...prev, likeCount: nextCount };
             });
           }}
@@ -338,7 +364,7 @@ export default function LostDetailPage({
             place: item.location,
             purpose: item.type,
             postImageUri: images[0],
-            authorEmail: item.authorEmail ?? null,
+            authorEmail: item.authorEmail ?? null, // 기존 타입 호환
             authorId: item.authorId != null ? String(item.authorId) : undefined,
           }}
           placeholder="게시자에게 메시지를 보내보세요"
@@ -350,7 +376,9 @@ export default function LostDetailPage({
           visible={menuVisible}
           onClose={() => setMenuVisible(false)}
           showEdit={!isAdmin && isOwner}
-          onEdit={() => navigation.navigate('LostPost', { mode: 'edit', id: String(item.id) })}
+          onEdit={() =>
+            navigation.navigate('LostPost', { mode: 'edit', id: String(item.id) })
+          }
           onDelete={confirmAndDelete}
           editLabel="수정"
           deleteLabel="삭제"

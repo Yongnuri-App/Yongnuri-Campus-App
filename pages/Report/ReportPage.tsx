@@ -23,7 +23,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import { useImagePicker } from '../../hooks/useImagePicker';
 
-// 서버 API/매퍼 import (반드시 export 되어 있어야 함)
+// 서버 API/매퍼
 import {
   createReport,
   mapKindToPostType,
@@ -37,6 +37,14 @@ type ReportTypeKor = (typeof REPORT_TYPES_KOR)[number];
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
+// 숫자 변환 유틸
+const toNum = (v: any): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v)
+    ? v
+    : typeof v === 'string' && /^\d+$/.test(v.trim())
+    ? Number(v.trim())
+    : undefined;
+
 export default function ReportPage({ navigation, route }: RootStackScreenProps<'Report'>) {
   const mode: 'compose' | 'review' = (route.params as any)?.mode ?? 'compose';
   const reviewId = (route.params as any)?.reportId as string | undefined;
@@ -48,7 +56,7 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
   const [content, setContent] = useState('');
   const { images, openAdd, removeAt, max, setImages } = useImagePicker({ max: 10 });
 
-  // review 로드 상태(로컬 저장 버전 유지 — 서버 리뷰 API와 병행 가능)
+  // review 로드 상태(로컬 저장 버전 유지)
   const [loaded, setLoaded] = useState<any | null>(null);
 
   // 이미지 뷰어
@@ -70,9 +78,7 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
   const targetDeptParam = p.targetDept as string | undefined;
   const targetEmailParam = p.targetEmail as string | null | undefined;
   const targetPostIdParam = p.targetPostId as string | undefined;
-  // ↓ 사용하지 않는 파라미터 경고 제거: 필요해지면 다시 살리면 됨
-  // const targetStorageKeyParam = p.targetStorageKey as string | undefined;
-  // const targetPostTitleParam = p.targetPostTitle as string | undefined;
+  const targetUserIdParam = p.targetUserId as string | number | undefined;
   const targetKindParam = p.targetKind as
     | 'market'
     | 'lost'
@@ -81,6 +87,7 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
     | 'chat'
     | 'admin'
     | undefined;
+
   // 표시 라벨(닉네임 - 학과 or 이메일)
   const targetLabelCompose = useMemo(() => {
     const left =
@@ -91,7 +98,7 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
     return left || right || '';
   }, [targetNicknameParam, targetDeptParam, targetEmailParam]);
 
-  // review 모드: 로컬에서 불러오기(기존 구현 유지)
+  // review 모드: 로컬에서 불러오기
   useEffect(() => {
     if (!isReview) return;
     (async () => {
@@ -101,7 +108,6 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
         const found = list.find((r) => r.id === reviewId) ?? null;
         setLoaded(found || null);
         if (found) {
-          // 타입/내용/이미지 표시
           setTypeValue((found.type as ReportTypeKor) ?? null);
           setContent(found.content ?? '');
           setImages(found.images ?? []);
@@ -127,17 +133,21 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
       const postType: ReportPostType = mapKindToPostType(targetKindParam);
       const reason: ReportReason = mapReportReason(typeValue);
 
-      // 서버는 숫자만 받는 필드들만 보낼 것
+      // 숫자만 서버로
       const postIdNum =
-        typeof targetPostIdParam === 'string' && /^\d+$/.test(targetPostIdParam) ? Number(targetPostIdParam) : undefined;
+        typeof targetPostIdParam === 'string' && /^\d+$/.test(targetPostIdParam)
+          ? Number(targetPostIdParam)
+          : undefined;
+
+      const reportedIdNum = toNum(targetUserIdParam);
 
       const payload = {
         postType,
         postId: postIdNum,
-        // reportedId(유저 id)를 백엔드에서 요구하지 않거나 알 수 없으면 생략
+        reportedId: reportedIdNum, // ★ 피신고자 id
         reason,
         content: content.trim(),
-        imageUrls: images, // client.ts 인터셉터가 FormData/URL 적절 처리, report.ts는 http URL만 남김
+        imageUrls: images,
       };
 
       await createReport(payload);
@@ -152,7 +162,6 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
 
   /* ================== review 모드 액션 (기존 로컬 로직 유지) ================== */
   const onPressOutline = async () => {
-    // 서버 승인/반려 API 합치기 전: 기존 로컬 관리 유지
     if (!isReview || !reviewId) return;
     try {
       const raw = await AsyncStorage.getItem('reports_v1');
@@ -185,12 +194,11 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
   };
 
   /* ================== UI ================== */
-
   const headerTitle = isReview ? '신고 상세' : '신고하기';
 
   return (
     <View style={styles.container}>
-      {/* 헤더 */}
+      {/* 헤더 (디자인 유지) */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
