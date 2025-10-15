@@ -1,3 +1,4 @@
+// pages/Market/MarketDetailPage.tsx
 import DetailBottomBar from '@/components/Bottom/DetailBottomBar';
 import AdminActionSheet from '@/components/Modals/AdminActionSheet/AdminActionSheet';
 import ProfileRow from '@/components/Profile/ProfileRow';
@@ -10,6 +11,7 @@ import { getLocalIdentity } from '@/utils/localIdentity';
 import { getProfileByEmail, toDisplayName } from '@/utils/session';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,            // ★ 추가
   Dimensions,
   Image,
   NativeScrollEvent,
@@ -56,6 +58,7 @@ function timeAgo(iso: string) {
 
 const norm = (s?: string | number | null) =>
   (s == null ? '' : String(s)).trim().toLowerCase();
+
 function buildMarketRoomId(
   postId: string,
   sellerKey: string | number | null | undefined,
@@ -89,13 +92,18 @@ export default function MarketDetailPage({
       const data = await getMarketPost(id);
       console.log('[MarketDetailPage] 상세 조회 성공(정규화전)', data);
 
-      const authorId =
+      // ★ authorId 후보키 확장
+      let authorId =
         data?.authorId ??
         data?.author_id ??
         data?.writerId ??
         data?.writer_id ??
         data?.userId ??
         data?.user_id ??
+        data?.memberId ??
+        data?.member_id ??
+        data?.author?.id ??
+        data?.writer?.id ??
         undefined;
 
       const imageUrls: string[] = Array.isArray(data?.images)
@@ -144,9 +152,7 @@ export default function MarketDetailPage({
     return unsub;
   }, [navigation, loadItem]);
 
-  useEffect(() => {
-    loadItem();
-  }, [loadItem]);
+  useEffect(() => { loadItem(); }, [loadItem]);
 
   const { confirmAndDelete } = useDeletePost({
     postId: id,
@@ -168,9 +174,7 @@ export default function MarketDetailPage({
   /** 닉네임/학과/작성자ID 확정 (이메일 있으면 조회, 없으면 폴백) */
   const [authorNickname, setAuthorNickname] = useState<string>('익명');
   const [authorDeptLabel, setAuthorDeptLabel] = useState<string>('');
-  const [authorUserId, setAuthorUserId] = useState<string | number | null>(
-    null
-  );
+  const [authorUserId, setAuthorUserId] = useState<string | number | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -184,15 +188,14 @@ export default function MarketDetailPage({
           const prof = await getProfileByEmail(item.authorEmail);
           if (prof) {
             const nick =
-              toDisplayName(
-                { name: prof.name, nickname: prof.nickname },
-                true
-              ) ||
-              item.authorName ||
-              '익명';
+              toDisplayName({ name: prof.name, nickname: prof.nickname }, true) ||
+              item.authorName || '익명';
             setAuthorNickname(nick);
             setAuthorDeptLabel(prof.department || item.authorDept || '');
-            // prof에 id가 없을 수 있으므로 여기선 authorUserId 갱신하지 않음
+            // ★ 프로필에 id 있으면 authorUserId 보강
+            if (prof.id != null && Number.isFinite(Number(prof.id))) {
+              setAuthorUserId(Number(prof.id));
+            }
             return;
           }
         } catch (e) {
@@ -227,27 +230,20 @@ export default function MarketDetailPage({
   useEffect(() => {
     (async () => {
       const email = (meEmail || '').trim();
-      if (!email) {
-        setMyNickname('사용자');
-        return;
-      }
+      if (!email) { setMyNickname('사용자'); return; }
       try {
         const prof = await getProfileByEmail(email);
         const nick =
           toDisplayName({ name: prof?.name, nickname: prof?.nickname }, true) ||
           '사용자';
         setMyNickname(nick);
-      } catch {
-        setMyNickname('사용자');
-      }
+      } catch { setMyNickname('사용자'); }
     })();
   }, [meEmail]);
 
   const priceDisplay = useMemo(() => {
     if (!item) return '';
-    return item.mode === 'donate'
-      ? '나눔'
-      : `₩ ${Number(item.price ?? 0).toLocaleString('ko-KR')}`;
+    return item.mode === 'donate' ? '나눔' : `₩ ${Number(item.price ?? 0).toLocaleString('ko-KR')}`;
   }, [item]);
 
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -259,18 +255,23 @@ export default function MarketDetailPage({
   const onPressReport = React.useCallback(() => {
     if (!item) return;
 
+    const rid = authorUserId ?? item.authorId;
+    if (rid == null || !/^\d+$/.test(String(rid))) {
+      console.log('[REPORT BLOCK] missing/invalid authorId', { rid, item });
+      Alert.alert('신고 불가', '작성자 ID가 없어 신고를 보낼 수 없어요.\n(상세 응답 또는 프로필 응답에 authorId 포함 필요)');
+      return;
+    }
+
     navigation.navigate('Report', {
       mode: 'compose',
       targetNickname: authorNickname,
       targetDept: authorDeptLabel || undefined,
-      targetEmail: item.authorEmail ?? undefined, // 타입에 null 허용됨
-
+      targetEmail: item.authorEmail ?? undefined,
       targetPostId: String(item.id),
       targetStorageKey: POSTS_KEY,
       targetPostTitle: item.title,
       targetKind: 'market',
-
-      targetUserId: authorUserId ?? item.authorId, // ★ 핵심
+      targetUserId: rid, // 숫자 보장
     });
   }, [item, navigation, authorNickname, authorDeptLabel, authorUserId]);
 
@@ -280,19 +281,12 @@ export default function MarketDetailPage({
 
   const proposedRoomId = useMemo(() => {
     if (!item) return '';
-    return buildMarketRoomId(
-      String(item.id),
-      sellerEmailKey || sellerIdKey,
-      meEmail || meId
-    );
+    return buildMarketRoomId(String(item.id), sellerEmailKey || sellerIdKey, meEmail || meId);
   }, [item, sellerEmailKey, sellerIdKey, meEmail, meId]);
 
   const chatOriginParams = useMemo(() => {
     if (!item) return null;
-    const firstImage =
-      Array.isArray(item.images) && item.images.length > 0
-        ? item.images[0]
-        : undefined;
+    const firstImage = Array.isArray(item.images) && item.images.length > 0 ? item.images[0] : undefined;
     return {
       source: 'market' as const,
       postId: String(item.id),
@@ -301,25 +295,15 @@ export default function MarketDetailPage({
       buyerEmail: meEmail ?? undefined,
       buyerId: meId ?? undefined,
       opponentEmail: meEmail ?? undefined,
-
       sellerNickname: authorNickname,
       productTitle: item.title,
       productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0),
       productImageUri: firstImage,
       initialSaleStatus: item.status ?? 'ON_SALE',
       postCreatedAt: item.createdAt,
-
       buyerNickname: myNickname,
     };
-  }, [
-    item,
-    sellerEmailKey,
-    sellerIdKey,
-    meEmail,
-    meId,
-    authorNickname,
-    myNickname,
-  ]);
+  }, [item, sellerEmailKey, sellerIdKey, meEmail, meId, authorNickname, myNickname]);
 
   const [resolvedRoomId, setResolvedRoomId] = useState<string>('');
   useEffect(() => {
@@ -330,22 +314,16 @@ export default function MarketDetailPage({
           if (mounted) setResolvedRoomId('');
           return;
         }
-        const fixed = await resolveRoomIdForOpen(
-          chatOriginParams,
-          proposedRoomId
-        );
+        const fixed = await resolveRoomIdForOpen(chatOriginParams, proposedRoomId);
         if (mounted) setResolvedRoomId(fixed);
       } catch (e) {
         console.log('resolveRoomIdForOpen error', e);
         if (mounted) setResolvedRoomId(proposedRoomId || '');
       }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [item, proposedRoomId, chatOriginParams]);
 
-  // ===== 렌더 =====
   if (!item) {
     return (
       <View style={styles.fallback}>
@@ -367,10 +345,7 @@ export default function MarketDetailPage({
           activeOpacity={0.9}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Image
-            source={require('@/assets/images/more_white.png')}
-            style={styles.icon}
-          />
+          <Image source={require('@/assets/images/more_white.png')} style={styles.icon} />
         </TouchableOpacity>
       );
     }
@@ -383,22 +358,19 @@ export default function MarketDetailPage({
         activeOpacity={0.9}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
-        <Image
-          source={require('@/assets/images/alert_white.png')}
-          style={styles.icon}
-        />
+        <Image source={require('@/assets/images/alert_white.png')} style={styles.icon} />
       </TouchableOpacity>
     );
   };
 
   return (
     <View style={styles.container}>
-      {/* ===== 상단 이미지 영역 ===== */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={[styles.contentContainer, { paddingBottom: 140 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* 이미지 영역 */}
         <View style={styles.imageArea}>
           {images.length > 0 ? (
             <ScrollView
@@ -410,11 +382,7 @@ export default function MarketDetailPage({
               contentOffset={{ x: 0, y: 0 }}
             >
               {images.map((uri, i) => (
-                <Image
-                  key={`${uri}-${i}`}
-                  source={{ uri }}
-                  style={styles.mainImage}
-                />
+                <Image key={`${uri}-${i}`} source={{ uri }} style={styles.mainImage} />
               ))}
             </ScrollView>
           ) : (
@@ -432,10 +400,7 @@ export default function MarketDetailPage({
             activeOpacity={0.9}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Image
-              source={require('@/assets/images/back_white.png')}
-              style={styles.icon}
-            />
+            <Image source={require('@/assets/images/back_white.png')} style={styles.icon} />
           </TouchableOpacity>
 
           {/* 우상단: 역할별 버튼 */}
@@ -449,9 +414,8 @@ export default function MarketDetailPage({
           </View>
         </View>
 
-        {/* ===== 본문 ===== */}
+        {/* 본문 */}
         <View style={styles.body}>
-          {/* 이메일 기반 최신 프로필 표시 + 폴백 */}
           {item.authorEmail ? (
             <ProfileRow
               emailForLookup={item.authorEmail ?? undefined}
@@ -460,26 +424,20 @@ export default function MarketDetailPage({
               fallbackDept={item.authorDept || ''}
             />
           ) : (
-            <ProfileRow
-              name={item.authorName || '익명'}
-              dept={item.authorDept || ''}
-            />
+            <ProfileRow name={item.authorName || '익명'} dept={item.authorDept || ''} />
           )}
 
           <View style={styles.divider} />
 
-          {/* 제목/가격/시간 */}
           <View style={styles.titleBlock}>
             <Text style={styles.title}>{item.title}</Text>
             <Text style={styles.price}>{priceDisplay}</Text>
             <Text style={styles.time}>{timeAgo(item.createdAt)}</Text>
           </View>
 
-          {/* 설명 */}
           <Text style={styles.desc}>{item.description}</Text>
 
-          {/* 거래 희망 장소 */}
-          <View style={styles.locationRow}>
+          <View className="locationRow" style={styles.locationRow}>
             <Text style={styles.locationLabel}>거래 희망 장소</Text>
             <Text style={styles.locationValue}>{item.location}</Text>
           </View>
@@ -488,7 +446,7 @@ export default function MarketDetailPage({
         </View>
       </ScrollView>
 
-      {/* ===== 하단 고정 바 ===== */}
+      {/* 하단 바 */}
       {!isOwner && (
         <DetailBottomBar
           variant="detail"
@@ -497,10 +455,7 @@ export default function MarketDetailPage({
             await toggleLike(nextLiked);
             setItem((prev) => {
               if (!prev) return prev;
-              const nextCount = Math.max(
-                0,
-                (prev.likeCount ?? 0) + (nextLiked ? 1 : -1)
-              );
+              const nextCount = Math.max(0, (prev.likeCount ?? 0) + (nextLiked ? 1 : -1));
               return { ...prev, likeCount: nextCount };
             });
           }}
@@ -508,30 +463,18 @@ export default function MarketDetailPage({
             source: 'market' as const,
             postId: String(item.id),
             productTitle: item.title,
-            productPrice:
-              item.mode === 'donate' ? 0 : Number(item.price ?? 0),
+            productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0),
             productImageUri: images[0] ?? undefined,
             initialSaleStatus: item.status ?? 'ON_SALE',
-
-            // 판매자 메타(스펙에 맞는 것만)
             sellerId: item.authorId != null ? String(item.authorId) : undefined,
             sellerEmail: item.authorEmail ?? undefined,
             sellerNickname: authorNickname,
-
-            // 공통 메타
-            ...(resolvedRoomId || proposedRoomId
-              ? { roomId: resolvedRoomId || proposedRoomId }
-              : {}),
+            ...(resolvedRoomId || proposedRoomId ? { roomId: resolvedRoomId || proposedRoomId } : {}),
             postCreatedAt: item.createdAt,
-
-            // 구매자(나)
             buyerId: meId ?? undefined,
             buyerEmail: meEmail ?? undefined,
             buyerNickname: myNickname,
-
-            // 상대(=판매자) 정보
-            opponentId:
-              item.authorId != null ? String(item.authorId) : undefined,
+            opponentId: item.authorId != null ? String(item.authorId) : undefined,
             opponentEmail: item.authorEmail ?? undefined,
             opponentNickname: authorNickname,
             opponentDept: authorDeptLabel || undefined,

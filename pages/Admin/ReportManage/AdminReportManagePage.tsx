@@ -16,6 +16,7 @@ import {
   type AdminReportRow,
 } from '../../../api/report';
 
+/** 로컬 표시용 Row (키 안정화용 로컬 id 추가) */
 type Row = AdminReportRow & { _localId: string };
 
 /** 서버 enum → 한글 라벨 */
@@ -44,10 +45,7 @@ export default function AdminReportManagePage({
   const [reports, setReports] = React.useState<Row[]>([]);
   const [loading, setLoading] = React.useState(false);
 
-  // ⬇︎ 여기 타입에 null 포함
-  const normalizeStatus = (
-    s: string | null | undefined,
-  ): 'PENDING' | 'APPROVED' | 'REJECTED' => {
+  const normalizeStatus = (s?: string | null): 'PENDING' | 'APPROVED' | 'REJECTED' => {
     if (s === 'APPROVED' || s === 'REJECTED') return s;
     return 'PENDING';
   };
@@ -59,10 +57,11 @@ export default function AdminReportManagePage({
 
       const withLocalId: Row[] = rows.map((r, i) => ({
         ...r,
-        _localId: `r_${(r as any)?.id ?? r.typeId ?? ''}_${i}`,
-        status: normalizeStatus(r.status), // ✅ 이제 오류 안 남
+        _localId: `r_${r?.id ?? 'na'}_${i}`, // 키 안정화
+        status: normalizeStatus(r.status),
       }));
 
+      // PENDING 먼저
       const rank = (st: string) => (st === 'PENDING' ? 0 : 1);
       withLocalId.sort((a, b) => rank(String(a.status)) - rank(String(b.status)));
 
@@ -76,19 +75,20 @@ export default function AdminReportManagePage({
   }, []);
 
   React.useEffect(() => { load(); }, [load]);
-
   React.useEffect(() => {
     const unsub = navigation.addListener('focus', load);
     return unsub;
   }, [navigation, load]);
 
-  const firstLine = (s?: string) => (s || '').split(/\r?\n/)[0].trim();
+  const firstLine = (s?: string | null) => (s ?? '').split(/\r?\n/)[0].trim();
 
   const renderItem = ({ item }: { item: Row }) => {
-    const nickname = item.reportStudentNickName || '익명';
-    const reasonKo = reasonToKo(item.reportReason || '');
-    const reason =
-      reasonKo + (item.content?.trim() ? ` · ${firstLine(item.content)}` : '');
+    // ★ 닉네임 null/빈문자 가드
+    const nickname = (item.reportStudentNickName ?? '').trim() || '익명';
+
+    const reasonKo = reasonToKo(item.reportReason);
+    const desc =
+      reasonKo + ((item.content ?? '').trim() ? ` · ${firstLine(item.content)}` : '');
 
     const status = item.status || 'PENDING';
     const showBadge = status !== 'PENDING';
@@ -99,12 +99,18 @@ export default function AdminReportManagePage({
         style={styles.row}
         activeOpacity={0.85}
         onPress={() =>
-          navigation.navigate('Report', { mode: 'review', reportId: item._localId })
+          // 현재 '리뷰' 화면이 로컬 저장소 기반이라면 _localId 전달,
+          // 서버 상세를 붙였으면 item.id(실ID)로 교체.
+          navigation.navigate('Report', { mode: 'review', reportId: String(item.id) })
         }
       >
         <View style={styles.rowTextCol}>
-          <Text numberOfLines={1} style={styles.nickname}>{nickname}</Text>
-          <Text numberOfLines={2} style={styles.reason}>{reason}</Text>
+          <Text numberOfLines={1} style={styles.nickname}>
+            {nickname}
+          </Text>
+          <Text numberOfLines={2} style={styles.reason}>
+            {desc}
+          </Text>
         </View>
 
         {showBadge && (
@@ -138,7 +144,6 @@ export default function AdminReportManagePage({
       {/* 헤더(디자인 유지) */}
       <View>
         <View style={styles.statusBar} />
-        {/* 불필요한 className View 제거 */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backBtn}

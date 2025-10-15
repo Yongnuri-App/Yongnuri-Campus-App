@@ -155,7 +155,7 @@ export type RootStackParamList = {
         targetKind?: 'market' | 'lost' | 'groupbuy' | 'notice' | 'chat' | 'admin';
 
         /** ✅ 추가: 신고 대상 사용자 DB id (권한/식별 보조) */
-        targetUserId?: string | number;
+        targetUserId?: number | string;
       }
     | {
         mode: 'review';

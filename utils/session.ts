@@ -1,4 +1,3 @@
-// utils/session.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const AUTH_TOKEN_KEY = 'auth_token';
@@ -15,7 +14,11 @@ export const AUTH_USER_EMAIL_KEY = 'auth_user_email';
 
 export const USERS_ALL_KEY = 'users_all_v1';
 
+/** ------------------------------------------------------------
+ * 🔹 StoredUser 타입 (로컬 users_all_v1 구조)
+ * -----------------------------------------------------------*/
 export type StoredUser = {
+  id?: number | string;          // ✅ 추가됨 — 백/로컬에서 id를 쓸 수 있게 허용
   email: string;
   name: string;
   department: string;
@@ -39,8 +42,13 @@ export async function getProfileByEmail(email: string) {
 }
 
 /** 표시용 이름(닉네임 우선) */
-export function toDisplayName(u: { name?: string; nickname?: string }, preferNickname = true) {
-  return preferNickname ? (u.nickname || u.name || '') : (u.name || u.nickname || '');
+export function toDisplayName(
+  u: { name?: string; nickname?: string },
+  preferNickname = true
+) {
+  return preferNickname
+    ? (u.nickname || u.name || '')
+    : (u.name || u.nickname || '');
 }
 
 /** 내부: 값이 있을 때만 multiSet에 추가 */
@@ -106,7 +114,9 @@ export async function setSessionFromUser(user: {
   // 로컬 ID 없으면 생성 (usePermissions가 사용하는 아이디)
   let uid = await AsyncStorage.getItem(AUTH_USER_ID_KEY);
   if (!uid) {
-    uid = `local_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    uid = `local_${Date.now().toString(36)}${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
     await AsyncStorage.setItem(AUTH_USER_ID_KEY, uid);
   }
 }
