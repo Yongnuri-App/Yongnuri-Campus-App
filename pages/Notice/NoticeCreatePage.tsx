@@ -57,7 +57,7 @@ const EDIT_CACHE_KEY = 'notice_edit_cache_v1';
 const API_BASE =
   (Constants.expoConfig?.extra as any)?.apiBaseUrl ||
   (Constants.manifest?.extra as any)?.apiBaseUrl ||
-  'http://192.168.0.7:8080'; // TODO: 환경에 맞게 수정
+  'http://172.20.10.2:8080'; // TODO: 환경에 맞게 수정
 
 /** 상대(/uploads/xxx) → 절대(http://IP:PORT/uploads/xxx) */
 const toAbsoluteUrl = (url: string) => {
