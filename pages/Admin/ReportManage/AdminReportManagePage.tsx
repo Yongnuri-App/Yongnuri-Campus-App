@@ -126,6 +126,7 @@ export default function AdminReportManagePage({ navigation }: RootStackScreenPro
         </View>
       </View>
 
+      {/* 리스트 */}
       <FlatList
         style={{ flex: 1 }}
         data={reports}
@@ -134,9 +135,12 @@ export default function AdminReportManagePage({ navigation }: RootStackScreenPro
         ListEmptyComponent={ListEmpty}
         contentContainerStyle={reports.length === 0 ? styles.emptyContainer : styles.listContainer}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={load} />
+        }
       />
 
+      {/* 하단 핸들 */}
       <View style={styles.bottomHandleWrap}>
         <View style={styles.bottomHandle} />
       </View>
