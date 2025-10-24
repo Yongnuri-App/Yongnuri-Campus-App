@@ -46,6 +46,8 @@ type LostPost = {
   authorEmail?: string | null;
   authorName?: string;
   authorDept?: string;
+  /** 서버가 가진 정수 PK (신고에 사용) */
+  serverPostId?: number;
 };
 
 function timeAgo(iso?: string) {
@@ -98,14 +100,22 @@ export default function LostDetailPage({
       const res = await getLostFoundDetail(id);
       console.log('[LostDetailPage] 상세 조회 성공(정규화전)', res);
 
+      const serverIdNum =
+        typeof (res as any)?.id === 'number'
+          ? (res as any).id
+          : typeof (res as any)?.post_id === 'number'
+          ? (res as any).post_id
+          : Number.NaN;
+
       const normalized: LostPost = {
-        id: String((res as any).id ?? (res as any).post_id),
+        id: String((res as any).id ?? (res as any).post_id ?? id),
+        serverPostId: Number.isFinite(serverIdNum) ? serverIdNum : undefined,
         type: res.purpose === 'LOST' ? 'lost' : 'found',
         title: res.title,
         content: res.content,
         location: res.location,
-        images: (res.images ?? []).map((it: any) => it.imageUrl),
-        likeCount: 0,
+        images: Array.isArray(res.images) ? res.images.map((it: any) => it?.imageUrl).filter(Boolean) : [],
+        likeCount: Number((res as any)?.bookmarkCount ?? 0),
         createdAt:
           (res as any).createdAt ??
           (res as any).created_at ??
@@ -125,7 +135,7 @@ export default function LostDetailPage({
       };
 
       setItem(normalized);
-      syncCount(0);
+      syncCount(Number((res as any)?.bookmarkCount ?? 0));
     } catch (e) {
       console.log('lost detail api error -> try local fallback', e);
       try {
@@ -184,19 +194,33 @@ export default function LostDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
+  /** 신고 이동 */
   const onPressReport = React.useCallback(() => {
     if (!item) return;
+
+    const numericPostId =
+      typeof item.serverPostId === 'number' && Number.isFinite(item.serverPostId)
+        ? String(item.serverPostId)
+        : /^\d+$/.test(String(item.id))
+        ? String(item.id)
+        : undefined;
+
+    console.log('[LostDetailPage] 신고 이동 파라미터', {
+      authorEmail: item.authorEmail ?? null,
+      numericPostId,
+      reportedIdCandidate: item.authorId,
+    });
 
     navigation.navigate('Report', {
       mode: 'compose',
       targetNickname: profileName,
       targetDept: profileDept,
       targetEmail: item.authorEmail ?? undefined, // ✅ undefined로 정규화
-      targetPostId: String(item.id),
+      targetPostId: numericPostId,                // ✅ 서버 숫자 id 우선
       targetStorageKey: POSTS_KEY,
       targetPostTitle: item.title,
       targetKind: 'lost',
-      targetUserId: item.authorId,
+      targetUserId: item.authorId,                // 있으면 같이 전달
     });
   }, [item, navigation, profileName, profileDept]);
 
@@ -308,7 +332,7 @@ export default function LostDetailPage({
           <View style={styles.divider} />
 
           {/* 뱃지 + 제목 */}
-          <View style={styles.badgeRow}>
+          <View className="badgeRow" style={styles.badgeRow}>
             <View
               style={[
                 styles.badge,

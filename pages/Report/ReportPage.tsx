@@ -1,4 +1,3 @@
-// pages/Report/ReportPage.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -23,10 +22,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import { useImagePicker } from '../../hooks/useImagePicker';
 
+// 서버 API/매퍼
 import {
   createReport,
   mapKindToPostType,
   mapReportReason,
+  mapReasonEnumToKor,
+  getAdminReportDetail,
+  adminProcessReport,
   type ReportPostType,
   type ReportReason,
 } from '../../api/report';
@@ -36,6 +39,7 @@ type ReportTypeKor = (typeof REPORT_TYPES_KOR)[number];
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
+// 숫자 변환 유틸
 const toNum = (v: any): number | undefined =>
   typeof v === 'number' && Number.isFinite(v)
     ? v
@@ -45,20 +49,26 @@ const toNum = (v: any): number | undefined =>
 
 export default function ReportPage({ navigation, route }: RootStackScreenProps<'Report'>) {
   const mode: 'compose' | 'review' = (route.params as any)?.mode ?? 'compose';
-  const reviewId = (route.params as any)?.reportId as string | undefined;
+  const reviewId = (route.params as any)?.reportId as string | number | undefined;
   const isReview = mode === 'review' && !!reviewId;
 
+  // compose 입력 상태
   const [typeOpen, setTypeOpen] = useState(false);
   const [typeValue, setTypeValue] = useState<ReportTypeKor | null>(null);
   const [content, setContent] = useState('');
   const { images, openAdd, removeAt, max, setImages } = useImagePicker({ max: 10 });
 
+  // review 로드 상태(서버/로컬)
   const [loaded, setLoaded] = useState<any | null>(null);
 
+  // 이미지 뷰어
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
   const hScrollRef = useRef<ScrollView | null>(null);
-  const onThumbPress = (idx: number) => { setViewerIndex(idx); setViewerOpen(true); };
+  const onThumbPress = (idx: number) => {
+    setViewerIndex(idx);
+    setViewerOpen(true);
+  };
   const onViewerMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
     setViewerIndex(Math.round(x / SCREEN_W));
@@ -71,8 +81,16 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
   const targetEmailParam = p.targetEmail as string | null | undefined;
   const targetPostIdParam = p.targetPostId as string | undefined;
   const targetUserIdParam = p.targetUserId as string | number | undefined;
-  const targetKindParam = p.targetKind as 'market' | 'lost' | 'groupbuy' | 'notice' | 'chat' | 'admin' | undefined;
+  const targetKindParam = p.targetKind as
+    | 'market'
+    | 'lost'
+    | 'groupbuy'
+    | 'notice'
+    | 'chat'
+    | 'admin'
+    | undefined;
 
+  // 표시 라벨(닉네임 - 학과 or 이메일)
   const targetLabelCompose = useMemo(() => {
     const left =
       (targetNicknameParam && targetNicknameParam.trim()) ||
@@ -82,70 +100,116 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
     return left || right || '';
   }, [targetNicknameParam, targetDeptParam, targetEmailParam]);
 
+  /* ================== review 모드: 서버 신고 상세 불러오기 ================== */
   useEffect(() => {
-    if (!isReview) return;
+    if (!isReview || !reviewId) return;
+
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem('reports_v1');
-        const list: any[] = raw ? JSON.parse(raw) : [];
-        const found = list.find((r) => r.id === reviewId) ?? null;
-        setLoaded(found || null);
-        if (found) {
-          setTypeValue((found.type as ReportTypeKor) ?? null);
-          setContent(found.content ?? '');
-          setImages(found.images ?? []);
-        }
+        const d = await getAdminReportDetail(reviewId);
+        console.log('[REPORT review] server detail =', d);
+        setLoaded(d);
+
+        // 한글 라벨 매핑
+        const kor = mapReasonEnumToKor(d.reason || '');
+        setTypeValue((kor as ReportTypeKor) ?? null);
+        setContent(d.content ?? '');
+
+        // 이미지 세팅
+        const imgUris =
+          Array.isArray(d.images) && d.images.length
+            ? d.images
+                .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
+                .map((x) => x.imageUrl)
+            : [];
+        setImages(imgUris);
       } catch (e) {
-        console.log('report review load error', e);
+        console.log('[REPORT review] server detail error, try local fallback', e);
+        try {
+          const raw = await AsyncStorage.getItem('reports_v1');
+          const list: any[] = raw ? JSON.parse(raw) : [];
+          const found = list.find((r) => String(r.id) === String(reviewId)) ?? null;
+          setLoaded(found || null);
+          if (found) {
+            setTypeValue((found.type as ReportTypeKor) ?? null);
+            setContent(found.content ?? '');
+            setImages(found.images ?? []);
+          }
+        } catch (err) {
+          console.log('report review local load error', err);
+        }
       }
     })();
   }, [isReview, reviewId, setImages]);
 
-  /* ================== 제출 ================== */
+  /* ================== compose 제출 ================== */
   const onSubmitCompose = async () => {
-    if (!typeValue) {
-      Alert.alert('안내', '신고 유형을 선택해주세요.');
-      return;
-    }
-    if (!content.trim()) {
-      Alert.alert('안내', '신고 내용을 작성해주세요.');
-      return;
-    }
-
-    // ★ 필수: 피신고자 ID 확인 (여기서 500 방지)
-    const reportedIdNum = toNum(targetUserIdParam);
-    if (reportedIdNum == null) {
-      Alert.alert('제출 불가', '피신고자 ID가 없습니다. 작성자 ID를 포함하여 다시 시도해주세요.');
-      return;
-    }
+    if (!typeValue) return Alert.alert('안내', '신고 유형을 선택해주세요.');
+    if (!content.trim()) return Alert.alert('안내', '신고 내용을 작성해주세요.');
 
     try {
       const postType: ReportPostType = mapKindToPostType(targetKindParam);
       const reason: ReportReason = mapReportReason(typeValue);
-      const postIdNum = toNum(targetPostIdParam);
+
+      const postIdNum =
+        typeof targetPostIdParam === 'string' && /^\d+$/.test(targetPostIdParam)
+          ? Number(targetPostIdParam)
+          : undefined;
+
+      const reportedIdNum = toNum(targetUserIdParam);
+
+      // ✅ 필수값 가드: CHAT이면 reportedId, 그 외에는 postId 필요
+      if (postType === 'CHAT') {
+        if (reportedIdNum === undefined) {
+          Alert.alert('안내', '대상 사용자 ID를 찾을 수 없어요. (reportedId)');
+          return;
+        }
+      } else {
+        if (postIdNum === undefined) {
+          Alert.alert('안내', '게시글 ID를 찾을 수 없어요. (postId)');
+          return;
+        }
+      }
 
       const payload = {
         postType,
         postId: postIdNum,
-        reportedId: reportedIdNum, // ★ 서버 필수
+        reportedId: reportedIdNum,
         reason,
         content: content.trim(),
         imageUrls: images,
       };
 
-      const res = await createReport(payload);
-      Alert.alert('제출 완료', res.message || '신고가 접수되었습니다.', [
-        { text: '확인', onPress: () => navigation.goBack() },
-      ]);
+      await createReport(payload);
+      Alert.alert('제출 완료', '신고가 접수되었습니다.', [{ text: '확인', onPress: () => navigation.goBack() }]);
     } catch (e: any) {
       console.log('[report submit error]', e?.response?.data || e);
-      Alert.alert('오류', e?.response?.data?.message || e?.message || '제출에 실패했어요. 잠시 후 다시 시도해주세요.');
+      Alert.alert('오류', e?.response?.data?.message || e?.message || '제출에 실패했어요.');
     }
   };
 
-  /* ================== review 모드 액션 (로컬 유지) ================== */
-  // ... (review 모드는 네 로컬 워크플로우 그대로 유지)
+  /* ================== review 모드 액션 (서버 처리) ================== */
+  const onPressOutline = async () => {
+    if (!isReview || !reviewId) return;
+    try {
+      await adminProcessReport(reviewId, 'REJECTED');
+      Alert.alert('처리 완료', '미인정 처리되었습니다.', [{ text: '확인', onPress: () => navigation.goBack() }]);
+    } catch (e: any) {
+      Alert.alert('오류', e?.response?.data?.message ?? '처리에 실패했습니다. 다시 시도해주세요.');
+    }
+  };
 
+  const onPressFilled = async () => {
+    if (!isReview || !reviewId) return;
+    try {
+      await adminProcessReport(reviewId, 'APPROVED');
+      Alert.alert('처리 완료', '인정 처리되었습니다.', [{ text: '확인', onPress: () => navigation.goBack() }]);
+    } catch (e: any) {
+      Alert.alert('오류', e?.response?.data?.message ?? '처리에 실패했습니다. 다시 시도해주세요.');
+    }
+  };
+
+  /* ================== UI ================== */
   const headerTitle = isReview ? '신고 상세' : '신고하기';
 
   return (
@@ -180,11 +244,12 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
                 {isReview
                   ? (() => {
                       const left =
-                        loaded?.target?.nickname ||
-                        (loaded?.target?.email ? String(loaded.target.email).split('@')[0] : '');
-                      const right = loaded?.target?.dept ?? '';
+                        loaded?.reportedStudentNickName ||
+                        loaded?.reportedStudentName ||
+                        '';
+                      const right = ''; // 상세 응답에 학과가 없다면 비움
                       if (left && right) return `${left} - ${right}`;
-                      return left || right || loaded?.target?.label || '';
+                      return left || right || '';
                     })()
                   : targetLabelCompose || '선택된 유저 없음'}
               </Text>
@@ -194,14 +259,23 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
           {/* 신고 유형 */}
           <View style={styles.section}>
             <Text style={styles.label}>신고 유형</Text>
-            {!isReview ? (
+            {isReview ? (
+              <View style={styles.readonlyBox}>
+                <Text style={styles.readonlyText}>{typeValue ?? '-'}</Text>
+              </View>
+            ) : (
               <View>
                 <TouchableOpacity style={styles.selectBox} activeOpacity={0.8} onPress={() => setTypeOpen((p) => !p)}>
                   {typeValue ? (
-                    <Text style={styles.selectText} numberOfLines={1}>{typeValue}</Text>
+                    <Text style={styles.selectText} numberOfLines={1}>
+                      {typeValue}
+                    </Text>
                   ) : (
-                    <Text style={styles.selectTextPlaceholder} numberOfLines={1}>신고 유형을 선택해주세요.</Text>
+                    <Text style={styles.selectTextPlaceholder} numberOfLines={1}>
+                      신고 유형을 선택해주세요.
+                    </Text>
                   )}
+
                   <Image source={require('../../assets/images/down.png')} style={styles.dropdownIcon} resizeMode="contain" />
                 </TouchableOpacity>
 
@@ -210,8 +284,15 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
                     <TouchableOpacity style={styles.dim} activeOpacity={1} onPress={() => setTypeOpen(false)} />
                     <View style={styles.menu}>
                       {REPORT_TYPES_KOR.map((opt) => (
-                        <TouchableOpacity key={opt} style={styles.menuItem} activeOpacity={0.8}
-                          onPress={() => { setTypeValue(opt); setTypeOpen(false); }}>
+                        <TouchableOpacity
+                          key={opt}
+                          style={styles.menuItem}
+                          activeOpacity={0.8}
+                          onPress={() => {
+                            setTypeValue(opt);
+                            setTypeOpen(false);
+                          }}
+                        >
                           <Text style={[styles.menuItemText, opt === typeValue && styles.menuItemTextActive]}>{opt}</Text>
                         </TouchableOpacity>
                       ))}
@@ -219,15 +300,17 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
                   </>
                 )}
               </View>
-            ) : (
-              <View style={styles.readonlyBox}><Text style={styles.readonlyText}>{typeValue ?? '-'}</Text></View>
             )}
           </View>
 
           {/* 신고 내용 */}
           <View style={styles.section}>
             <Text style={styles.label}>신고 내용</Text>
-            {!isReview ? (
+            {isReview ? (
+              <View style={styles.readonlyTextArea}>
+                <Text style={styles.readonlyParagraph}>{content || '-'}</Text>
+              </View>
+            ) : (
               <TextInput
                 style={styles.textArea}
                 placeholder="신고 내용을 작성해주세요. 예) 부적절한 사진이 올라와 있어요."
@@ -237,17 +320,13 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
                 multiline
                 textAlignVertical="top"
               />
-            ) : (
-              <View style={styles.readonlyTextArea}><Text style={styles.readonlyParagraph}>{content || '-'}</Text></View>
             )}
           </View>
 
           {/* 사진 */}
           <View style={styles.section}>
             <Text style={styles.label}>사진</Text>
-            {!isReview ? (
-              <PhotoPicker images={images} max={max} onAddPress={openAdd} onRemoveAt={removeAt} />
-            ) : (
+            {isReview ? (
               <View style={styles.thumbWrap}>
                 {(images ?? []).length === 0 ? (
                   <Text style={styles.thumbEmpty}>첨부된 사진이 없습니다.</Text>
@@ -259,20 +338,28 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
                   ))
                 )}
               </View>
+            ) : (
+              <PhotoPicker images={images} max={max} onAddPress={openAdd} onRemoveAt={removeAt} />
             )}
           </View>
         </ScrollView>
 
         {/* 하단 고정 바 */}
-        {!isReview ? (
+        {isReview ? (
+          <View style={[styles.fixedSubmitWrap, styles.reviewActionsWrap]}>
+            <TouchableOpacity onPress={onPressOutline} activeOpacity={0.9} style={styles.reviewBtnOutline}>
+              <Text style={styles.reviewBtnTextOutline}>미인정</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={onPressFilled} activeOpacity={0.9} style={styles.reviewBtnFilled}>
+              <Text style={styles.reviewBtnTextFilled}>인정</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
           <View style={styles.fixedSubmitWrap} pointerEvents="box-none">
             <TouchableOpacity style={styles.submitButton} activeOpacity={0.9} onPress={onSubmitCompose}>
               <Text style={styles.submitText}>제출하기</Text>
             </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={[styles.fixedSubmitWrap, styles.reviewActionsWrap]}>
-            {/* 리뷰 모드 버튼들(로컬 워크플로우 유지시 그대로) */}
           </View>
         )}
       </KeyboardAvoidingView>
@@ -293,15 +380,24 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
             onMomentumScrollEnd={onViewerMomentumEnd}
           >
             {(images ?? []).map((uri, i) => (
-              <ScrollView key={`${uri}-${i}`} style={{ width: SCREEN_W }} maximumZoomScale={3} minimumZoomScale={1}
-                contentContainerStyle={styles.viewerZoomItem} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}>
+              <ScrollView
+                key={`${uri}-${i}`}
+                style={{ width: SCREEN_W }}
+                maximumZoomScale={3}
+                minimumZoomScale={1}
+                contentContainerStyle={styles.viewerZoomItem}
+                showsVerticalScrollIndicator={false}
+                showsHorizontalScrollIndicator={false}
+              >
                 <RNImage source={{ uri }} style={styles.viewerImage} resizeMode="contain" />
               </ScrollView>
             ))}
           </ScrollView>
 
           <View style={styles.viewerIndicator}>
-            <Text style={styles.viewerIndicatorText}>{viewerIndex + 1} / {(images ?? []).length || 0}</Text>
+            <Text style={styles.viewerIndicatorText}>
+              {viewerIndex + 1} / {(images ?? []).length || 0}
+            </Text>
           </View>
         </View>
       </Modal>

@@ -159,7 +159,8 @@ export type RootStackParamList = {
       }
     | {
         mode: 'review';
-        reportId: string;
+        reportId: string | number;     // ✅ number도 허용 (안전)
+        targetPostTitle?: string;      // ✅ 이 줄 추가!
       };
 
   // ✅ 채팅방

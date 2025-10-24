@@ -1,4 +1,3 @@
-// pages/Admin/ReportManage/AdminReportManagePage.tsx
 import React from 'react';
 import {
   FlatList,
@@ -10,14 +9,10 @@ import {
 } from 'react-native';
 import styles from './AdminReportManagePage.styles';
 import type { RootStackScreenProps } from '../../../types/navigation';
-
 import {
   getAdminReportListWithFallback,
   type AdminReportRow,
 } from '../../../api/report';
-
-/** 로컬 표시용 Row (키 안정화용 로컬 id 추가) */
-type Row = AdminReportRow & { _localId: string };
 
 /** 서버 enum → 한글 라벨 */
 function reasonToKo(s?: string | null): string {
@@ -39,33 +34,33 @@ function reasonToKo(s?: string | null): string {
   }
 }
 
+type Row = AdminReportRow & { _localId: string; _source?: 'server' | 'local' };
+
 export default function AdminReportManagePage({
   navigation,
 }: RootStackScreenProps<'AdminReportManage'>) {
   const [reports, setReports] = React.useState<Row[]>([]);
   const [loading, setLoading] = React.useState(false);
 
-  const normalizeStatus = (s?: string | null): 'PENDING' | 'APPROVED' | 'REJECTED' => {
-    if (s === 'APPROVED' || s === 'REJECTED') return s;
-    return 'PENDING';
+  const normalizeStatus = (
+    s?: string | null,
+  ): 'PENDING' | 'APPROVED' | 'REJECTED' => {
+    return s === 'APPROVED' || s === 'REJECTED' ? s : 'PENDING';
   };
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
       const rows = await getAdminReportListWithFallback();
-
-      const withLocalId: Row[] = rows.map((r, i) => ({
+      const mapped: Row[] = rows.map((r, i) => ({
         ...r,
-        _localId: `r_${r?.id ?? 'na'}_${i}`, // 키 안정화
         status: normalizeStatus(r.status),
+        _localId: `r_${r.id ?? r.typeId ?? i}`,
       }));
-
       // PENDING 먼저
       const rank = (st: string) => (st === 'PENDING' ? 0 : 1);
-      withLocalId.sort((a, b) => rank(String(a.status)) - rank(String(b.status)));
-
-      setReports(withLocalId);
+      mapped.sort((a, b) => rank(String(a.status)) - rank(String(b.status)));
+      setReports(mapped);
     } catch (e) {
       console.log('admin report load error', e);
       setReports([]);
@@ -74,42 +69,52 @@ export default function AdminReportManagePage({
     }
   }, []);
 
-  React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => {
+    load();
+  }, [load]);
+
   React.useEffect(() => {
     const unsub = navigation.addListener('focus', load);
     return unsub;
   }, [navigation, load]);
 
-  const firstLine = (s?: string | null) => (s ?? '').split(/\r?\n/)[0].trim();
+  const firstLine = (s?: string | null) => (s || '').split(/\r?\n/)[0].trim();
+
+  /** ✅ 상세 화면으로 이동 (reportId는 문자열로 넘김) */
+  const goDetail = (item: Row) => {
+    const reportId = item.id ?? item.typeId ?? null;
+    if (reportId == null) {
+      // id가 없으면 상세 이동을 못 하므로 스킵
+      return;
+    }
+    navigation.navigate('Report', {
+      mode: 'review',
+      reportId: String(reportId), // <<< 여기! 문자열 변환
+      targetPostTitle: firstLine(item.content),
+    });
+  };
 
   const renderItem = ({ item }: { item: Row }) => {
-    // ★ 닉네임 null/빈문자 가드
-    const nickname = (item.reportStudentNickName ?? '').trim() || '익명';
+    const nickname = item.reportStudentNickName || '익명';
+    const reasonKo = reasonToKo(item.reportReason || '');
+    const reason =
+      reasonKo + (item.content?.trim() ? ` · ${firstLine(item.content)}` : '');
 
-    const reasonKo = reasonToKo(item.reportReason);
-    const desc =
-      reasonKo + ((item.content ?? '').trim() ? ` · ${firstLine(item.content)}` : '');
-
-    const status = item.status || 'PENDING';
-    const showBadge = status !== 'PENDING';
-    const badgeLabel = status === 'APPROVED' ? '인정' : '미인정';
+    const showBadge = item.status !== 'PENDING';
+    const badgeLabel = item.status === 'APPROVED' ? '인정' : '미인정';
 
     return (
       <TouchableOpacity
         style={styles.row}
         activeOpacity={0.85}
-        onPress={() =>
-          // 현재 '리뷰' 화면이 로컬 저장소 기반이라면 _localId 전달,
-          // 서버 상세를 붙였으면 item.id(실ID)로 교체.
-          navigation.navigate('Report', { mode: 'review', reportId: String(item.id) })
-        }
+        onPress={() => goDetail(item)}
       >
         <View style={styles.rowTextCol}>
           <Text numberOfLines={1} style={styles.nickname}>
             {nickname}
           </Text>
           <Text numberOfLines={2} style={styles.reason}>
-            {desc}
+            {reason}
           </Text>
         </View>
 
@@ -117,7 +122,9 @@ export default function AdminReportManagePage({
           <View
             style={[
               styles.statusBadge,
-              status === 'APPROVED' ? styles.badgeApproved : styles.badgeRejected,
+              item.status === 'APPROVED'
+                ? styles.badgeApproved
+                : styles.badgeRejected,
             ]}
           >
             <Text style={styles.statusBadgeText}>{badgeLabel}</Text>
@@ -141,7 +148,7 @@ export default function AdminReportManagePage({
 
   return (
     <View style={styles.container}>
-      {/* 헤더(디자인 유지) */}
+      {/* 헤더 */}
       <View>
         <View style={styles.statusBar} />
         <View style={styles.header}>
@@ -162,6 +169,7 @@ export default function AdminReportManagePage({
         </View>
       </View>
 
+      {/* 리스트 */}
       <FlatList
         style={{ flex: 1 }}
         data={reports}
@@ -172,9 +180,12 @@ export default function AdminReportManagePage({
           reports.length === 0 ? styles.emptyContainer : styles.listContainer
         }
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={load} />
+        }
       />
 
+      {/* 하단 핸들 */}
       <View style={styles.bottomHandleWrap}>
         <View style={styles.bottomHandle} />
       </View>

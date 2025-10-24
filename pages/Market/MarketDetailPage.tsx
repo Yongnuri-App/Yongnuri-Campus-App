@@ -1,4 +1,4 @@
-// pages/Market/MarketDetailPage.tsx
+// src/pages/Market/MarketDetailPage.tsx
 import DetailBottomBar from '@/components/Bottom/DetailBottomBar';
 import AdminActionSheet from '@/components/Modals/AdminActionSheet/AdminActionSheet';
 import ProfileRow from '@/components/Profile/ProfileRow';
@@ -11,7 +11,6 @@ import { getLocalIdentity } from '@/utils/localIdentity';
 import { getProfileByEmail, toDisplayName } from '@/utils/session';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,            // ★ 추가
   Dimensions,
   Image,
   NativeScrollEvent,
@@ -43,6 +42,7 @@ type MarketPost = {
   authorName?: string;
   authorDept?: string;
   status?: 'ON_SALE' | 'RESERVED' | 'SOLD';
+  serverPostId?: number; // 서버 정수 ID
 };
 
 function timeAgo(iso: string) {
@@ -65,6 +65,30 @@ function buildMarketRoomId(
   buyerKey: string | number | null | undefined
 ) {
   return `m_${postId}__s_${norm(sellerKey)}__b_${norm(buyerKey)}`;
+}
+
+const toNum = (v: any): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v)
+    ? v
+    : typeof v === 'string' && /^\d+$/.test(v.trim())
+    ? Number(v.trim())
+    : undefined;
+
+// 상세 응답에서 작성자 ID 후보 추출(있으면 사용)
+function pickAuthorId(data: any): number | undefined {
+  const candidates = [
+    data?.authorUserId, data?.author_user_id,
+    data?.authorId, data?.author_id,
+    data?.writerUserId, data?.writer_user_id,
+    data?.writerId, data?.writer_id,
+    data?.userId, data?.user_id,
+    data?.createdById, data?.created_by_id,
+  ];
+  for (const c of candidates) {
+    const n = toNum(c);
+    if (n !== undefined) return n;
+  }
+  return undefined;
 }
 
 export default function MarketDetailPage({
@@ -92,20 +116,6 @@ export default function MarketDetailPage({
       const data = await getMarketPost(id);
       console.log('[MarketDetailPage] 상세 조회 성공(정규화전)', data);
 
-      // ★ authorId 후보키 확장
-      let authorId =
-        data?.authorId ??
-        data?.author_id ??
-        data?.writerId ??
-        data?.writer_id ??
-        data?.userId ??
-        data?.user_id ??
-        data?.memberId ??
-        data?.member_id ??
-        data?.author?.id ??
-        data?.writer?.id ??
-        undefined;
-
       const imageUrls: string[] = Array.isArray(data?.images)
         ? data.images.map((it: any) => it?.imageUrl).filter(Boolean)
         : [];
@@ -124,6 +134,11 @@ export default function MarketDetailPage({
       const authorDept =
         data?.authorDept || data?.authorDepartment || data?.department || '';
 
+      const authorIdPicked = pickAuthorId(data); // 있으면 사용
+      if (authorIdPicked === undefined) {
+        console.log('[MarketDetailPage] ⚠ 작성자 ID 미검출: 응답 키들을 확인하세요.');
+      }
+
       setItem({
         id: String(data?.post_id ?? data?.id ?? id),
         title: data?.title ?? '',
@@ -138,7 +153,8 @@ export default function MarketDetailPage({
         authorName: authorNickname,
         authorDept,
         status: statusNorm,
-        authorId,
+        authorId: authorIdPicked, // number | undefined
+        serverPostId: Number(data?.post_id ?? data?.id ?? NaN),
       });
 
       syncCount(Number(data?.bookmarkCount ?? 0));
@@ -152,7 +168,9 @@ export default function MarketDetailPage({
     return unsub;
   }, [navigation, loadItem]);
 
-  useEffect(() => { loadItem(); }, [loadItem]);
+  useEffect(() => {
+    loadItem();
+  }, [loadItem]);
 
   const { confirmAndDelete } = useDeletePost({
     postId: id,
@@ -171,17 +189,16 @@ export default function MarketDetailPage({
     routeParams: route.params,
   });
 
-  /** 닉네임/학과/작성자ID 확정 (이메일 있으면 조회, 없으면 폴백) */
   const [authorNickname, setAuthorNickname] = useState<string>('익명');
   const [authorDeptLabel, setAuthorDeptLabel] = useState<string>('');
-  const [authorUserId, setAuthorUserId] = useState<string | number | null>(null);
+  const [authorUserId, setAuthorUserId] = useState<number | null>(null);
 
   useEffect(() => {
     (async () => {
       if (!item) return;
 
-      // 기본값: 서버에서 받은 authorId 로 고정
-      setAuthorUserId(item.authorId ?? null);
+      const baseId = toNum(item.authorId);
+      setAuthorUserId(baseId ?? null);
 
       if (item.authorEmail) {
         try {
@@ -189,12 +206,15 @@ export default function MarketDetailPage({
           if (prof) {
             const nick =
               toDisplayName({ name: prof.name, nickname: prof.nickname }, true) ||
-              item.authorName || '익명';
+              item.authorName ||
+              '익명';
             setAuthorNickname(nick);
             setAuthorDeptLabel(prof.department || item.authorDept || '');
-            // ★ 프로필에 id 있으면 authorUserId 보강
-            if (prof.id != null && Number.isFinite(Number(prof.id))) {
-              setAuthorUserId(Number(prof.id));
+
+            const fromProfile = toNum((prof as any)?.id) ?? toNum((prof as any)?.userId);
+            if (fromProfile !== undefined) {
+              setAuthorUserId(fromProfile);
+              console.log('[MarketDetailPage] 프로필에서 작성자 ID 확정:', fromProfile);
             }
             return;
           }
@@ -203,13 +223,11 @@ export default function MarketDetailPage({
         }
       }
 
-      // 폴백
       setAuthorNickname(item.authorName || '익명');
       setAuthorDeptLabel(item.authorDept || '');
     })();
   }, [item]);
 
-  /** 현재 로그인 사용자 */
   const [meEmail, setMeEmail] = useState<string | null>(null);
   const [meId, setMeId] = useState<string | null>(null);
   useEffect(() => {
@@ -225,19 +243,21 @@ export default function MarketDetailPage({
     })();
   }, []);
 
-  /** 내 닉네임 */
   const [myNickname, setMyNickname] = useState<string>('사용자');
   useEffect(() => {
     (async () => {
       const email = (meEmail || '').trim();
-      if (!email) { setMyNickname('사용자'); return; }
+      if (!email) {
+        setMyNickname('사용자');
+        return;
+      }
       try {
         const prof = await getProfileByEmail(email);
-        const nick =
-          toDisplayName({ name: prof?.name, nickname: prof?.nickname }, true) ||
-          '사용자';
+        const nick = toDisplayName({ name: prof?.name, nickname: prof?.nickname }, true) || '사용자';
         setMyNickname(nick);
-      } catch { setMyNickname('사용자'); }
+      } catch {
+        setMyNickname('사용자');
+      }
     })();
   }, [meEmail]);
 
@@ -251,31 +271,38 @@ export default function MarketDetailPage({
     setIndex(Math.round(x / SCREEN_WIDTH));
   };
 
-  /** 신고 화면으로 이동 (targetUserId 포함) */
+  /** 신고 화면으로 이동: reportedId 있으면 넘기고, 없으면 undefined로(서버 유추) */
   const onPressReport = React.useCallback(() => {
     if (!item) return;
 
-    const rid = authorUserId ?? item.authorId;
-    if (rid == null || !/^\d+$/.test(String(rid))) {
-      console.log('[REPORT BLOCK] missing/invalid authorId', { rid, item });
-      Alert.alert('신고 불가', '작성자 ID가 없어 신고를 보낼 수 없어요.\n(상세 응답 또는 프로필 응답에 authorId 포함 필요)');
-      return;
-    }
+    const numericPostId =
+      typeof item.serverPostId === 'number' && Number.isFinite(item.serverPostId)
+        ? String(item.serverPostId)
+        : String(item.id);
+
+    const reportedIdCandidate = toNum(authorUserId) ?? toNum(item.authorId) ?? undefined;
+
+    console.log('[MarketDetailPage] 신고 이동 파라미터', {
+      numericPostId,
+      reportedIdCandidate,
+      authorEmail: item.authorEmail,
+    });
 
     navigation.navigate('Report', {
       mode: 'compose',
       targetNickname: authorNickname,
       targetDept: authorDeptLabel || undefined,
       targetEmail: item.authorEmail ?? undefined,
-      targetPostId: String(item.id),
+
+      targetPostId: numericPostId, // 서버 숫자 id 우선
       targetStorageKey: POSTS_KEY,
       targetPostTitle: item.title,
       targetKind: 'market',
-      targetUserId: rid, // 숫자 보장
+
+      targetUserId: reportedIdCandidate, // undefined 가능
     });
   }, [item, navigation, authorNickname, authorDeptLabel, authorUserId]);
 
-  // ===== 채팅 방 파라미터 =====
   const sellerIdKey = item?.authorId != null ? String(item?.authorId) : null;
   const sellerEmailKey = item?.authorEmail ?? null;
 
@@ -295,12 +322,14 @@ export default function MarketDetailPage({
       buyerEmail: meEmail ?? undefined,
       buyerId: meId ?? undefined,
       opponentEmail: meEmail ?? undefined,
+
       sellerNickname: authorNickname,
       productTitle: item.title,
       productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0),
       productImageUri: firstImage,
       initialSaleStatus: item.status ?? 'ON_SALE',
       postCreatedAt: item.createdAt,
+
       buyerNickname: myNickname,
     };
   }, [item, sellerEmailKey, sellerIdKey, meEmail, meId, authorNickname, myNickname]);
@@ -321,7 +350,9 @@ export default function MarketDetailPage({
         if (mounted) setResolvedRoomId(proposedRoomId || '');
       }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [item, proposedRoomId, chatOriginParams]);
 
   if (!item) {
@@ -370,7 +401,6 @@ export default function MarketDetailPage({
         contentContainerStyle={[styles.contentContainer, { paddingBottom: 140 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* 이미지 영역 */}
         <View style={styles.imageArea}>
           {images.length > 0 ? (
             <ScrollView
@@ -408,9 +438,7 @@ export default function MarketDetailPage({
 
           {/* 우하단: 인디케이터 */}
           <View style={styles.counterPill}>
-            <Text style={styles.counterText}>
-              {images.length > 0 ? `${index + 1} / ${images.length}` : '0 / 0'}
-            </Text>
+            <Text style={styles.counterText}>{images.length > 0 ? `${index + 1} / ${images.length}` : '0 / 0'}</Text>
           </View>
         </View>
 
@@ -437,7 +465,7 @@ export default function MarketDetailPage({
 
           <Text style={styles.desc}>{item.description}</Text>
 
-          <View className="locationRow" style={styles.locationRow}>
+          <View style={styles.locationRow}>
             <Text style={styles.locationLabel}>거래 희망 장소</Text>
             <Text style={styles.locationValue}>{item.location}</Text>
           </View>
@@ -446,7 +474,6 @@ export default function MarketDetailPage({
         </View>
       </ScrollView>
 
-      {/* 하단 바 */}
       {!isOwner && (
         <DetailBottomBar
           variant="detail"
@@ -466,14 +493,18 @@ export default function MarketDetailPage({
             productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0),
             productImageUri: images[0] ?? undefined,
             initialSaleStatus: item.status ?? 'ON_SALE',
+
             sellerId: item.authorId != null ? String(item.authorId) : undefined,
             sellerEmail: item.authorEmail ?? undefined,
             sellerNickname: authorNickname,
+
             ...(resolvedRoomId || proposedRoomId ? { roomId: resolvedRoomId || proposedRoomId } : {}),
             postCreatedAt: item.createdAt,
+
             buyerId: meId ?? undefined,
             buyerEmail: meEmail ?? undefined,
             buyerNickname: myNickname,
+
             opponentId: item.authorId != null ? String(item.authorId) : undefined,
             opponentEmail: item.authorEmail ?? undefined,
             opponentNickname: authorNickname,

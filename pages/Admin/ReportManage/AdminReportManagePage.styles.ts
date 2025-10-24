@@ -35,7 +35,7 @@ export default StyleSheet.create({
   },
   headerTitle: {
     fontFamily: 'Inter',
-    fontWeight: '600',
+    fontWeight: '600', // ✅ 문자열로 수정
     fontSize: 17,
     lineHeight: 22,
     color: '#1E1E1E',
@@ -65,7 +65,7 @@ export default StyleSheet.create({
   nickname: {
     fontSize: 16,
     lineHeight: 22,
-    fontWeight: '600',
+    fontWeight: '600', // ✅ 문자열로 수정
     color: '#1E1E1E',
     marginBottom: 4,
   },
@@ -86,7 +86,7 @@ export default StyleSheet.create({
   },
   statusBadgeText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '700', // ✅ 문자열로 수정
     color: '#FFFFFF',
   },
   badgeApproved: { backgroundColor: '#395884' }, // 인정

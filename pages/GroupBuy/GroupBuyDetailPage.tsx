@@ -60,6 +60,9 @@ type GroupBuyPost = {
   /** 현재 모집 인원 */
   currentCount?: number;
   status?: 'RECRUITING' | 'COMPLETED' | 'DELETED';
+
+  /** 서버 정수 PK (신고용) */
+  serverPostId?: number;
 };
 
 type CountMap = Record<string, { value: number; ts: number }>;
@@ -176,6 +179,14 @@ export default function GroupBuyDetailPage({
           ? [d.thumbnailUrl]
           : [];
 
+      // 서버 정수 PK 추출
+      const serverIdNum =
+        typeof d?.id === 'number'
+          ? d.id
+          : typeof d?.post_id === 'number'
+          ? d.post_id
+          : Number.NaN;
+
       let nextCurrent = coerceCurrentCount(d, prev?.currentCount ?? currentCountRef.current);
 
       const cacheLike: CountMap =
@@ -188,6 +199,7 @@ export default function GroupBuyDetailPage({
 
       const mapped: GroupBuyPost = {
         id: String(d.id ?? d.post_id),
+        serverPostId: Number.isFinite(serverIdNum) ? serverIdNum : undefined,
         title: d.title ?? '',
         description: d.content ?? '',
         recruit: {
@@ -250,6 +262,7 @@ export default function GroupBuyDetailPage({
           currentCountRef.current = found.currentCount ?? 0;
           setItem(found);
           syncCount(found.likeCount ?? 0);
+          console.log('[GroupBuyDetail] fallback item', found);
         }
       } catch (err) {
         console.log('groupbuy detail load error', err);
@@ -302,16 +315,30 @@ export default function GroupBuyDetailPage({
   /** 신고 */
   const onPressReport = useCallback(() => {
     if (!item) return;
+
+    const numericPostId =
+      typeof item.serverPostId === 'number' && Number.isFinite(item.serverPostId)
+        ? String(item.serverPostId)
+        : /^\d+$/.test(String(item.id))
+        ? String(item.id)
+        : undefined;
+
+    console.log('[GroupBuyDetail] 신고 이동 파라미터', {
+      authorEmail: item.authorEmail ?? null,
+      numericPostId,
+      reportedIdCandidate: item.authorId,
+    });
+
     navigation.navigate('Report', {
       mode: 'compose',
       targetNickname: profileName,
       targetDept: profileDept,
       targetEmail: item.authorEmail ?? undefined, // ✅ undefined로 정규화
-      targetPostId: String(item.id),
+      targetPostId: numericPostId,                // ✅ 서버 숫자 id 우선
       targetStorageKey: POSTS_KEY,
       targetPostTitle: item.title,
       targetKind: 'groupbuy',
-      targetUserId: item.authorId,
+      targetUserId: item.authorId,                // 있으면 같이 전달
     });
   }, [item, navigation, profileName, profileDept]);
 
