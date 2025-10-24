@@ -70,7 +70,9 @@ function toNumericOrUndef(v: any): number | undefined {
 }
 
 export function pickHttpUrls(uris?: string[]): string[] {
-  return (uris ?? []).filter((u) => /^https?:\/\//i.test(u));
+  return (uris ?? []).filter((u) =>
+    /^(https?:|file:)/i.test(u)   // ✅ file:// 도 통과시킴
+  );
 }
 
 /** (한글 라벨 → 서버 Enum) */
