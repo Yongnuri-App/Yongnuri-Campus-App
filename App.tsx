@@ -2,7 +2,6 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React, { useEffect } from 'react'; // ✅ useEffect 추가
-import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { RootStackParamList } from './types/navigation';
@@ -22,6 +21,7 @@ import BlockedUsersPage from './pages/My/BlockedUsers/BlockedUsersPage';
 import FavoritesPage from './pages/My/Favorites/MyFavoritesPage';
 import MyPagePage from './pages/My/MyPage/MyPage';
 import PersonalInfoPage from './pages/My/PersonalInfo/PersonalInfoPage';
+import InquiryPage from './pages/My/Inquiry/InquiryPage';
 import TradeHistoryPage from './pages/My/TradeHistory/TradeHistoryPage';
 import WithdrawPage from './pages/My/Withdraw/WithdrawPage';
 import NotificationPage from './pages/Notification/NotificationPage';
@@ -112,6 +112,7 @@ export default function App() {
           <Stack.Screen name="MyBlockedUsers" component={BlockedUsersPage} />
           <Stack.Screen name="MyTradeHistory" component={TradeHistoryPage} />
           <Stack.Screen name="MyWithdraw" component={WithdrawPage} />
+          <Stack.Screen name="MyInquiry" component={InquiryPage} />
 
           {/* 공지 상세 + 작성/수정 */}
           <Stack.Screen name="NoticeDetail" component={NoticeDetailPage} />

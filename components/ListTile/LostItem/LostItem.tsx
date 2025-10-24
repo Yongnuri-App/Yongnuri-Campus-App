@@ -1,15 +1,14 @@
 // components/ListTile/LostItem/LostItem.tsx
 // ------------------------------------------------------
 // 변경 요약
-// - typeLabel 타입에 '회수' 추가
-// - 배지 스타일 계산 로직 통일 (분실/습득/회수)
-// - styles.badgeRetrieved가 없어도 폴백 색(#EAF7EA)로 안전 동작
-// - 주석 보강
+// - 이미지가 없으면 썸네일을 렌더링하지 않음(마켓 아이템과 동일 UX)
+// - bottomTag 위치를 썸네일 유무에 따라 동적으로 계산
+// - '회수' 배지 폴백 색 유지
 // ------------------------------------------------------
 
 import React from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
-import styles from './LostItem.styles';
+import styles, { THUMB, GAP } from './LostItem.styles';
 
 type Props = {
   title: string;
@@ -37,21 +36,16 @@ export default function LostItem({
   const getBadgeBgStyle = () => {
     if (typeLabel === '분실') return styles.badgeLost;
     if (typeLabel === '습득') return styles.badgeFound;
-
-    // '회수' 케이스
-    const retrieved =
-      styles.badgeRetrieved ?? { backgroundColor: '#979797' };
-    return retrieved;
+    return styles.badgeRetrieved ?? { backgroundColor: '#979797' };
   };
+
+  // ✅ 썸네일이 없으면 bottomTag를 텍스트 시작선(= 왼쪽)으로 맞춤
+  const bottomTagLeft = image ? THUMB + GAP : 0;
 
   return (
     <TouchableOpacity style={styles.container} activeOpacity={0.85} onPress={onPress}>
-      {/* 썸네일 */}
-      {image ? (
-        <Image source={{ uri: image }} style={styles.thumbnail} />
-      ) : (
-        <View style={[styles.thumbnail, { backgroundColor: '#D9D9D9' }]} />
-      )}
+      {/* 썸네일: 이미지가 있을 때만 렌더링 */}
+      {image ? <Image source={{ uri: image }} style={styles.thumbnail} /> : null}
 
       {/* 텍스트 블록 */}
       <View style={styles.info}>
@@ -80,9 +74,9 @@ export default function LostItem({
         <Text style={styles.likeCount}>{likeCount}</Text>
       </View>
 
-      {/* 카드 내부 하단 배지(선택) */}
+      {/* 카드 내부 하단 배지(선택) — 썸네일 유무에 따라 left 자동 조정 */}
       {bottomTag ? (
-        <View pointerEvents="none" style={styles.bottomTagBox}>
+        <View pointerEvents="none" style={[styles.bottomTagBox, { left: bottomTagLeft }]}>
           <Text style={styles.bottomTagText}>{bottomTag}</Text>
         </View>
       ) : null}

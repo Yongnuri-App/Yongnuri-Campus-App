@@ -1,7 +1,8 @@
+// components/ListTile/GroupItem/GroupItem.styles.ts
 import { StyleSheet } from 'react-native';
 
-const THUMB = 121; // 썸네일 폭
-const GAP = 16;    // 썸네일과 텍스트 영역 간격
+export const THUMB = 121; // 썸네일 폭
+export const GAP = 16;    // 썸네일과 텍스트 영역 간격
 
 const styles = StyleSheet.create({
   container: {
@@ -41,7 +42,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
 
-  // 상태 배지: 글자 길이에 따라 자동 조정
+  // 상태 배지
   badge: {
     minWidth: 32,
     height: 20,
@@ -100,9 +101,9 @@ const styles = StyleSheet.create({
   },
 
   // 카드 내부 하단 배지 (검색 결과용 섹션 라벨 등)
+  // left는 컴포넌트에서 동적으로 주입
   bottomTagBox: {
     position: 'absolute',
-    left: THUMB + GAP, // 텍스트 시작 지점에 맞춤
     bottom: 8,
     paddingHorizontal: 10,
     height: 28,
@@ -117,18 +118,19 @@ const styles = StyleSheet.create({
   },
 
   // 하트(좋아요) 영역 — 카드 내부 우하단
-likeWrap: {
-  position: 'absolute',
-  right: 12,   // ← 원하는 만큼 더 붙여
-  bottom: 8,   // ← 세로 위치는 취향대로
-  flexDirection: 'row',
-  alignItems: 'center',
-},
+  likeWrap: {
+    position: 'absolute',
+    right: 12,
+    bottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   likeIcon: {
     width: 16,
     height: 16,
     marginRight: 4,
     resizeMode: 'contain',
+    tintColor: '#BBBBBB',
   },
   likeCount: {
     fontFamily: 'Inter',

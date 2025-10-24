@@ -221,10 +221,12 @@ const SellItemPage: React.FC<{ navigation?: any }> = ({ navigation }) => {
     setSubmitting(true);
     try {
       const method = mode === 'donate' ? 'DONATE' : 'SELL';
+
       const payload: UpdateMarketPostReq = {
         title: title.trim() || undefined,
         content: desc.trim() || undefined,
-        imageUrls: images && images.length ? images : undefined,
+        // ✅ 0장이면 []를 보내서 서버가 '모든 이미지 제거'로 인식하게 함
+        imageUrls: Array.isArray(images) ? images : [],
         method,
         location: location.trim() || undefined,
         price: mode === 'donate' ? 0 : Number(priceRaw || 0),
@@ -240,7 +242,7 @@ const SellItemPage: React.FC<{ navigation?: any }> = ({ navigation }) => {
         {
           text: '확인',
           onPress: () => {
-            // ✅ 가드 우회 후 뒤로가기 (ref로 즉시 반영)
+            // ✅ 가드 우회 후 뒤로가기
             bypassGuardRef.current = true;
             navigation.goBack?.();
           },
@@ -257,6 +259,7 @@ const SellItemPage: React.FC<{ navigation?: any }> = ({ navigation }) => {
       setSubmitting(false);
     }
   };
+
 
   const submitLabel =
     submitting ? (isEdit ? '수정 중...' : '작성 중...') : (isEdit ? '수정 완료' : '작성 완료');

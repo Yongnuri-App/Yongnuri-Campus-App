@@ -4,6 +4,7 @@
 // - 결과 카드(중고/분실/공동/공지)의 썸네일 경로를
 //   toAbsoluteUrl로 절대 URL로 정규화하여 이미지가 안정적으로 뜨게 함.
 // - 서버가 /uploads/xxx 같은 상대경로를 내려도 문제 없이 표시됨.
+// - 최근 검색어: 최신순(최근 것이 위로 오게) 정렬.
 // -------------------------------------------------------------
 
 import { useFocusEffect } from '@react-navigation/native';
@@ -93,8 +94,7 @@ export default function SearchPage({ navigation }: Props) {
 
     if (item.kind === 'market') {
       const it = item.data;
-      const firstImage = (it.images && it.images.length > 0) ? it.images[0] : undefined;
-      const imageUri = toAbsoluteUrl(firstImage); // ✅ 핵심
+      const imageUri = toAbsoluteUrl(it.images?.[0]); // ✅ 실제 prop에 사용
 
       return (
         <MarketItem
@@ -103,7 +103,7 @@ export default function SearchPage({ navigation }: Props) {
           subtitle={`${it.location} · ${timeAgo(it.createdAt)}`}
           price={it.mode === 'donate' ? '나눔' : `${Number(it.price || 0).toLocaleString('ko-KR')}원`}
           likeCount={it.likeCount ?? 0}
-          image={it.images && it.images.length > 0 ? it.images[0] : undefined}
+          image={imageUri} // ✅ 수정: 정규화된 URL 사용
           onPress={(id) => navigation.navigate('MarketDetail', { id })}
           bottomTag="중고거래"
           // TODO: 필요시 statusBadge도 it.statusBadge로 전달
@@ -118,8 +118,7 @@ export default function SearchPage({ navigation }: Props) {
         it.type === 'retrieved' ? '회수' :
         '분실';
 
-      const firstImage = (it.images && it.images.length > 0) ? it.images[0] : undefined;
-      const imageUri = toAbsoluteUrl(firstImage); // ✅ 핵심
+      const imageUri = toAbsoluteUrl(it.images?.[0]); // ✅ 실제 prop에 사용
 
       return (
         <LostItem
@@ -127,7 +126,7 @@ export default function SearchPage({ navigation }: Props) {
           subtitle={`${it.location} · ${timeAgo(it.createdAt)}`}
           typeLabel={label}
           likeCount={it.likeCount ?? 0}
-          image={it.images && it.images.length > 0 ? it.images[0] : undefined}
+          image={imageUri} // ✅ 수정
           onPress={() => navigation.navigate('LostDetail', { id: it.id })}
           bottomTag="분실물"
         />
@@ -136,8 +135,7 @@ export default function SearchPage({ navigation }: Props) {
 
     if (item.kind === 'group') {
       const it = item.data;
-      const firstImage = (it.images && it.images.length > 0) ? it.images[0] : undefined;
-      const imageUri = toAbsoluteUrl(firstImage); // ✅ 핵심
+      const imageUri = toAbsoluteUrl(it.images?.[0]); // ✅ 실제 prop에 사용
 
       return (
         <GroupItem
@@ -145,7 +143,7 @@ export default function SearchPage({ navigation }: Props) {
           timeText={timeAgo(it.createdAt)}
           recruitMode={(it.recruit?.mode ?? 'unlimited') as 'unlimited' | 'limited'}
           recruitCount={it.recruit?.count ?? null}
-          image={it.images && it.images.length > 0 ? it.images[0] : undefined}
+          image={imageUri} // ✅ 수정
           isClosed={!!it.isClosed}
           onPress={() => navigation.navigate('GroupBuyDetail', { id: it.id })}
           bottomTag="공동구매"
@@ -158,9 +156,7 @@ export default function SearchPage({ navigation }: Props) {
     const it = item.data;
     const term = `${ymd(it.startDate ?? it.createdAt)} ~ ${ymd(it.endDate ?? it.startDate ?? it.createdAt)}`;
     const status = isClosed(it.endDate) ? 'closed' : 'open';
-
-    const firstImage = (it.images && it.images.length > 0) ? it.images[0] : undefined;
-    const imageUri = toAbsoluteUrl(firstImage); // ✅ 공지사항도 동일 처리
+    const imageUri = toAbsoluteUrl(it.images?.[0]); // ✅ 공지사항도 동일 처리
 
     return (
       <NoticeItem
@@ -175,6 +171,13 @@ export default function SearchPage({ navigation }: Props) {
       />
     );
   };
+
+  // ✅ 최근 검색어 최신순 정렬 (최근 것이 위)
+  //   - 기존 훅의 저장 순서를 바꾸지 않고, 화면에서만 역순으로 보여줌
+  const recentSorted = React.useMemo(() => {
+    // 문자열 배열일 수 있으므로 안정적으로 역순만 적용
+    return [...recent].reverse();
+  }, [recent]);
 
   return (
     <View style={styles.container}>
@@ -224,13 +227,13 @@ export default function SearchPage({ navigation }: Props) {
             </TouchableOpacity>
           </View>
 
-          {loadingRecents ? null : recent.length === 0 ? (
+          {loadingRecents ? null : recentSorted.length === 0 ? (
             <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
               <Text style={{ color: '#999' }}>최근 검색어가 없습니다.</Text>
             </View>
           ) : (
             <FlatList
-              data={recent}
+              data={recentSorted} // ✅ 최신순 적용
               keyExtractor={(item, index) => `${item}-${index}`}
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => (

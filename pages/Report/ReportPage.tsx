@@ -155,6 +155,7 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
       });
 
       Alert.alert('제출 완료', '신고가 접수되었습니다.', [
+        // compose는 기존 동선 유지
         { text: '확인', onPress: () => navigation.navigate('AdminReportManage', { refreshKey: Date.now() }) },
       ]);
     } catch (e: any) {
@@ -168,7 +169,8 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
     try {
       await adminProcessReport(reviewId, 'REJECTED');
       Alert.alert('처리 완료', '미인정 처리되었습니다.', [
-        { text: '확인', onPress: () => navigation.navigate('AdminReportManage', { refreshKey: Date.now() }) },
+        // ✅ navigate 대신 pop()으로 현재 상세를 닫고 바로 목록으로 복귀 (스택 중복 방지)
+        { text: '확인', onPress: () => navigation.pop() },
       ]);
     } catch (e: any) {
       Alert.alert('오류', e?.response?.data?.message ?? '처리에 실패했습니다. 다시 시도해주세요.');
@@ -180,7 +182,8 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
     try {
       await adminProcessReport(reviewId, 'APPROVED');
       Alert.alert('처리 완료', '인정 처리되었습니다.', [
-        { text: '확인', onPress: () => navigation.navigate('AdminReportManage', { refreshKey: Date.now() }) },
+        // ✅ pop() 사용 → AdminReportManage로 복귀, 뒤로가면 AdminPage로 바로 이동
+        { text: '확인', onPress: () => navigation.pop() },
       ]);
     } catch (e: any) {
       Alert.alert('오류', e?.response?.data?.message ?? '처리에 실패했습니다. 다시 시도해주세요.');

@@ -1,7 +1,8 @@
+// components/ListTile/LostItem/LostItem.styles.ts
 import { StyleSheet } from 'react-native';
 
-const THUMB = 121;
-const GAP = 16;
+export const THUMB = 121;
+export const GAP = 16;
 
 const styles = StyleSheet.create({
   container: {
@@ -48,23 +49,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // ✅ 분실/습득 배지
+  // ✅ 분실/습득/회수 배지
   badge: {
-    width: 32,
+    minWidth: 32,
     height: 20,
     borderRadius: 5,
+    paddingHorizontal: 6,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  badgeLost: {
-    backgroundColor: '#F070C8',
-  },
-  badgeFound: {
-    backgroundColor: '#419EBD',
-  },
-  badgeRetrieved: {
-    backgroundColor: '#979797',
-  },
+  badgeLost: { backgroundColor: '#F070C8' },
+  badgeFound: { backgroundColor: '#419EBD' },
+  badgeRetrieved: { backgroundColor: '#979797' },
   badgeText: {
     fontFamily: 'Inter',
     fontStyle: 'normal',
@@ -75,18 +71,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // ✅ 좋아요 영역 (원래대로 오른쪽 끝에 위치)
+  // ✅ 좋아요 영역 (오른쪽 하단 고정)
   likeWrap: {
+    position: 'absolute',
+    right: 12,
+    bottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 12,
-    marginTop: 90,
   },
   likeIcon: {
     width: 16,
     height: 16,
     marginRight: 4,
     resizeMode: 'contain',
+    tintColor: '#BBBBBB',
   },
   likeCount: {
     fontFamily: 'Inter',
@@ -94,13 +92,12 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     fontSize: 12,
     lineHeight: 16,
-    color: '#979797',
+    color: '#BBBBBB',
   },
 
-  // ✅ 카드 내부 하단 배지 (절대 배치)
+  // ✅ 카드 내부 하단 배지 (절대 배치) — left는 컴포넌트에서 동적으로 주입
   bottomTagBox: {
     position: 'absolute',
-    left: THUMB + GAP,
     bottom: 8,
     paddingHorizontal: 10,
     height: 28,

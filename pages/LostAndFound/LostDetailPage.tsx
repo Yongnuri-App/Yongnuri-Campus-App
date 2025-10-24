@@ -364,8 +364,8 @@ export default function LostDetailPage({
         </View>
       </ScrollView>
 
-      {/* 하단 고정 바: 관리자/작성자는 숨김 */}
-      {!(isAdmin || isOwner) && (
+      {/* 하단 고정 바: 작성자는 숨김 (관리자도 보이게) */}
+      {!isOwner && (
         <DetailBottomBar
           variant="detail"
           initialLiked={liked}
@@ -388,7 +388,7 @@ export default function LostDetailPage({
             place: item.location,
             purpose: item.type,
             postImageUri: images[0],
-            authorEmail: item.authorEmail ?? null, // 기존 타입 호환
+            authorEmail: item.authorEmail ?? null,
             authorId: item.authorId != null ? String(item.authorId) : undefined,
           }}
           placeholder="게시자에게 메시지를 보내보세요"
