@@ -1,4 +1,3 @@
-// /api/auth.ts
 import { api } from './client';
 
 // ----- 타입 -----
@@ -31,6 +30,20 @@ export const join             = (body: JoinReq)      => api.post('/auth/join', b
 export const login            = (body: LoginReq)     => api.post<LoginRes>('/auth/login', body);
 export const me               = ()                   => api.get('/users/me');
 
+// ====== 관리자: 회원 정보 보기 ======
+export type AdminUserInfo = {
+  id: number;
+  name: string;
+  userNickname: string | null;
+  studentId: string | null;
+  major: string | null;
+  reportCount: number;  // 서버가 준 그대로 사용
+};
+
+/** 관리자 회원 정보 목록 */
+export const getAdminUserInfo = () =>
+  api.get<AdminUserInfo[]>('/admin/userInfo');
+
 // ----- 호환용 객체(export된 멤버 'authApi') -----
 export const authApi = {
   requestEmailCode: (body: EmailReq) => api.post('/auth/email', body),
@@ -38,9 +51,12 @@ export const authApi = {
   join: (body: JoinReq) => api.post('/auth/join', body),
   login,
   me,
-  resetPassword, 
+  resetPassword,
   mypage: () => api.get('/mypage'),
   /** 닉네임 수정: 명세상 body에 accessToken, nickName */
   updateMypage: (body: { accessToken?: string; nickName: string }) =>
     api.post('/mypage', body),
+
+  /** ✅ 관리자: 회원 정보 목록 */
+  adminUserInfo: () => api.get<AdminUserInfo[]>('/admin/userInfo'),
 } as const;

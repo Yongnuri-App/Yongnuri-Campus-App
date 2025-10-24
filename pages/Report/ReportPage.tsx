@@ -39,7 +39,6 @@ type ReportTypeKor = (typeof REPORT_TYPES_KOR)[number];
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
-// 숫자 변환 유틸
 const toNum = (v: any): number | undefined =>
   typeof v === 'number' && Number.isFinite(v)
     ? v
@@ -52,45 +51,30 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
   const reviewId = (route.params as any)?.reportId as string | number | undefined;
   const isReview = mode === 'review' && !!reviewId;
 
-  // compose 입력 상태
   const [typeOpen, setTypeOpen] = useState(false);
   const [typeValue, setTypeValue] = useState<ReportTypeKor | null>(null);
   const [content, setContent] = useState('');
   const { images, openAdd, removeAt, max, setImages } = useImagePicker({ max: 10 });
 
-  // review 로드 상태(서버/로컬)
   const [loaded, setLoaded] = useState<any | null>(null);
 
-  // 이미지 뷰어
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
   const hScrollRef = useRef<ScrollView | null>(null);
-  const onThumbPress = (idx: number) => {
-    setViewerIndex(idx);
-    setViewerOpen(true);
-  };
+  const onThumbPress = (idx: number) => { setViewerIndex(idx); setViewerOpen(true); };
   const onViewerMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x;
     setViewerIndex(Math.round(x / SCREEN_W));
   };
 
-  // ----- 타겟 파라미터 -----
   const p = (route.params as any) ?? {};
   const targetNicknameParam = p.targetNickname as string | undefined;
   const targetDeptParam = p.targetDept as string | undefined;
   const targetEmailParam = p.targetEmail as string | null | undefined;
   const targetPostIdParam = p.targetPostId as string | undefined;
   const targetUserIdParam = p.targetUserId as string | number | undefined;
-  const targetKindParam = p.targetKind as
-    | 'market'
-    | 'lost'
-    | 'groupbuy'
-    | 'notice'
-    | 'chat'
-    | 'admin'
-    | undefined;
+  const targetKindParam = p.targetKind as 'market' | 'lost' | 'groupbuy' | 'notice' | 'chat' | 'admin' | undefined;
 
-  // 표시 라벨(닉네임 - 학과 or 이메일)
   const targetLabelCompose = useMemo(() => {
     const left =
       (targetNicknameParam && targetNicknameParam.trim()) ||
@@ -100,31 +84,25 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
     return left || right || '';
   }, [targetNicknameParam, targetDeptParam, targetEmailParam]);
 
-  /* ================== review 모드: 서버 신고 상세 불러오기 ================== */
+  // ===== review 모드 상세 로드 =====
   useEffect(() => {
     if (!isReview || !reviewId) return;
-
     (async () => {
       try {
         const d = await getAdminReportDetail(reviewId);
-        console.log('[REPORT review] server detail =', d);
         setLoaded(d);
-
-        // 한글 라벨 매핑
         const kor = mapReasonEnumToKor(d.reason || '');
         setTypeValue((kor as ReportTypeKor) ?? null);
         setContent(d.content ?? '');
 
-        // 이미지 세팅
         const imgUris =
           Array.isArray(d.images) && d.images.length
             ? d.images
                 .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
-                .map((x) => x.imageUrl)
+                .map((x: any) => x.imageUrl)
             : [];
         setImages(imgUris);
-      } catch (e) {
-        console.log('[REPORT review] server detail error, try local fallback', e);
+      } catch {
         try {
           const raw = await AsyncStorage.getItem('reports_v1');
           const list: any[] = raw ? JSON.parse(raw) : [];
@@ -135,14 +113,12 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
             setContent(found.content ?? '');
             setImages(found.images ?? []);
           }
-        } catch (err) {
-          console.log('report review local load error', err);
-        }
+        } catch {}
       }
     })();
   }, [isReview, reviewId, setImages]);
 
-  /* ================== compose 제출 ================== */
+  // ===== compose 제출 =====
   const onSubmitCompose = async () => {
     if (!typeValue) return Alert.alert('안내', '신고 유형을 선택해주세요.');
     if (!content.trim()) return Alert.alert('안내', '신고 내용을 작성해주세요.');
@@ -155,10 +131,8 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
         typeof targetPostIdParam === 'string' && /^\d+$/.test(targetPostIdParam)
           ? Number(targetPostIdParam)
           : undefined;
-
       const reportedIdNum = toNum(targetUserIdParam);
 
-      // ✅ 필수값 가드: CHAT이면 reportedId, 그 외에는 postId 필요
       if (postType === 'CHAT') {
         if (reportedIdNum === undefined) {
           Alert.alert('안내', '대상 사용자 ID를 찾을 수 없어요. (reportedId)');
@@ -171,29 +145,31 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
         }
       }
 
-      const payload = {
+      await createReport({
         postType,
         postId: postIdNum,
         reportedId: reportedIdNum,
         reason,
         content: content.trim(),
         imageUrls: images,
-      };
+      });
 
-      await createReport(payload);
-      Alert.alert('제출 완료', '신고가 접수되었습니다.', [{ text: '확인', onPress: () => navigation.goBack() }]);
+      Alert.alert('제출 완료', '신고가 접수되었습니다.', [
+        { text: '확인', onPress: () => navigation.navigate('AdminReportManage', { refreshKey: Date.now() }) },
+      ]);
     } catch (e: any) {
-      console.log('[report submit error]', e?.response?.data || e);
       Alert.alert('오류', e?.response?.data?.message || e?.message || '제출에 실패했어요.');
     }
   };
 
-  /* ================== review 모드 액션 (서버 처리) ================== */
+  // ===== review 처리 =====
   const onPressOutline = async () => {
     if (!isReview || !reviewId) return;
     try {
       await adminProcessReport(reviewId, 'REJECTED');
-      Alert.alert('처리 완료', '미인정 처리되었습니다.', [{ text: '확인', onPress: () => navigation.goBack() }]);
+      Alert.alert('처리 완료', '미인정 처리되었습니다.', [
+        { text: '확인', onPress: () => navigation.navigate('AdminReportManage', { refreshKey: Date.now() }) },
+      ]);
     } catch (e: any) {
       Alert.alert('오류', e?.response?.data?.message ?? '처리에 실패했습니다. 다시 시도해주세요.');
     }
@@ -203,13 +179,14 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
     if (!isReview || !reviewId) return;
     try {
       await adminProcessReport(reviewId, 'APPROVED');
-      Alert.alert('처리 완료', '인정 처리되었습니다.', [{ text: '확인', onPress: () => navigation.goBack() }]);
+      Alert.alert('처리 완료', '인정 처리되었습니다.', [
+        { text: '확인', onPress: () => navigation.navigate('AdminReportManage', { refreshKey: Date.now() }) },
+      ]);
     } catch (e: any) {
       Alert.alert('오류', e?.response?.data?.message ?? '처리에 실패했습니다. 다시 시도해주세요.');
     }
   };
 
-  /* ================== UI ================== */
   const headerTitle = isReview ? '신고 상세' : '신고하기';
 
   return (
@@ -247,7 +224,7 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
                         loaded?.reportedStudentNickName ||
                         loaded?.reportedStudentName ||
                         '';
-                      const right = ''; // 상세 응답에 학과가 없다면 비움
+                      const right = '';
                       if (left && right) return `${left} - ${right}`;
                       return left || right || '';
                     })()
@@ -275,7 +252,6 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
                       신고 유형을 선택해주세요.
                     </Text>
                   )}
-
                   <Image source={require('../../assets/images/down.png')} style={styles.dropdownIcon} resizeMode="contain" />
                 </TouchableOpacity>
 

@@ -1,5 +1,3 @@
-// pages/Admin/MemberList/MemberListPage.tsx
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   SafeAreaView,
@@ -13,24 +11,20 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import styles from './MemberListPage.styles';
-
-const USERS_ALL_KEY = 'users_all_v1';
-const REPORTS_KEY   = 'reports_v1';
-const ADMIN_EMAILS  = ['admin@yiu.ac.kr']; // 목록/삭제에서 제외
-const BAN_THRESHOLD = 10;                   // 인정 10회 → 자동 탈퇴
+import { getAdminUserInfo } from '../../../api/auth';
 
 // ✅ 컬럼 고정폭(+ 간격)
 const COL = {
-  NAME_W: 70,     // 이름 5글자 감안
-  SID_W: 90,      // 학번 기존 폭
-  DEPT_W: 120,    // 학과 8글자
-  NICK_W: 96,     // 닉네임 6글자
-  REPORT_W: 108,  // "신고 횟수 : 0번"
-  GAP: 12,        // 기본 컬럼 간격
-  GAP_D2N: 6,     // 학과 ↔ 닉네임 사이만 더 좁게
+  NAME_W: 70,
+  SID_W: 90,
+  DEPT_W: 120,
+  NICK_W: 96,
+  REPORT_W: 108,
+  GAP: 12,
+  GAP_D2N: 6,
 };
 
-// 가로 스크롤용 총 너비(패딩 제외)
+// 가로 스크롤 총 너비
 const TOTAL_WIDTH =
   COL.NAME_W + COL.GAP +
   COL.SID_W  + COL.GAP +
@@ -38,59 +32,22 @@ const TOTAL_WIDTH =
   COL.NICK_W + COL.GAP +
   COL.REPORT_W;
 
-type StoredUser = {
-  email: string;
-  name: string;
-  department: string;
-  nickname: string;
-  studentId?: string;
-  isAdmin?: boolean;
-  createdAt?: string;
-};
-
-type ReportType = '부적절한 콘텐츠' | '사기/스팸' | '욕설/혐오' | '기타';
-type ReportStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
-
-type StoredReport = {
-  id: string;
-  target: {
-    email?: string | null; // 가능하면 이메일 기준으로 카운트
-    nickname?: string;
-    dept?: string;
-    label?: string;        // "닉네임 - 학과"
-  };
-  type: ReportType;
-  content: string;
-  images: string[];
-  createdAt: string;       // ISO
-  reporterEmail?: string | null;
-  status?: ReportStatus;   // 관리자에서 처리 시 저장
-};
-
 type Member = {
-  id: string; // studentId or email fallback
-  email: string; // 매칭/탈퇴용
+  id: string;
   name: string;
   studentId: string;
   department: string;
   nickname: string;
-  reportCount: number; // ✅ 승인(인정)된 신고 횟수
+  reportCount: number;
 };
 
-/* ──────────────────────────────
-   모듈 스코프 유틸 (의존성 경고 방지)
-────────────────────────────── */
-const normalizeEmail = (v?: string | null) => (v || '').trim().toLowerCase();
-
-const buildApprovedCountMap = (reports: StoredReport[]) => {
-  const map: Record<string, number> = {};
-  for (const r of reports) {
-    if ((r.status || 'PENDING') !== 'APPROVED') continue;
-    const key = normalizeEmail(r.target?.email);
-    if (!key) continue; // 안전하게: 이메일 있는 케이스만 집계/탈퇴 반영
-    map[key] = (map[key] || 0) + 1;
-  }
-  return map;
+// 관리자 추정 필터(응답에 role/email이 없으므로 키워드 기반)
+const isProbablyAdmin = (u: any) => {
+  const keys = ['admin', '관리자'];
+  const name = String(u?.name ?? '').trim().toLowerCase();
+  const nick = String(u?.userNickname ?? '').trim().toLowerCase();
+  const sid  = String(u?.studentId ?? '').trim().toLowerCase();
+  return keys.includes(name) || keys.includes(nick) || keys.includes(sid);
 };
 
 export default function MemberListPage() {
@@ -98,83 +55,67 @@ export default function MemberListPage() {
   const [query, setQuery] = useState('');
   const [members, setMembers] = useState<Member[]>([]);
 
-  // ====== 로드 + 자동 탈퇴(정책 반영) ======
+  // ===== 서버에서 회원 정보 불러오기 =====
   const load = useCallback(async () => {
     try {
-      const [[, rawUsers], [, rawReports]] = await AsyncStorage.multiGet([
-        USERS_ALL_KEY,
-        REPORTS_KEY,
-      ]);
-      const users: StoredUser[] = rawUsers ? JSON.parse(rawUsers) : [];
-      const reports: StoredReport[] = rawReports ? JSON.parse(rawReports) : [];
-
-      // 승인(인정)된 신고 횟수 집계
-      const approvedMap = buildApprovedCountMap(reports);
-
-      // 관리자 제외 + 최신가입순 정렬
-      const filtered = users
-        .filter(u => !ADMIN_EMAILS.includes(normalizeEmail(u.email)))
-        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-
-      // 자동 탈퇴 후보: 승인횟수>=10인 이메일
-      const bannedEmails = new Set(
-        filtered
-          .map(u => normalizeEmail(u.email))
-          .filter(email => (approvedMap[email] || 0) >= BAN_THRESHOLD)
-      );
-
-      // 실제 users_all_v1에서 삭제(탈퇴 반영)
-      let changed = false;
-      const afterBan = users.filter(u => !bannedEmails.has(normalizeEmail(u.email)));
-      if (afterBan.length !== users.length) {
-        changed = true;
-        await AsyncStorage.setItem(USERS_ALL_KEY, JSON.stringify(afterBan));
+      const { data } = await getAdminUserInfo(); // [{ id,name,userNickname,studentId,major,reportCount }]
+      if (!Array.isArray(data)) {
+        console.warn('[member list] Invalid response format');
+        setMembers([]);
+        return;
       }
 
-      // 화면 표시는 삭제된 후의 목록 기준으로 다시 계산
-      const baseList: StoredUser[] = changed ? afterBan : users;
+      // ✅ 관리자 제외
+      const onlyUsers = data.filter((u) => !isProbablyAdmin(u));
 
-      const final = baseList
-        .filter(u => !ADMIN_EMAILS.includes(normalizeEmail(u.email)))
-        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
-        .map<Member>(u => ({
-          id: u.studentId && u.studentId.length > 0 ? u.studentId : u.email,
-          email: normalizeEmail(u.email),
-          name: u.name || '이름없음',
-          studentId: u.studentId || '-', // 아직 미입력 가능
-          department: u.department || '-',
-          nickname: u.nickname || '',
-          reportCount: approvedMap[normalizeEmail(u.email)] || 0,
-        }));
+      // 이름순 정렬
+      const sorted = onlyUsers.sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '')
+      );
 
-      setMembers(final);
+      // 매핑
+      const mapped: Member[] = sorted.map((u) => ({
+        id:
+          u.studentId && String(u.studentId).trim().length > 0
+            ? String(u.studentId)
+            : String(u.id),
+        name: u.name ?? '-',
+        studentId:
+          u.studentId && String(u.studentId).trim().length > 0
+            ? String(u.studentId)
+            : '-',
+        department: u.major ?? '-',
+        nickname: u.userNickname ?? '',
+        reportCount: typeof u.reportCount === 'number' ? u.reportCount : 0,
+      }));
+
+      setMembers(mapped);
     } catch (e) {
-      console.log('member list load error', e);
+      console.log('[member list] admin userInfo load error', e);
       setMembers([]);
     }
   }, []);
 
-  // 최초 진입 시 로드
   useEffect(() => {
     load();
   }, [load]);
 
-  // 포커스 복귀 시 로드
   useFocusEffect(
     React.useCallback(() => {
       load();
     }, [load])
   );
 
-  // 검색: 학번, 이름, 학과, 닉네임
+  // 검색 필터
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return members;
-    return members.filter(m =>
-      (m.name || '').toLowerCase().includes(q) ||
-      (m.studentId || '').toLowerCase().includes(q) ||
-      (m.department || '').toLowerCase().includes(q) ||
-      (m.nickname || '').toLowerCase().includes(q)
+    return members.filter(
+      (m) =>
+        (m.name || '').toLowerCase().includes(q) ||
+        (m.studentId || '').toLowerCase().includes(q) ||
+        (m.department || '').toLowerCase().includes(q) ||
+        (m.nickname || '').toLowerCase().includes(q)
     );
   }, [query, members]);
 
@@ -257,7 +198,7 @@ export default function MemberListPage() {
         />
       </View>
 
-      {/* 리스트: 가로 스크롤 + 세로 플랫리스트 */}
+      {/* 리스트 */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}

@@ -1,6 +1,5 @@
-// pages/My/MyPage/MyPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   SafeAreaView,
@@ -11,136 +10,144 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import styles from './MyPage.styles';
+import { api } from '../../../api/client';
 
-// 세션 키 (다른 화면과 동일 키 사용)
 const AUTH_NAME_KEY = 'auth_user_name';
 const AUTH_STUDENT_ID_KEY = 'auth_student_id';
 const AUTH_NICKNAME_KEY = 'auth_user_nickname';
 
+const TOKEN_KEYS = ['accessToken', 'access_token'];
+async function getAccessToken(): Promise<string | null> {
+  for (const k of TOKEN_KEYS) {
+    const v = await AsyncStorage.getItem(k);
+    if (v && v.trim()) return v.trim();
+  }
+  return null;
+}
+
 export default function MyPagePage() {
   const navigation = useNavigation<any>();
+  const [nickname, setNickname] = useState('');
+  const [studentId, setStudentId] = useState('');
+  const lastTokenRef = useRef<string | null>(null);
 
-  // ✅ 스토리지에서 가져와서 렌더링할 값들
-  const [nickname, setNickname] = useState<string>('');
-  const [name, setName] = useState<string>(''); // 닉네임 없을 때 대비용
-  const [studentId, setStudentId] = useState<string>('');
-
-  // 공통 로더
-  const loadProfile = useCallback(async () => {
+  const loadFromCache = useCallback(async () => {
     try {
-      const [[, n], [, sid], [, nn]] = await AsyncStorage.multiGet([
-        AUTH_NAME_KEY,
-        AUTH_STUDENT_ID_KEY,
+      const [[, nn], [, sid]] = await AsyncStorage.multiGet([
         AUTH_NICKNAME_KEY,
+        AUTH_STUDENT_ID_KEY,
       ]);
-      setName(n ?? '');
-      setStudentId(sid ?? '');
-      setNickname(nn ?? '');
+      if (nn) setNickname(nn);
+      if (sid) setStudentId(sid);
     } catch (e) {
-      console.log('mypage profile load error', e);
+      console.log('mypage cache load error', e);
     }
   }, []);
 
-  // 최초 1회
-  useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+  const fetchFromServer = useCallback(async () => {
+    try {
+      const { data } = await api.get('/mypage/page'); // { nickName: string, studentId: string }
+      // ⚠️ 서버가 nickName(카멜 중간 대문자)로 내려줌. nickname 도 백워드 대응.
+      const serverNickname = String(data?.nickName ?? data?.nickname ?? '');
+      const serverSid = String(data?.studentId ?? '');
 
-  // 화면에 다시 포커스될 때마다 갱신 (내 정보에서 수정 후 복귀 시 반영)
+      // 값이 있을 때만 상태/스토리지 갱신 (깜박임/덮어쓰기 방지)
+      if (serverNickname) setNickname(serverNickname);
+      if (serverSid) setStudentId(serverSid);
+
+      await AsyncStorage.multiSet([
+        [AUTH_NICKNAME_KEY, serverNickname || ''],
+        [AUTH_STUDENT_ID_KEY, serverSid || ''],
+        [AUTH_NAME_KEY, serverNickname || ''], // 호환 키에도 닉네임 저장
+      ]);
+
+      console.log('[MYPAGE] set', { serverNickname, serverSid });
+    } catch (e) {
+      console.log('mypage fetch error', e);
+      // 실패 시 캐시라도 표시
+      await loadFromCache();
+    }
+  }, [loadFromCache]);
+
+  const ensureFreshForCurrentAccount = useCallback(async () => {
+    const token = await getAccessToken();
+    const changed = token !== lastTokenRef.current;
+    if (changed) {
+      lastTokenRef.current = token;
+      // 다른 계정으로 전환된 경우, 먼저 캐시 비우고 새로 가져옴
+      await AsyncStorage.multiRemove([AUTH_NICKNAME_KEY, AUTH_STUDENT_ID_KEY, AUTH_NAME_KEY]);
+      setNickname('');
+      setStudentId('');
+    }
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      await ensureFreshForCurrentAccount();
+      // 캐시 띄우고 → 서버로 최신화
+      await loadFromCache();
+      await fetchFromServer();
+    })();
+  }, [ensureFreshForCurrentAccount, loadFromCache, fetchFromServer]);
+
   useFocusEffect(
     useCallback(() => {
-      loadProfile();
-    }, [loadProfile])
+      let alive = true;
+      (async () => {
+        if (!alive) return;
+        await ensureFreshForCurrentAccount();
+        await fetchFromServer();
+      })();
+      return () => { alive = false; };
+    }, [ensureFreshForCurrentAccount, fetchFromServer])
   );
 
-  // 표시용 값: 닉네임 우선, 없으면 이름, 그것도 없으면 기본 문구
-  const displayName = nickname || name || '사용자';
+  const displayName = nickname || '사용자';
   const displayStudentId = studentId || '-';
 
-  // 상단 아이콘
   const onPressAlarm = () => navigation.navigate('Notification');
   const onPressSearch = () => navigation.navigate('Search');
 
-  // 마이페이지 내 이동
-  const goPersonalInfo   = () => navigation.navigate('MyPersonalInfo');
-  const goFavorites      = () => navigation.navigate('MyFavorites');
-  const goBlockedUsers   = () => navigation.navigate('MyBlockedUsers');
-  const goTradeHistory   = () => navigation.navigate('MyTradeHistory');
-  const goInquiry        = () => navigation.navigate('MyInquiry');
-  const goWithdraw       = () => navigation.navigate('MyWithdraw');
+  const goPersonalInfo = () => navigation.navigate('MyPersonalInfo');
+  const goFavorites = () => navigation.navigate('MyFavorites');
+  const goBlockedUsers = () => navigation.navigate('MyBlockedUsers');
+  const goTradeHistory = () => navigation.navigate('MyTradeHistory');
+  const goInquiry = () => navigation.navigate('MyInquiry');
+  const goWithdraw = () => navigation.navigate('MyWithdraw');
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* iOS Status Bar 영역 모사 (피그마 44px) */}
       <View style={styles.statusBar} />
 
-      {/* 헤더 */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>마이페이지</Text>
-
         <View style={styles.headerRight}>
-          <TouchableOpacity
-            style={styles.headerIconBtn}
-            onPress={onPressSearch}
-            activeOpacity={0.9}
-          >
-            <Image
-              source={require('../../../assets/images/search.png')}
-              style={styles.headerIcon}
-            />
+          <TouchableOpacity style={styles.headerIconBtn} onPress={onPressSearch} activeOpacity={0.9}>
+            <Image source={require('../../../assets/images/search.png')} style={styles.headerIcon} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerIconBtn}
-            onPress={onPressAlarm}
-            activeOpacity={0.9}
-          >
-            <Image
-              source={require('../../../assets/images/bell.png')}
-              style={styles.headerIcon}
-            />
+          <TouchableOpacity style={styles.headerIconBtn} onPress={onPressAlarm} activeOpacity={0.9}>
+            <Image source={require('../../../assets/images/bell.png')} style={styles.headerIcon} />
           </TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* 상단 인사(개인정보로 이동) + 오른쪽 화살표 아이콘 */}
-        <TouchableOpacity
-          style={styles.greetingWrap}
-          activeOpacity={0.85}
-          onPress={goPersonalInfo}
-        >
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+        <TouchableOpacity style={styles.greetingWrap} activeOpacity={0.85} onPress={goPersonalInfo}>
           <View style={styles.greetingTextCol}>
-            {/* ✅ 닉네임 연동 */}
             <Text style={styles.greeting}>{displayName}님 안녕하세요!</Text>
-            {/* ✅ 학번 연동 */}
             <Text style={styles.subId}>{displayStudentId} 학번</Text>
           </View>
-          <Image
-            source={require('../../../assets/images/arrow.png')}
-            style={styles.greetingArrow}
-          />
+          <Image source={require('../../../assets/images/arrow.png')} style={styles.greetingArrow} />
         </TouchableOpacity>
 
-        {/* 상단 가로 구분선 (Vector 115) */}
         <View style={styles.dividerTop} />
-
-        {/* 섹션: 나의 거래 */}
         <Text style={styles.sectionCaption}>나의 거래</Text>
 
         <TouchableOpacity style={styles.row} onPress={goFavorites} activeOpacity={0.85}>
           <Text style={styles.rowText}>관심 목록</Text>
         </TouchableOpacity>
 
-        {/* 섹션: 차단한 사용자 (탭 가능하게 변경) */}
-        <TouchableOpacity
-          onPress={goBlockedUsers}
-          activeOpacity={0.85}
-          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-        >
+        <TouchableOpacity onPress={goBlockedUsers} activeOpacity={0.85} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
           <Text style={styles.sectionTitle}>차단한 사용자</Text>
         </TouchableOpacity>
 
@@ -148,10 +155,7 @@ export default function MyPagePage() {
           <Text style={styles.rowText}>거래 내역</Text>
         </TouchableOpacity>
 
-        {/* 가운데 가로 구분선 (Vector 116) */}
         <View style={styles.dividerMid} />
-
-        {/* 섹션: 기타 */}
         <Text style={styles.sectionCaption}>기타</Text>
 
         <TouchableOpacity style={styles.row} onPress={goInquiry} activeOpacity={0.85}>
@@ -162,7 +166,6 @@ export default function MyPagePage() {
           <Text style={styles.rowText}>탈퇴하기</Text>
         </TouchableOpacity>
 
-        {/* 스크롤 하단 여백 */}
         <View style={{ height: 20 }} />
       </ScrollView>
     </SafeAreaView>

@@ -1,4 +1,3 @@
-// types/navigation.ts
 import type {
   NativeStackNavigationProp,
   NativeStackScreenProps,
@@ -154,13 +153,13 @@ export type RootStackParamList = {
         targetPostTitle?: string; // 글 제목
         targetKind?: 'market' | 'lost' | 'groupbuy' | 'notice' | 'chat' | 'admin';
 
-        /** ✅ 추가: 신고 대상 사용자 DB id (권한/식별 보조) */
+        /** ✅ 신고 대상 사용자 DB id */
         targetUserId?: number | string;
       }
     | {
         mode: 'review';
-        reportId: string | number;     // ✅ number도 허용 (안전)
-        targetPostTitle?: string;      // ✅ 이 줄 추가!
+        reportId: string | number;   // 문자열/숫자 모두 허용
+        targetPostTitle?: string;
       };
 
   // ✅ 채팅방
@@ -169,7 +168,9 @@ export type RootStackParamList = {
   // ✅ 관리자
   AdminInquiryNotice: undefined;
   AdminMemberList: undefined;
-  AdminReportManage: undefined;
+
+  /** ✅ 여기만 변경: 새로고침 트리거를 위한 optional 파라미터 허용 */
+  AdminReportManage: { refreshKey?: number } | undefined;
 
   // ✅ 추가: 전체 공지 목록 / 등록
   AdminAllNotice: undefined;
