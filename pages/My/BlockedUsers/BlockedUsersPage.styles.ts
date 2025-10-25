@@ -81,9 +81,17 @@ export default StyleSheet.create({
     height: 44,
     borderRadius: 22,
     backgroundColor: '#D9D9D9',
+    overflow: 'hidden', // 내부 이미지가 둥글게 잘리게
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarPlaceholder: {
     backgroundColor: '#D9D9D9',
+  },
+  avatarIcon: {
+    width: 28,
+    height: 28,
+    marginBottom: 3,
   },
   infoCol: {
     flex: 1,

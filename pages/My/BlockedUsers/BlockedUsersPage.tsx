@@ -99,7 +99,13 @@ export default function BlockedUsersPage() {
         {avatar ? (
           <Image source={avatar} style={styles.avatar} />
         ) : (
-          <View style={[styles.avatar, styles.avatarPlaceholder]} />
+          <View style={[styles.avatar, styles.avatarPlaceholder]}>
+            <Image
+              source={require('../../../assets/images/yongnuri-icon-black.png')}
+              style={styles.avatarIcon}
+              resizeMode="contain"
+            />
+          </View>
         )}
 
         {/* 이름 / 학부(옵션) */}
