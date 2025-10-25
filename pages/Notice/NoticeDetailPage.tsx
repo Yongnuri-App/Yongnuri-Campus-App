@@ -30,6 +30,9 @@ import { toAbsoluteUrl } from '../../api/url';
 // ✅ 서버 동기화 하트 토글 훅 추가
 import { useLike } from '@/hooks/useLike';
 
+// ✅ 전체화면 이미지 뷰어(외부 라이브러리)
+import ImageViewing from 'react-native-image-viewing';
+
 const LIKED_MAP_KEY = 'notice_liked_map_v1';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -189,6 +192,23 @@ export default function NoticeDetailPage({
     Linking.openURL(url).catch(() => Alert.alert('오류', '링크를 열 수 없습니다.'));
   }, [ui?.link]);
 
+  // =========================
+  // ✅ 전체화면 이미지 뷰어 상태
+  // =========================
+  const [viewerVisible, setViewerVisible] = useState(false); // 뷰어 노출 여부
+  const [viewerIndex, setViewerIndex] = useState(0);         // 시작 인덱스
+
+  // 이미지 탭 시 해당 인덱스에서 뷰어 오픈
+  const openViewerAt = useCallback((startIdx: number) => {
+    setViewerIndex(startIdx);
+    setViewerVisible(true);
+  }, []);
+
+  // 뷰어 닫기
+  const closeViewer = useCallback(() => {
+    setViewerVisible(false);
+  }, []);
+
   if (loading || !ui) {
     return (
       <View style={styles.fallback}>
@@ -221,16 +241,24 @@ export default function NoticeDetailPage({
               contentOffset={{ x: 0, y: 0 }}
             >
               {images.map((uri, i) => (
-                <Image
+                // ✅ 각 이미지에 onPress를 달아 전체화면 뷰어 오픈
+                <TouchableOpacity
                   key={`${uri}-${i}`}
-                  source={{ uri }}
-                  style={styles.mainImage}
-                  onLoad={() => console.log('[IMG LOAD OK]', uri)}
-                  onError={(e) => {
-                    const err = (e?.nativeEvent as any) || {};
-                    console.warn('[IMG LOAD ERR]', uri, err?.error ?? err);
-                  }}
-                />
+                  activeOpacity={0.9}
+                  onPress={() => openViewerAt(i)}
+                  accessibilityRole="imagebutton"
+                  accessibilityLabel={`이미지 ${i + 1} 크게 보기`}
+                >
+                  <Image
+                    source={{ uri }}
+                    style={styles.mainImage}
+                    onLoad={() => console.log('[IMG LOAD OK]', uri)}
+                    onError={(e) => {
+                      const err = (e?.nativeEvent as any) || {};
+                      console.warn('[IMG LOAD ERR]', uri, err?.error ?? err);
+                    }}
+                  />
+                </TouchableOpacity>
               ))}
             </ScrollView>
           ) : (
@@ -324,6 +352,27 @@ export default function NoticeDetailPage({
           <View style={{ height: 24 }} />
         </View>
       </ScrollView>
+
+      {/* ✅ 전체화면 이미지 뷰어 (Modal 형태) */}
+      <ImageViewing
+        images={images.map((u) => ({ uri: u }))}
+        imageIndex={viewerIndex}        // 현재 시작 인덱스
+        visible={viewerVisible}         // 노출 여부
+        onRequestClose={closeViewer}    // 닫기
+        swipeToCloseEnabled
+        doubleTapToZoomEnabled
+        // 하단 푸터 커스텀: "현재 / 전체" + 닫기 가이드(간단 버전)
+        FooterComponent={({ imageIndex }) => (
+          <View style={{ paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)' }}>
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
+                {`${imageIndex + 1} / ${images.length}`}
+              </Text>
+            </View>
+            {/* <Text style={{ color: '#fff', opacity: 0.9 }}>두 번 탭하여 확대/축소, 아래로 스와이프하여 닫기</Text> */}
+          </View>
+        )}
+      />
 
       {/* 관리자 전용 액션시트: 공지는 수정+삭제 */}
       <AdminActionSheet

@@ -30,6 +30,9 @@ import usePermissions from '../../hooks/usePermissions';
 import type { RootStackScreenProps } from '../../types/navigation';
 import styles from './GroupBuyDetailPage.styles';
 
+// ✅ 전체화면 이미지 뷰어(외부 라이브러리)
+import ImageViewing from 'react-native-image-viewing';
+
 const POSTS_KEY = 'groupbuy_posts_v1';
 const LIKED_MAP_KEY = 'groupbuy_liked_map_v1';
 const COUNT_MAP_KEY = 'groupbuy_current_count_map_v1'; // 현재 인원 캐시
@@ -146,6 +149,17 @@ export default function GroupBuyDetailPage({
   const currentCountRef = useRef<number>(0);
   const lastPatchedRef = useRef<{ value: number; ts: number } | null>(null);
   const loadingRef = useRef(false);
+
+  // ✅ 상세 이미지 전체화면 뷰어 상태
+  const [viewerVisible, setViewerVisible] = useState(false); // 모달 보이기/숨기기
+  const [viewerIndex, setViewerIndex] = useState(0);         // 시작 인덱스
+  
+  // 이미지 탭 시 해당 인덱스에서 뷰어 오픈
+  const openViewerAt = useCallback((startIdx: number) => {
+    setViewerIndex(startIdx);
+    setViewerVisible(true);
+  }, []);
+  const closeViewer = useCallback(() => setViewerVisible(false), []);
 
   const { liked, syncCount, toggleLike } = useLike({
     itemId: id,
@@ -468,11 +482,23 @@ export default function GroupBuyDetailPage({
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={onMomentumEnd}
+              onMomentumScrollEnd={(e) => {
+                const x = e.nativeEvent.contentOffset.x;
+                setIndex(Math.round(x / SCREEN_WIDTH));
+              }}
               contentOffset={{ x: 0, y: 0 }}
             >
               {images.map((uri, i) => (
-                <Image key={`${uri}-${i}`} source={{ uri }} style={styles.mainImage} />
+                // ✅ 각 이미지 탭 시 해당 인덱스에서 전체화면 오픈
+                <TouchableOpacity
+                  key={`${uri}-${i}`}
+                  activeOpacity={0.9}
+                  onPress={() => openViewerAt(i)}
+                  accessibilityRole="imagebutton"
+                  accessibilityLabel={`이미지 ${i + 1} 크게 보기`}
+                >
+                  <Image key={`${uri}-${i}`} source={{ uri }} style={styles.mainImage} />
+                </TouchableOpacity>
               ))}
             </ScrollView>
           ) : (
@@ -583,6 +609,24 @@ export default function GroupBuyDetailPage({
           <View style={{ height: 24 }} />
         </View>
       </ScrollView>
+
+      {/* ✅ 전체화면 이미지 뷰어 (핀치줌/더블탭/스와이프다운 닫기 지원) */}
+      <ImageViewing
+        images={images.map((u) => ({ uri: u }))}
+        imageIndex={viewerIndex}
+        visible={viewerVisible}
+        onRequestClose={closeViewer}
+        swipeToCloseEnabled
+        doubleTapToZoomEnabled
+        FooterComponent={({ imageIndex }) => (
+          <View style={{ paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)' }}>
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{`${imageIndex + 1} / ${images.length}`}</Text>
+            </View>
+            {/* <Text style={{ color: '#fff', opacity: 0.9 }}>두 번 탭해서 확대/축소 • 아래로 스와이프해 닫기</Text> */}
+          </View>
+        )}
+      />
 
       {/* 하단 바: 비작성자만 노출 */}
       {!isOwner && (
