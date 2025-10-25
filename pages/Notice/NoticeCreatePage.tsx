@@ -10,16 +10,18 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Platform,
   SafeAreaView,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
@@ -39,6 +41,7 @@ import {
 } from '../../api/notices';
 
 import Constants from 'expo-constants';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type NoticeWriteRoute = RouteProp<
   RootStackParamList,
@@ -129,6 +132,7 @@ function deserializeNoticeToForm(n: NoticeResponse): DefaultGroupBuyForm {
 export default function NoticeCreatePage() {
   const route = useRoute<NoticeWriteRoute>();
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
 
   const isNoticeWrite = route.name === 'NoticeWrite';
   const mode: 'create' | 'edit' = isNoticeWrite
@@ -228,10 +232,7 @@ export default function NoticeCreatePage() {
       setDesc(f.desc ?? '');
       setApplyUrl(f.applyLink ?? '');
 
-      const endIso = (f.extra as any)?.endDate as
-        | string
-        | null
-        | undefined;
+      const endIso = (f.extra as any)?.endDate as string | null | undefined;
       if (endIso) {
         const d = new Date(endIso);
         if (!isNaN(d.getTime())) setApplyDate(d);
@@ -247,6 +248,20 @@ export default function NoticeCreatePage() {
       setImages(imgs); // PhotoPicker는 http 절대 URL을 그대로 표시
     },
   });
+
+  // ---------- (3) 포커스 시 해당 필드로 자동 스크롤 헬퍼 ----------
+  const scrollRef = useRef<ScrollView>(null);
+  const positions = useRef<Record<string, number>>({}).current;
+
+  const registerY = (key: string) => (e: any) => {
+    positions[key] = e.nativeEvent.layout.y;
+  };
+
+  const scrollTo = (key: string) => {
+    const y = positions[key] ?? 0;
+    // 헤더 높이와 여백 감안해서 약간 위로 보이게
+    scrollRef.current?.scrollTo({ y: Math.max(y - 80, 0), animated: true });
+  };
 
   // 등록/수정 저장 (API 연결)
   const submit = useCallback(async () => {
@@ -372,134 +387,158 @@ export default function NoticeCreatePage() {
     setImages,
   ]);
 
+  // 커스텀 헤더 높이만큼 오프셋 (키보드가 헤더 아래서 시작하도록)
+  const keyboardOffset = 10; 
+
   return (
     <SafeAreaView style={styles.container}>
-      {/* 헤더 */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => navigation.goBack()}
-        >
-          <Image
-            source={require('../../assets/images/back.png')}
-            style={styles.backIcon}
-          />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {mode === 'edit' ? '공지 수정' : '공지 등록'}
-        </Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      <ScrollView
+      <KeyboardAvoidingView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        bounces={false}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={keyboardOffset}
       >
-        {/* 사진 */}
-        <Text style={styles.label}>사진</Text>
-        <PhotoPicker
-          images={images}
-          max={MAX}
-          onAddPress={openAdd}
-          onRemoveAt={removeAt}
-        />
-
-        {/* 제목 */}
-        <Text style={styles.label}>제목</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="글 제목"
-          value={title}
-          onChangeText={setTitle}
-          maxLength={150}
-        />
-
-        {/* 설명 */}
-        <Text style={styles.label}>설명</Text>
-        <TextInput
-          style={[styles.input, styles.textarea]}
-          placeholder="용누리 캠퍼스에 올릴 게시글 내용을 작성해주세요."
-          value={desc}
-          onChangeText={setDesc}
-          multiline
-          textAlignVertical="top"
-        />
-
-        {/* 신청 기간(마감일) */}
-        <Text style={styles.label}>신청 기간</Text>
-        <TouchableOpacity
-          style={styles.dateBtn}
-          onPress={() => setDateOpen(true)}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.dateText}>
-            {applyDate ? formatKoreanDate(applyDate) : '날짜를 선택하세요'}
+        {/* 헤더 */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => navigation.goBack()}
+          >
+            <Image
+              source={require('../../assets/images/back.png')}
+              style={styles.backIcon}
+            />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>
+            {mode === 'edit' ? '공지 수정' : '공지 등록'}
           </Text>
-          <Image
-            source={require('../../assets/images/down.png')}
-            style={styles.chevronIcon}
-          />
-        </TouchableOpacity>
+          <View style={{ width: 24 }} />
+        </View>
 
-        {/* 모집 신청 링크 */}
-        <Text style={styles.label}>모집 신청 링크</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="신청서를 받을 링크 주소를 입력해주세요."
-          value={applyUrl}
-          onChangeText={setApplyUrl}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-        />
-
-        {/* 작성/수정 완료 */}
-        <TouchableOpacity
-          style={[
-            styles.submitBtn,
-            (!canSubmit || submitting) && styles.submitBtnDisabled,
+        <ScrollView
+          ref={scrollRef}
+          style={{ flex: 1 }}
+          contentContainerStyle={[
+            styles.content,
+            // 홈 인디케이터/키보드 위한 하단 여백
+            { paddingBottom: (styles as any)?.content?.paddingBottom ?? 0 + insets.bottom + 24 },
           ]}
-          onPress={submit}
-          disabled={!canSubmit || submitting}
-          activeOpacity={0.85}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
         >
-          <Text style={styles.submitText}>
-            {mode === 'edit'
-              ? submitting
-                ? '수정 중...'
-                : '수정 완료'
-              : submitting
-              ? '작성 중...'
-              : '작성 완료'}
-          </Text>
-        </TouchableOpacity>
+          {/* 사진 */}
+          <Text style={styles.label}>사진</Text>
+          <PhotoPicker
+            images={images}
+            max={MAX}
+            onAddPress={openAdd}
+            onRemoveAt={removeAt}
+          />
 
-        <View style={{ height: 28 }} />
-      </ScrollView>
+          {/* 제목 */}
+          <Text style={styles.label}>제목</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="글 제목"
+            value={title}
+            onChangeText={setTitle}
+            maxLength={150}
+            onLayout={registerY('title')}
+            onFocus={() => scrollTo('title')}
+          />
 
-      {/* 날짜 선택 바텀시트 */}
-      <DatePickerSheet
-        visible={dateOpen}
-        initial={applyDate ?? new Date()}
-        minDate={minDate}
-        maxDate={maxDate}
-        onClose={() => setDateOpen(false)}
-        onConfirm={(d) => {
-          // 시/분은 고정(정오)으로 저장 → 서버에서 날짜만 의미 있게 사용
-          const picked = new Date(
-            d.getFullYear(),
-            d.getMonth(),
-            d.getDate(),
-            12,
-            0,
-            0
-          );
-          setApplyDate(picked);
-          setDateOpen(false);
-        }}
-      />
+          {/* 설명 */}
+          <Text style={styles.label}>설명</Text>
+          <TextInput
+            style={[styles.input, styles.textarea]}
+            placeholder="용누리 캠퍼스에 올릴 게시글 내용을 작성해주세요."
+            value={desc}
+            onChangeText={setDesc}
+            multiline
+            textAlignVertical="top"
+            onLayout={registerY('desc')}
+            onFocus={() => scrollTo('desc')}
+          />
+
+          {/* 신청 기간(마감일) */}
+          <Text style={styles.label}>신청 기간</Text>
+          <TouchableOpacity
+            style={styles.dateBtn}
+            onPress={() => setDateOpen(true)}
+            activeOpacity={0.9}
+            onLayout={registerY('date')}
+          >
+            <Text style={styles.dateText}>
+              {applyDate ? formatKoreanDate(applyDate) : '날짜를 선택하세요'}
+            </Text>
+            <Image
+              source={require('../../assets/images/down.png')}
+              style={styles.chevronIcon}
+            />
+          </TouchableOpacity>
+
+          {/* 모집 신청 링크 */}
+          <Text style={styles.label}>모집 신청 링크</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="신청서를 받을 링크 주소를 입력해주세요."
+            value={applyUrl}
+            onChangeText={setApplyUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            onLayout={registerY('link')}
+            onFocus={() => scrollTo('link')}
+          />
+
+          {/* 작성/수정 완료 */}
+          <TouchableOpacity
+            style={[
+              styles.submitBtn,
+              (!canSubmit || submitting) && styles.submitBtnDisabled,
+            ]}
+            onPress={submit}
+            disabled={!canSubmit || submitting}
+            activeOpacity={0.85}
+            onLayout={registerY('submit')}
+          >
+            <Text style={styles.submitText}>
+              {mode === 'edit'
+                ? submitting
+                  ? '수정 중...'
+                  : '수정 완료'
+                : submitting
+                ? '작성 중...'
+                : '작성 완료'}
+            </Text>
+          </TouchableOpacity>
+
+          <View style={{ height: 28 }} />
+        </ScrollView>
+
+        {/* 날짜 선택 바텀시트 */}
+        <DatePickerSheet
+          visible={dateOpen}
+          initial={applyDate ?? new Date()}
+          minDate={minDate}
+          maxDate={maxDate}
+          onClose={() => setDateOpen(false)}
+          onConfirm={(d) => {
+            // 시/분은 고정(정오)으로 저장 → 서버에서 날짜만 의미 있게 사용
+            const picked = new Date(
+              d.getFullYear(),
+              d.getMonth(),
+              d.getDate(),
+              12,
+              0,
+              0
+            );
+            setApplyDate(picked);
+            setDateOpen(false);
+          }}
+        />
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
