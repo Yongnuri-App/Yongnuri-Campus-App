@@ -16,6 +16,11 @@ export interface BookmarkResponseDto {
   thumbnailUrl?: string | null;
   bookmarkedAt: string;
   likeCount?: number | null;
+  // ✅ 서버 실제 응답에 맞춰 추가
+  price?: number | null;            // 0(무료)도 올 수 있음
+  location?: string | null;         // "AI바이오융합대학"
+  createdAt?: string | null;        // "2025-10-25T19:01:12.876054"
+  statusBadge?: 'SELLING' | 'RESERVED' | 'SOLD_OUT' | string | null;
 }
 
 /** 관심 추가 */

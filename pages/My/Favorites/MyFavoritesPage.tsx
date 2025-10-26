@@ -61,6 +61,7 @@ type LostPost = {
   images: string[];
   likeCount: number;
   authorDept?: string;
+  location?: string;
 };
 
 type RecruitMode = 'unlimited' | 'limited' | null;
@@ -131,26 +132,42 @@ function isClosed(endIso?: string) {
  * - 상세 정보(가격/모집현황 등)가 필요하면, 여기서 postId로 한 번 더 상세조회(batch)해 확장 가능.
  */
 const mapMarketFromBookmarks = (rows: Array<{
-  postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string; likeCount?: number | null;
+  postId: number;
+  title: string;
+  thumbnailUrl?: string | null;
+  bookmarkedAt: string;
+  likeCount?: number | null;
+  price?: number | null;    
+  location?: string | null;   
+  createdAt?: string | null;    
 }>): MarketPost[] =>
   rows.map(r => ({
     id: String(r.postId),
     title: r.title,
-    // price/mode/location은 북마크 응답에 없음 → 리스트에선 표시만 유지
+    price: typeof r.price === 'number' ? r.price : undefined,  
+    location: r.location ?? undefined,                          
     images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
     likeCount: typeof r.likeCount === 'number' ? r.likeCount : 0,
-    createdAt: r.bookmarkedAt,
+    createdAt: r.createdAt ?? r.bookmarkedAt,                   
   }));
 
+// rows 제네릭 타입에 location/createdAt를 옵션으로 추가
 const mapLostFromBookmarks = (rows: Array<{
-  postId: number; title: string; thumbnailUrl?: string | null; bookmarkedAt: string; likeCount?: number | null;
+  postId: number;
+  title: string;
+  thumbnailUrl?: string | null;
+  bookmarkedAt: string;
+  likeCount?: number | null;
+  location?: string | null;    // ✅ 추가
+  createdAt?: string | null;   // ✅ 옵션으로 들어오면 우선 사용
 }>): LostPost[] =>
   rows.map(r => ({
     id: String(r.postId),
     title: r.title,
     images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
     likeCount: typeof r.likeCount === 'number' ? r.likeCount : 0,
-    createdAt: r.bookmarkedAt,
+    createdAt: r.createdAt ?? r.bookmarkedAt,
+    location: r.location ?? undefined,
   }));
 
 const mapGroupFromBookmarks = (rows: Array<{
@@ -342,11 +359,17 @@ export default function MyFavoritesPage() {
       );
     }
     return marketFavs.map((p) => {
-      const subtitle = `${p.authorDept ?? ''}${p.authorDept ? ' · ' : ''}${timeAgo(p.createdAt)}`;
+      const subtitleParts: string[] = [];
+      if (p.location) subtitleParts.push(p.location);            // 위치 먼저
+      subtitleParts.push(timeAgo(p.createdAt));                   //   " · 1시간 전"
+      const subtitle = subtitleParts.join(' · ');
+
       const priceText =
         p.mode === 'donate'
           ? '나눔'
-          : (typeof p.price === 'number' ? `₩ ${Number(p.price).toLocaleString('ko-KR')}` : ''); // 서버 응답엔 가격이 없으니 비워둠
+          : (typeof p.price === 'number'
+              ? (p.price === 0 ? '나눔🩵' : `${Number(p.price).toLocaleString('ko-KR')}원`)  // ✅ 0 → 무료
+              : '');
       const image = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : undefined;
       return (
         <MarketItem
@@ -371,15 +394,22 @@ export default function MyFavoritesPage() {
         </View>
       );
     }
+
     return lostFavs.map((p) => {
-      const subtitle = `${p.authorDept ?? ''}${p.authorDept ? ' · ' : ''}${timeAgo(p.createdAt)}`;
+      // ✅ 위치 · 시간 순서로 표시
+      const subtitleParts: string[] = [];
+      if (p.location) subtitleParts.push(p.location);  // 예: "AI바이오융합대학"
+      subtitleParts.push(timeAgo(p.createdAt));        // 예: "1시간 전"
+      const subtitle = subtitleParts.join(' · ');
+
       const image = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : undefined;
       const typeLabel = p.type === 'lost' ? '분실' : p.type === 'found' ? '습득' : '분실';
+
       return (
         <LostItem
           key={p.id}
           title={p.title}
-          subtitle={subtitle}
+          subtitle={subtitle}              // ✅ 위치 반영된 subtitle
           typeLabel={typeLabel}
           likeCount={p.likeCount ?? 0}
           image={image}
@@ -388,6 +418,7 @@ export default function MyFavoritesPage() {
       );
     });
   };
+
 
   const renderGroupList = () => {
     if (groupFavs.length === 0) {
