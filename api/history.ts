@@ -10,7 +10,10 @@
 
 import { api } from './client';
 
-// ====== 서버 DTO 타입(추정/일부 유연 매핑) ======
+/* -------------------------------------------------------------------
+ * 서버 DTO 타입
+ *  - 위치 필드는 단일 키(location: string|null)만 사용합니다.
+ * ------------------------------------------------------------------- */
 export interface UsedItemHistoryDto {
   id?: number;
   postId: number;
@@ -21,7 +24,11 @@ export interface UsedItemHistoryDto {
   status?: 'SELLING' | 'RESERVED' | 'SOLD' | 'DELETED' | string;
   createdAt: string;
   bookmarkCount?: number;
+
+  /** ✅ 위치 문자열 (예: "체육과학대학") */
+  location?: string | null;
 }
+
 export interface LostItemHistoryDto {
   id: number;
   title: string;
@@ -30,7 +37,11 @@ export interface LostItemHistoryDto {
   // 서버에 따라 'purpose' 또는 'type'으로 올 수 있음 (FOUND/LOST)
   purpose?: 'FOUND' | 'LOST';
   type?: 'FOUND' | 'LOST';
+
+  /** ✅ 위치 문자열 (예: "무도대학") — 분실물도 동일 키로 통일 */
+  location?: string | null;
 }
+
 export interface GroupBuyHistoryDto {
   id: number;
   title: string;
@@ -39,8 +50,12 @@ export interface GroupBuyHistoryDto {
   status?: 'RECRUITING' | 'COMPLETED' | 'DELETED' | string;
 }
 
-// ====== 요청 함수 ======
-export async function fetchUsedItemHistory(type: 'sell' | 'buy'): Promise<UsedItemHistoryDto[]> {
+/* -------------------------------------------------------------------
+ * 요청 함수
+ * ------------------------------------------------------------------- */
+export async function fetchUsedItemHistory(
+  type: 'sell' | 'buy'
+): Promise<UsedItemHistoryDto[]> {
   const { data } = await api.get<UsedItemHistoryDto[]>('/history/used-items', { params: { type } });
   return data ?? [];
 }
@@ -59,9 +74,10 @@ export async function fetchGroupBuyHistory(
   return data ?? [];
 }
 
-// ====== UI 모델로 매핑 헬퍼 ======
-// (현재 TradeHistoryPage가 기대하는 카드 모델 형태에 맞춰 변환)
-
+/* -------------------------------------------------------------------
+ * UI 모델 타입
+ *  - TradeHistoryPage에서 subtitle 조합용으로 locationLabel을 제공
+ * ------------------------------------------------------------------- */
 export type MarketPost = {
   id: string;
   title: string;
@@ -72,6 +88,9 @@ export type MarketPost = {
   // 상태 표기를 위해 임시 필드
   status?: 'SELLING' | 'RESERVED' | 'SOLD' | 'DELETED' | string;
   mode?: 'sell' | 'donate';
+
+  /** ✅ subtitle에 붙일 위치 라벨 (예: "체육과학대학") */
+  locationLabel?: string;
 };
 
 export type MarketTradeRecord = {
@@ -81,6 +100,9 @@ export type MarketTradeRecord = {
   image?: string;
   price?: number | null;
   createdAt: string;
+
+  /** ✅ 거래완료 카드에서도 동일하게 위치 사용 */
+  locationLabel?: string;
 };
 
 export type LostPost = {
@@ -90,6 +112,9 @@ export type LostPost = {
   createdAt: string;
   type: 'lost' | 'found';
   likeCount?: number;
+
+  /** ✅ 분실물 카드 위치 라벨 */
+  locationLabel?: string;
 };
 
 export type GroupPost = {
@@ -101,37 +126,48 @@ export type GroupPost = {
   recruit?: { mode: 'limited' | 'unlimited'; count: number | null };
 };
 
+/* -------------------------------------------------------------------
+ * 매핑 함수
+ *  - 서버의 location(string|null) → locationLabel로 그대로 연결
+ *  - subtitle은 각 페이지에서 "장소 · 시간" 형식으로 조합
+ * ------------------------------------------------------------------- */
+
+/** 중고거래: 내가 올린 글(판매) 카드 모델 */
 export function mapUsedItemToMarketPost(rows: UsedItemHistoryDto[]): MarketPost[] {
   return (rows ?? []).map((r) => {
-    const pid = r.postId ?? r.id;                // ✅ postId 없으면 id 사용
-    const status = r.statusBadge ?? r.status ?? 'SELLING';  // ✅ status 필드명 양쪽 지원
+    const pid = r.postId ?? r.id;                            // postId 우선, 없으면 id
+    const status = r.statusBadge ?? r.status ?? 'SELLING';   // 상태 키 양쪽 지원
     return {
-      id: String(pid),                            // ✅ 항상 문자열 id 보장
+      id: String(pid),
       title: r.title,
       price: r.price ?? null,
       likeCount: r.bookmarkCount ?? 0,
       images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
       createdAt: r.createdAt,
-      status,                                     // mapSaleStatus 에서 사용
+      status,
       mode: 'sell',
+      locationLabel: r.location ?? undefined,                // ✅ 핵심: 단일 키만 사용
     };
   });
 }
 
+/** 중고거래: 내가 구매한 거래완료 스냅샷 카드 모델 */
 export function mapUsedItemToTradeRecords(rows: UsedItemHistoryDto[]): MarketTradeRecord[] {
   return (rows ?? []).map((r) => {
-    const pid = r.postId ?? r.id;                // ✅ postId 없으면 id 사용
+    const pid = r.postId ?? r.id;
     return {
-      id: `${pid}__trade`,                        // 리스트 key
-      postId: String(pid),                        // 상세 이동용
+      id: `${pid}__trade`,
+      postId: String(pid),
       title: r.title,
       image: r.thumbnailUrl ?? undefined,
       price: r.price ?? null,
       createdAt: r.createdAt,
+      locationLabel: r.location ?? undefined,                // ✅ 동일
     };
   });
 }
 
+/** 분실물: 분실/습득 카드 모델 */
 export function mapLostHistory(rows: LostItemHistoryDto[]): LostPost[] {
   return (rows ?? []).map((r) => {
     const purpose = (r.purpose ?? r.type ?? 'LOST').toUpperCase();
@@ -143,10 +179,12 @@ export function mapLostHistory(rows: LostItemHistoryDto[]): LostPost[] {
       // 서버는 FOUND/LOST, 프론트는 found/lost
       type: purpose === 'FOUND' ? 'found' : 'lost',
       likeCount: 0,
-    } as LostPost;
+      locationLabel: r.location ?? undefined,                // ✅ 동일
+    };
   });
 }
 
+/** 공동구매: 등록/신청 카드 모델 */
 export function mapGroupHistory(rows: GroupBuyHistoryDto[]): GroupPost[] {
   return (rows ?? []).map((r) => ({
     id: String(r.id),

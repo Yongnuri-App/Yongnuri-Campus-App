@@ -168,6 +168,7 @@ export default function TradeHistoryPage() {
     setLoading(true);
     try {
       const rows = await fetchUsedItemHistory('sell');
+      console.log('[history sell first]', rows?.[0]); // 어떤 키들로 오는지 확인
       const mine = mapUsedItemToMarketPost(rows);
       // 최신순 정렬(서버가 내려주면 생략 가능)
       mine.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -345,7 +346,9 @@ export default function TradeHistoryPage() {
   const renderMarketItem = ({ item }: { item: MarketPost }) => {
     const firstImage = Array.isArray(item.images) && item.images.length > 0 ? item.images[0] : undefined;
     const saleStatus = mapSaleStatus(item as any);
-    const subtitle = `${timeAgo(item.createdAt)}`;
+    const subtitle = item.locationLabel
+      ? `${item.locationLabel} · ${timeAgo(item.createdAt)}`
+      : `${timeAgo(item.createdAt)}`;
     return (
       <MarketItem
         id={item.id}
@@ -362,7 +365,9 @@ export default function TradeHistoryPage() {
 
   // ✅ 중고거래/구매 렌더러 (거래완료 스냅샷)
   const renderBoughtItem = ({ item }: { item: MarketTradeRecord }) => {
-    const subtitle = `거래완료 · ${timeAgo(item.createdAt)}`;
+    const subtitle = item.locationLabel
+      ? `거래완료 · ${item.locationLabel} · ${timeAgo(item.createdAt)}`
+      : `거래완료 · ${timeAgo(item.createdAt)}`;
     return (
       <MarketItem
         id={item.postId} // 상세는 원글 id로 진입
@@ -380,7 +385,9 @@ export default function TradeHistoryPage() {
   // 분실물 렌더러 (분실/습득)
   const renderLostItem = ({ item }: { item: LostPost }) => {
     const firstImage = Array.isArray(item.images) && item.images.length > 0 ? item.images[0] : undefined;
-    const subtitle = `${timeAgo(item.createdAt)}`;
+    const subtitle = item.locationLabel
+      ? `${item.locationLabel} · ${timeAgo(item.createdAt)}`
+      : `${timeAgo(item.createdAt)}`;
     return (
       <LostItem
         title={item.title}
