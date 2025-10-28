@@ -1,9 +1,3 @@
-// components/Bottom/DetailBottomBar.tsx
-// React Native (Expo, TypeScript)
-// ⚠️ 기존 ChatRoom 네비게이션 파라미터(키 이름들) "절대 변경하지 않음"
-//    → 단지 ChatList 노출을 위해 네비 직전에 upsertRoomOnOpen 저장만 추가
-//    → preview(=내가 방금 입력한 텍스트)를 저장해서 리스트에 곧바로 마지막 메시지가 보이게 함
-
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -18,59 +12,89 @@ import {
   View,
 } from 'react-native';
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useImagePicker } from '../../hooks/useImagePicker';
 import type { ChatRoomParams, RootStackParamList } from '../../types/navigation';
 import styles from './DetailBottomBar.styles';
 
-// ✅ ChatList가 읽어갈 로컬 저장 (리스트 즉시 반영용)
 import { upsertRoomOnOpen } from '@/storage/chatStore';
 import type { ChatCategory } from '@/types/chat';
+import { api } from '@/api/client';
 
-/** 어떤 화면에서 쓰는지 구분 */
 type Variant = 'detail' | 'chat';
-
-/** ✅ 상세 → ChatRoom으로 넘길 정보
- *  기존에 로컬로 정의했던 유니온을 제거하고, 프로젝트 전역 네비 타입을 그대로 사용합니다.
- *  이렇게 해야 authorId / authorEmail / initialSaleStatus 같은 추가 필드를 안전하게 전달할 수 있어요.
- */
 type ChatAutoNavigateParams = ChatRoomParams;
 
 type Props = {
-  /** 기본값은 'detail' (※ 채팅 화면에서는 반드시 variant="chat"으로 넘겨주세요) */
   variant?: Variant;
-
-  // 상세 화면: 좋아요
   initialLiked?: boolean;
   onToggleLike?: (liked: boolean) => void;
-
-  // 채팅 화면: 텍스트 전송 콜백
   onPressSend?: (message: string) => void;
-
-  // 채팅 화면: 이미지 선택됨 콜백 (이번에 고른 URI들을 그대로 전달)
   onAddImages?: (uris: string[]) => void;
-
   placeholder?: string;
   disabled?: boolean;
 
-  // 아이콘 주입
   heartIconSrc?: any;
   heartIconActiveSrc?: any;
   plusIconSrc?: any;
 
   bottomInset?: number;
-
-  // ✅ 상세 화면: 전송 시 자동 네비 파라미터(중고/분실/공동구매 공용) — 기존 키 유지
   chatAutoNavigateParams?: ChatAutoNavigateParams;
 
-  // 채팅 화면: 이미지 선택 옵션
   imagePickerMax?: number;
-  /** 부모에 알린 뒤 내부 버퍼를 비울지 (기본 true) */
   clearPickedAfterNotify?: boolean;
-
-  /** 현재 첨부된 이미지 개수(부모 상태). 0 초과면 텍스트가 비어도 전송버튼 활성화 */
   attachmentsCount?: number;
 };
+
+/* ------------ 유틸 ------------ */
+const toNum = (v: unknown): number | undefined => {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string' && /^\d+$/.test(v.trim())) return Number(v.trim());
+  return undefined;
+};
+const ensureStr = (v: unknown, fb = ''): string =>
+  typeof v === 'string' ? v : v != null ? String(v) : fb;
+
+/* ------------ 채팅타입 매핑 ------------ */
+type ChatTypeEnum = 'USED_ITEM' | 'LOST_ITEM' | 'GROUP_BUY';
+function mapSourceToChatType(source?: string): ChatTypeEnum {
+  switch ((source ?? '').toLowerCase()) {
+    case 'lost':
+      return 'LOST_ITEM';
+    case 'groupbuy':
+      return 'GROUP_BUY';
+    case 'market':
+    default:
+      return 'USED_ITEM';
+  }
+}
+
+/* ------------ 서버 방 생성(보내는 사람은 토큰으로 판별) ------------ */
+// (안의 구현만 교체)
+async function createOrGetRoomOnServer(args: {
+  source: 'market' | 'lost' | 'groupbuy';
+  typeId: number;
+  toUserId: number;
+  message: string;
+}): Promise<number | undefined> {
+  const payload = {
+    type: mapSourceToChatType(args.source),
+    typeId: args.typeId,
+    toUserId: args.toUserId,
+    message: args.message,
+    messageType: 'text',              // 서버 규약
+  };
+  try {
+    console.log('[chat] createOrGetRoom payload', payload);
+    const res = await api.post('/chat/rooms', payload);
+    console.log('[chat] createOrGetRoom response', res?.status, res?.data ? 'ok' : '');
+    const roomId = res?.data?.roomInfo?.roomId;
+    return typeof roomId === 'number' ? roomId : undefined;
+  } catch (e: any) {
+    console.log('[chat] createOrGetRoom error', e?.response?.status, e?.response?.data || e?.message);
+    return undefined;
+  }
+}
+
+/* ================================================================== */
 
 const DetailBottomBar: React.FC<Props> = ({
   variant = 'detail',
@@ -90,57 +114,38 @@ const DetailBottomBar: React.FC<Props> = ({
   imagePickerMax,
 }) => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-
   const [liked, setLiked] = useState(initialLiked);
   const [text, setText] = useState('');
 
-  // 훅은 조건부 호출 금지. chat 모드에서만 결과를 사용합니다.
   const { images: pickedImages, setImages: setPickedImages, openAdd, remain } =
     useImagePicker({ max: imagePickerMax ?? 10 });
 
-  /** 외부 초기 좋아요 값 변경 시 동기화 */
-  useEffect(() => {
-    setLiked(initialLiked);
-  }, [initialLiked]);
+  useEffect(() => setLiked(initialLiked), [initialLiked]);
 
-  /** ✅ 전송 가능: (텍스트 있거나 첨부가 1개 이상) && 비활성 아님 */
   const canSend = useMemo(
     () => (!!text.trim() || attachmentsCount > 0) && !disabled,
     [text, attachmentsCount, disabled]
   );
 
-  /** (detail) 좋아요 토글 */
   const handleToggleLike = () => {
     const next = !liked;
     setLiked(next);
     onToggleLike?.(next);
   };
 
-  /** (chat) + 버튼 → 이미지 추가 */
   const handlePressPlus = () => {
     if (disabled) return;
     openAdd();
   };
 
-  /** ✅ (chat) 이미지 선택 감지: 선택된 걸 통째로 부모로 전달 → 내부 버퍼 비우기(기본) */
   useEffect(() => {
     if (variant !== 'chat') return;
     if (!pickedImages || pickedImages.length === 0) return;
-
-    // 이번 선택분 전체 전달
     onAddImages?.(pickedImages);
-
-    // 중복 전달 방지: 내부 버퍼 초기화(옵션)
-    if (clearPickedAfterNotify) {
-      setPickedImages([]);
-    }
+    if (clearPickedAfterNotify) setPickedImages([]);
   }, [pickedImages, variant, onAddImages, clearPickedAfterNotify, setPickedImages]);
 
-  /**
-   * ✅ 전송
-   * - detail 모드: (1) 로컬에 방 upsert(미리보기 포함) 후, (2) **기존 네비 파라미터 그대로** ChatRoom으로 이동
-   * - chat 모드: 상위에서 전달한 전송 핸들러 호출
-   */
+  /** 상세 → 방 생성(가능하면) + 네비게이션 */
   const handlePressSend = async () => {
     if (!canSend) return;
     const msg = text.trim();
@@ -149,8 +154,7 @@ const DetailBottomBar: React.FC<Props> = ({
       if (!chatAutoNavigateParams) {
         Alert.alert('알림', '채팅방 이동 정보를 찾을 수 없어요.');
       } else {
-        // === (1) ChatList 노출 위해 upsert만 수행 (네비 파라미터는 수정하지 않음) ===
-        //     - category: 'groupbuy'는 저장 시 'group'으로만 매핑 (리스트 필터 호환 목적)
+        // (A) ChatList 미리보기 반영
         let roomId = '';
         let category: ChatCategory = 'market';
         let nickname = '';
@@ -173,23 +177,15 @@ const DetailBottomBar: React.FC<Props> = ({
           nickname = p.posterNickname;
           productTitle = p.postTitle;
           productImageUri = p.postImageUri;
-
-          try {
-            const myNick = await AsyncStorage.getItem('auth_user_nickname');
-            (chatAutoNavigateParams as any).buyerNickname = myNick || undefined;     // 분실물용
-            (chatAutoNavigateParams as any).opponentNickname = myNick || undefined;  // 일반 호환
-          } catch {}
         } else {
-          // source === 'groupbuy'
-          const p = chatAutoNavigateParams;
-          category = 'group';             // ✅ 저장 전용 매핑 (UI 필터 호환)
+          const p = chatAutoNavigateParams; // groupbuy
+          category = 'group';
           roomId = `group-${p.postId}-${p.authorNickname}`;
           nickname = p.authorNickname;
           productTitle = p.postTitle;
           productImageUri = p.postImageUri;
         }
 
-        // ✅ preview에 내가 보낸 텍스트(msg)를 넣어, 리스트에 즉시 마지막 메시지가 보이도록 함
         await upsertRoomOnOpen({
           roomId,
           category,
@@ -199,28 +195,67 @@ const DetailBottomBar: React.FC<Props> = ({
           productImageUri,
           preview: msg,
           origin: {
-            source: chatAutoNavigateParams.source, // 'market' | 'lost' | 'groupbuy'
-            params: chatAutoNavigateParams,        // ✅ 기존 네비 파라미터 원본 그대로 보관!
+            source: chatAutoNavigateParams.source,
+            params: chatAutoNavigateParams,
           },
         });
 
-        // === (2) ChatRoom으로 이동: 네가 쓰던 파라미터 형태를 1도 바꾸지 않음 ===
+        // --- (B) 서버 채팅방 생성 시도 ---
+        let serverRoomId: number | undefined = undefined;
+
+        try {
+          const src = chatAutoNavigateParams.source; // 'market' | 'lost' | 'groupbuy'
+          const typeId = toNum((chatAutoNavigateParams as any)?.postId);
+
+          const p: any = chatAutoNavigateParams;
+          let toUserId =
+            toNum(p.sellerId) ??
+            toNum(p.authorId) ??
+            toNum(p.opponentId) ??
+            undefined;
+
+          if (toUserId === undefined) {
+            const targetEmail =
+              ensureStr(p.sellerEmail) ||
+              ensureStr(p.authorEmail) ||
+              ensureStr(p.opponentEmail) ||
+              '';
+            if (targetEmail) {
+              console.log('[chat] only email present for opponent (no ID):', targetEmail);
+            }
+          }
+
+          if (typeId && toUserId) {
+            // ✅ 여기: 방 생성 후 serverRoomId 반환 받기
+            serverRoomId = await createOrGetRoomOnServer({
+              source: src,
+              typeId,
+              toUserId,
+              message: msg,
+            });
+          } else {
+            console.log('[chat] createOrGetRoom missing ids (typeId/toUserId)', { typeId, toUserId });
+          }
+        } catch (e) {
+          console.log('[chat] createOrGetRoom skipped (error)', e);
+        }
+
+        // --- (C) ChatRoom으로 네비 (serverRoomId 포함) ---
         navigation.navigate('ChatRoom', {
-          ...chatAutoNavigateParams, // ✅ 기존 키 그대로( sellerNickname / postTitle / recruitLabel 등 )
-          initialMessage: msg,       // (선택) ChatRoom에서 초기 전송 처리 시 사용
+          ...chatAutoNavigateParams,
+          initialMessage: msg,
+          serverRoomId, // ✅ 추가
         } as any);
       }
     } else {
-      // 채팅 화면
       onPressSend
         ? onPressSend(msg)
         : Alert.alert('알림', '전송 핸들러가 연결되지 않았습니다.');
     }
 
-    setText(''); // 입력 초기화
+    setText('');
   };
 
-  /** 좌측 버튼: detail=♥ / chat=＋ */
   const LeftButton = () =>
     variant === 'detail' ? (
       <TouchableOpacity
@@ -251,7 +286,6 @@ const DetailBottomBar: React.FC<Props> = ({
     );
 
   return (
-    // iOS에서 키보드 올라올 때 바가 살짝 위로 이동
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
@@ -259,10 +293,8 @@ const DetailBottomBar: React.FC<Props> = ({
     >
       <View style={[styles.safe, { paddingBottom: bottomInset }]}>
         <View style={[styles.wrap, disabled && { opacity: 0.6 }]}>
-          {/* 좌측: detail=하트 / chat=플러스 */}
           <LeftButton />
 
-          {/* 입력 */}
           <View style={styles.inputBox}>
             <TextInput
               style={styles.input}
@@ -276,12 +308,15 @@ const DetailBottomBar: React.FC<Props> = ({
             />
           </View>
 
-          {/* 전송 */}
           <TouchableOpacity
             onPress={handlePressSend}
-            activeOpacity={canSend ? 0.9 : 1}
-            style={[styles.sendBtn, !canSend && styles.sendBtnDisabled]}
-            disabled={!canSend}
+            activeOpacity={!!text.trim() || attachmentsCount > 0 ? 0.9 : 1}
+            style={[
+              styles.sendBtn,
+              !((!!text.trim() || attachmentsCount > 0) && !disabled) &&
+                styles.sendBtnDisabled,
+            ]}
+            disabled={!((!!text.trim() || attachmentsCount > 0) && !disabled)}
             accessibilityRole="button"
             accessibilityLabel="전송"
           >

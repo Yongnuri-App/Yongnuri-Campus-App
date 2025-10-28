@@ -6,7 +6,6 @@
     "orientation": "portrait",
     "scheme": "yongnuri",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true
     },

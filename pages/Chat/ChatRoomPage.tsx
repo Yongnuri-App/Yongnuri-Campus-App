@@ -33,6 +33,7 @@ import marketTradeRepo from '@/repositories/trades/MarketTradeRepo';
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 
 import { resolveRoomIdForOpen, updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
+import { getRoomDetail } from '@/api/chat';
 
 const calendarIcon = require('../../assets/images/calendar.png');
 
@@ -45,14 +46,6 @@ const toLabel = (s?: ApiSaleStatus): SaleStatusLabel => {
     case 'SOLD':     return '거래완료';
     case 'ON_SALE':
     default:         return '판매중';
-  }
-};
-const toApi = (l: SaleStatusLabel): ApiSaleStatus => {
-  switch (l) {
-    case '예약중':   return 'RESERVED';
-    case '거래완료': return 'SOLD';
-    case '판매중':
-    default:         return 'ON_SALE';
   }
 };
 
@@ -99,29 +92,21 @@ function pickOtherNickname(opts: {
   return buyerName || opponentNickname || '상대방';
 }
 
-function toMs(t: unknown): number {
-  if (typeof t === 'number') return t;
-  if (typeof t === 'string') return Number(new Date(t));
-  if (t instanceof Date) return Number(t);
-  return Date.now();
-}
-function buildPreviewFromMessage(m: any): string {
-  switch (m?.type) {
-    case 'text': return (m?.text ?? '').toString();
-    case 'image':
-      if (typeof m?.count === 'number' && m.count > 1) return `📷 사진 ${m.count}장`;
-      if (Array.isArray(m?.imageUris) && m.imageUris.length > 1) return `📷 사진 ${m.imageUris.length}장`;
-      return '📷 사진';
-    case 'appointment': return '📅 약속 제안';
-    case 'system': return (m?.text ?? '시스템 알림').toString();
-    default: return (m?.text ?? String(m?.type ?? '')).toString();
-  }
+// 서버 응답 메시지 → 앱 메시지 변환
+function mapServerMsg(m: any) {
+  return {
+    id: `srv-${m.senderId}-${m.createdAt}`,
+    type: 'text',
+    text: String(m.message ?? ''),
+    time: new Date(m.createdAt).toISOString(),
+  } as any;
 }
 
 export default function ChatRoomPage() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<any>();
   const raw = (route.params ?? {}) as any;
+  const serverRoomId: number | undefined = raw?.serverRoomId;
 
   const [open, setOpen] = useState(false);
 
@@ -161,11 +146,11 @@ export default function ChatRoomPage() {
         return;
       }
       try {
-        // 1) 정규 roomId 계산 (이미 같은 스레드가 있으면 그 방의 roomId 반환)
+        // 정규 roomId 계산
         const canonical = await resolveRoomIdForOpen(raw, proposedId);
         const finalId = canonical ?? proposedId;
 
-        // 2) 만약 제안값과 정규값이 다르면, 제안값 밑에 저장된 메시지를 정규 roomId로 이관
+        // 키 변경 시 기존 메시지 이관
         if (finalId !== proposedId) {
           const K = 'chat_messages_';
           const from = await AsyncStorage.getItem(K + proposedId);
@@ -176,71 +161,30 @@ export default function ChatRoomPage() {
           }
         }
 
-        // 3) 화면/훅 모두 정규 roomId로 통일
         setRoomId(finalId);
       } catch {
-        // 실패해도 제안값으로 진행
         setRoomId(proposedId);
       }
     })();
-    // proposedId 또는 raw가 바뀌었을 때만 재평가
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proposedId]);
+  }, [proposedId, raw]);
 
   const initialMessage: string | undefined = raw?.initialMessage;
 
-  // ✅ 게시자/나 정보 (이하 로직 동일)
-  const posterNickname: string = useMemo(() => (
-    (raw?.posterNickname ??
-      raw?.authorNickname ??
-      raw?.writerNickname ??
-      raw?.nickname ??
-      raw?.origin?.params?.posterNickname ??
-      '') + ''
-  ), [raw]);
-  const [myNickname, setMyNickname] = useState<string | null>(null);
-  useEffect(() => {
-    (async () => {
-      try {
-        const nick = await AsyncStorage.getItem('auth_user_nickname');
-        setMyNickname(nick);
-      } catch {
-        setMyNickname(null);
-      }
-    })();
-  }, []);
-
+  // 권한 판단에 필요한 작성자 정보
   const authorEmailAny: string | null =
-    raw?.authorEmail ??
-    raw?.writerEmail ??
-    raw?.posterEmail ??
-    raw?.sellerEmail ??
-    raw?.postOwnerEmail ??
-    raw?.ownerEmail ??
-    raw?.lostOwnerEmail ??
-    raw?.origin?.params?.authorEmail ??
-    raw?.origin?.params?.writerEmail ??
-    raw?.origin?.params?.posterEmail ??
-    raw?.origin?.params?.sellerEmail ??
-    raw?.origin?.params?.postOwnerEmail ??
-    raw?.origin?.params?.ownerEmail ??
-    raw?.origin?.params?.lostOwnerEmail ??
-    null;
+    raw?.authorEmail ?? raw?.writerEmail ?? raw?.posterEmail ?? raw?.sellerEmail ??
+    raw?.postOwnerEmail ?? raw?.ownerEmail ?? raw?.lostOwnerEmail ??
+    raw?.origin?.params?.authorEmail ?? raw?.origin?.params?.writerEmail ??
+    raw?.origin?.params?.posterEmail ?? raw?.origin?.params?.sellerEmail ??
+    raw?.origin?.params?.postOwnerEmail ?? raw?.origin?.params?.ownerEmail ??
+    raw?.origin?.params?.lostOwnerEmail ?? null;
 
   const authorIdAny: string | number | null =
-    raw?.authorId ??
-    raw?.writerId ??
-    raw?.posterId ??
-    raw?.sellerId ??
-    raw?.postOwnerId ??
-    raw?.ownerId ??
-    raw?.origin?.params?.authorId ??
-    raw?.origin?.params?.writerId ??
-    raw?.origin?.params?.posterId ??
-    raw?.origin?.params?.sellerId ??
-    raw?.origin?.params?.postOwnerId ??
-    raw?.origin?.params?.ownerId ??
-    null;
+    raw?.authorId ?? raw?.writerId ?? raw?.posterId ?? raw?.sellerId ??
+    raw?.postOwnerId ?? raw?.ownerId ??
+    raw?.origin?.params?.authorId ?? raw?.origin?.params?.writerId ??
+    raw?.origin?.params?.posterId ?? raw?.origin?.params?.sellerId ??
+    raw?.origin?.params?.postOwnerId ?? raw?.origin?.params?.ownerId ?? null;
 
   const authorEmailU: string | undefined = authorEmailAny ?? undefined;
   const authorIdU: string | number | undefined =
@@ -274,17 +218,10 @@ export default function ChatRoomPage() {
   const buyerId  = raw?.buyerId  ?? raw?.opponentId ?? raw?.userId ?? undefined;
 
   const sellerName =
-    raw?.sellerNickname ??
-    raw?.posterNickname ??
-    raw?.authorNickname ??
-    raw?.writerNickname ??
-    raw?.nickname ??
-    '';
+    raw?.sellerNickname ?? raw?.posterNickname ?? raw?.authorNickname ??
+    raw?.writerNickname ?? raw?.nickname ?? '';
   const buyerName =
-    raw?.buyerNickname ??
-    raw?.userNickname ??
-    raw?.opponentBuyerNickname ??
-    '';
+    raw?.buyerNickname ?? raw?.userNickname ?? raw?.opponentBuyerNickname ?? '';
 
   const headerTitle: string = useMemo(() => {
     return pickOtherNickname({
@@ -306,15 +243,12 @@ export default function ChatRoomPage() {
   const {
     messages, setMessages,
     attachments, extraBottomPad,
-    loadAndSeed, addAttachments, removeAttachmentAt, send, pushSystemAppointment
+    addAttachments, removeAttachmentAt, send, pushSystemAppointment
   } = useChatRoom(roomId ?? '', roomId ? initialMessage : undefined);
 
   const isLostContext = useMemo(() => {
     const s =
-      raw?.source ??
-      raw?.category ??
-      raw?.origin?.source ??
-      raw?.origin?.params?.source;
+      raw?.source ?? raw?.category ?? raw?.origin?.source ?? raw?.origin?.params?.source;
     const hasLostHints =
       raw?.purpose === 'lost' ||
       raw?.purpose === 'found' ||
@@ -355,10 +289,7 @@ export default function ChatRoomPage() {
     postTitle: cardTitle,
     postImageUri: cardImageUri,
     place: isLost ? (raw?.place ?? undefined) : undefined,
-    recipientEmails: [
-      authorEmailAny ?? undefined,
-      opponentEmailX ?? undefined,
-    ].filter(Boolean) as string[],
+    recipientEmails: [authorEmailAny ?? undefined, opponentEmailX ?? undefined].filter(Boolean) as string[],
   });
 
   const opponent = useMemo<BlockedUser | null>(() => {
@@ -495,11 +426,9 @@ export default function ChatRoomPage() {
     raw?.productPrice, raw?.postCreatedAt, raw?.createdAt, raw?.sellerEmail, raw?.sellerId
   ]);
 
+  // (A) ChatList 즉시 반영
   useEffect(() => {
-    if (!roomId) return;
-    if (!identityReady) return;
-    if (!headerTitle) return;
-
+    if (!roomId || !identityReady || !headerTitle) return;
     (async () => {
       try {
         await upsertRoomOnOpen({
@@ -510,55 +439,85 @@ export default function ChatRoomPage() {
           productPrice: isMarket ? raw?.productPrice : undefined,
           productImageUri: isMarket ? raw?.productImageUri : undefined,
           preview: initialMessage,
-          origin: {
-            source: isMarket ? 'market' : isLost ? 'lost' : 'groupbuy',
-            params: raw,
-          },
+          origin: { source: isMarket ? 'market' : isLost ? 'lost' : 'groupbuy', params: raw },
         });
       } catch (e) {
         console.log('upsertRoomOnOpen error', e);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, identityReady, headerTitle]);
+  }, [roomId, identityReady, headerTitle, isMarket, isLost, raw, initialMessage]);
 
+  // (B) 전송 시 헤더 닉네임/미리보기 갱신
   useEffect(() => {
-    if (!roomId) return;
-    if (!identityReady) return;
-    if (!headerTitle) return;
+    if (!roomId || !identityReady || !headerTitle) return;
+    updateRoomOnSendSmart({ roomId, originParams: raw, nickname: headerTitle }).catch(() => {});
+  }, [roomId, identityReady, headerTitle, raw]);
 
-    updateRoomOnSendSmart({
-      roomId,
-      originParams: raw,
-      nickname: headerTitle,
-    }).catch(() => {});
-  }, [roomId, identityReady, headerTitle]);
+  // (C) 서버 방 상세 조회
+  useEffect(() => {
+    (async () => {
+      if (!serverRoomId || !roomId) return;
+      try {
+        const data = await getRoomDetail(serverRoomId);
 
-  // ====== ✅ 카드 존재여부 검사(헤더로 주입) ======
-  const checkPostExistsExternally = useCallback(async (meta: { source: 'market'|'lost'|'group', postId: string }) => {
-    // 1) 로컬 캐시에서 먼저 찾기
-    const keyBySource: Record<typeof meta.source, string> = {
-      market: 'market_posts_v1',
-      lost:   'lost_found_posts_v1',
-      group:  'groupbuy_posts_v1',
-    };
-    try {
-      const key = keyBySource[meta.source];
-      const rawList = await AsyncStorage.getItem(key);
-      if (rawList) {
-        const list = JSON.parse(rawList);
-        if (Array.isArray(list)) {
-          const found = list.find((it: any) => String(it?.id ?? it?.postId) === String(meta.postId));
-          if (found?.deleted === true) return false;
-          if (found) return true;
+        if (data?.roomInfo?.opponentNickname) {
+          await upsertRoomOnOpen({
+            roomId,
+            category: isMarket ? 'market' : isLost ? 'lost' : 'group',
+            nickname: data.roomInfo.opponentNickname,
+            productTitle: isMarket ? raw?.productTitle : undefined,
+            productPrice: isMarket ? raw?.productPrice : undefined,
+            productImageUri: isMarket ? raw?.productImageUri : undefined,
+            preview: data?.messages?.[data.messages.length - 1]?.message ?? initialMessage,
+            origin: { source: isMarket ? 'market' : isLost ? 'lost' : 'groupbuy', params: raw },
+          });
+        }
+
+        if (Array.isArray(data?.messages)) {
+          setMessages(prev => {
+            const mapped = data.messages.map(mapServerMsg);
+            const exists = new Set(prev.map(p => p.id));
+            const merged = [...prev];
+            for (const m of mapped) if (!exists.has(m.id)) merged.push(m);
+            return merged;
+          });
+        }
+      } catch (e: any) {
+        if (e?.response?.status === 403) {
+          Alert.alert('접근 불가', '이 채팅방의 참여자가 아니어서 열람할 수 없어요.', [
+            { text: '확인', onPress: () => navigation.goBack() },
+          ]);
+        } else {
+          console.log('[ChatRoom] getRoomDetail error', e?.response?.data || e);
         }
       }
-    } catch {
-      // 캐시 조회 실패는 무시하고 다음 단계로
-    }
-    // 2) TODO: 필요 시 API 조회 (404 → false)
-    return true; // 캐시에 없으면 일단 존재한다고 가정(임시)
-  }, []);
+    })();
+  }, [serverRoomId, roomId, isMarket, isLost, raw, initialMessage, navigation, setMessages]);
+
+  // ====== 헤더 카드 존재 확인 콜백 (훅으로 선언해 JSX에 전달) ======
+  const checkPostExistsExternally = useCallback(
+    async (meta: { source: 'market'|'lost'|'group'; postId: string }) => {
+      const keyBySource: Record<typeof meta.source, string> = {
+        market: 'market_posts_v1',
+        lost:   'lost_found_posts_v1',
+        group:  'groupbuy_posts_v1',
+      };
+      try {
+        const key = keyBySource[meta.source];
+        const rawList = await AsyncStorage.getItem(key);
+        if (rawList) {
+          const list = JSON.parse(rawList);
+          if (Array.isArray(list)) {
+            const found = list.find((it: any) => String(it?.id ?? it?.postId) === String(meta.postId));
+            if (found?.deleted === true) return false;
+            if (found) return true;
+          }
+        }
+      } catch {}
+      return true;
+    },
+    []
+  );
 
   // ====== 렌더 ======
   if (!roomId) {
@@ -586,7 +545,6 @@ export default function ChatRoomPage() {
           postId: headerPostId,
           title: cardTitle,
           thumbnailUri: cardImageUri,
-
           // 🔽 부가 정보 전달!
           priceLabel,
           purpose,
@@ -596,7 +554,7 @@ export default function ChatRoomPage() {
         checkPostExistsExternally={checkPostExistsExternally}
       />
 
-      {/* 액션 행 (약속잡기 / 판매상태 / 분실 회수) */}
+      {/* 액션 행 (약속잡기 / 판매상태 변경 / 분실 회수) */}
       <View style={styles.actionsRow}>
         <View style={styles.actionsLeft}>
           <TouchableOpacity style={styles.scheduleBtn} onPress={() => setOpen(true)}>
@@ -605,7 +563,6 @@ export default function ChatRoomPage() {
           </TouchableOpacity>
         </View>
         <View style={styles.actionsRight}>
-          {/* 중고거래: 판매자만 상태 변경 */}
           {isMarket && isOwner && !!raw?.postId && (
             <SaleStatusSelector
               value={saleStatusLabel}
@@ -613,13 +570,8 @@ export default function ChatRoomPage() {
               onCompleteTrade={recordTradeCompletion}
             />
           )}
-          {/* 분실물: "게시자" 본인에게만 완료 처리 버튼 노출 */}
           {showLostClose && (
-            <LostCloseButton
-              value={lostStatus}
-              onClose={handleCloseLost}
-              readOnly={false}
-            />
+            <LostCloseButton value={lostStatus} onClose={handleCloseLost} readOnly={false} />
           )}
         </View>
       </View>

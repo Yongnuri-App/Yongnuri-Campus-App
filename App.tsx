@@ -1,7 +1,7 @@
 // App.tsx
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import React, { useEffect } from 'react'; // ✅ useEffect 추가
+import React, { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { RootStackParamList } from './types/navigation';
@@ -50,7 +50,57 @@ import AllNoticePage from './pages/Admin/AllNotice/AllNoticePage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setAuthToken } from './api/client';
 
+// ✅ dev overlay용
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+/** ─────────────────────────────────────────────────────────
+ * DEV 전용: 채팅 캐시 초기화
+ * - chat_rooms_v1       : 채팅 리스트
+ * - chat_thread_index_v1: 쓰레드-룸 매핑
+ * - chat_messages_*     : 방별 메시지(선택)
+ *  ───────────────────────────────────────────────────────── */
+async function clearChatCache({ alsoMessages = true }: { alsoMessages?: boolean } = {}) {
+  try {
+    // 1) 인덱스/리스트 제거
+    await AsyncStorage.removeItem('chat_thread_index_v1');
+    await AsyncStorage.removeItem('chat_rooms_v1');
+
+    // 2) (옵션) 방별 메시지 제거
+    if (alsoMessages) {
+      const keys = await AsyncStorage.getAllKeys();
+      const msgKeys = keys.filter((k) => k.startsWith('chat_messages_'));
+      if (msgKeys.length > 0) {
+        await AsyncStorage.multiRemove(msgKeys);
+      }
+    }
+
+    console.log('✅ 채팅 캐시 초기화 완료');
+    Alert.alert('완료', '채팅 캐시를 초기화했습니다.');
+  } catch (e) {
+    console.error('❌ 채팅 캐시 초기화 실패', e);
+    Alert.alert('오류', '채팅 캐시 초기화 중 문제가 발생했어요.');
+  }
+}
+
+/** DEV 모드에서만 보이는 작은 디버그 버튼 */
+function DevChatCacheButton() {
+  if (!__DEV__) return null;
+  return (
+    <View pointerEvents="box-none" style={styles.devFloatingWrap}>
+      <Pressable
+        onLongPress={() => clearChatCache({ alsoMessages: true })}
+        onPress={() => clearChatCache({ alsoMessages: false })}
+        style={styles.devBtn}
+      >
+        {/* 짧게 탭: 리스트/인덱스만 초기화, 길게: 전부 초기화 */}
+        <Text style={styles.devBtnText}>캐시초기화</Text>
+        <Text style={styles.devBtnHint}>탭:목록만 / 길게:전체</Text>
+      </Pressable>
+    </View>
+  );
+}
 
 export default function App() {
   // ✅ 앱 시작 시 저장된 토큰을 불러와 axios Authorization 헤더에 세팅
@@ -152,6 +202,27 @@ export default function App() {
           />
         </Stack.Navigator>
       </NavigationContainer>
+
+      {/* ✅ DEV 전용 캐시 초기화 버튼 (프로덕션 빌드에서는 렌더되지 않음) */}
+      <DevChatCacheButton />
     </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  devFloatingWrap: {
+    position: 'absolute',
+    right: 12,
+    bottom: 18,
+    zIndex: 9999,
+  },
+  devBtn: {
+    backgroundColor: '#111',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    opacity: 0.82,
+  },
+  devBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  devBtnHint: { color: '#bbb', fontSize: 10, marginTop: 2 },
+});

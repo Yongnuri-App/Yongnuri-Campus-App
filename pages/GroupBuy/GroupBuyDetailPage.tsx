@@ -654,6 +654,8 @@ export default function GroupBuyDetailPage({
                 ? `현재 모집 인원 ${item.currentCount ?? 0}명 (${item.recruit?.count ?? 0}명)`
                 : `현재 모집 인원 ${item.currentCount ?? 0}명 (제한 없음)`,
             postImageUri: thumbUri,
+            authorId: item.authorId as any,            // 숫자/문자 모두 허용, 내부에서 숫자 변환
+            authorEmail: item.authorEmail ?? undefined // 혹시 모를 폴백용(현재는 미사용)
           }}
         />
       )}
