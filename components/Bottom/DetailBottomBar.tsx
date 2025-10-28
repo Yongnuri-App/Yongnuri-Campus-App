@@ -16,9 +16,9 @@ import { useImagePicker } from '../../hooks/useImagePicker';
 import type { ChatRoomParams, RootStackParamList } from '../../types/navigation';
 import styles from './DetailBottomBar.styles';
 
+import { api } from '@/api/client';
 import { upsertRoomOnOpen } from '@/storage/chatStore';
 import type { ChatCategory } from '@/types/chat';
-import { api } from '@/api/client';
 
 type Variant = 'detail' | 'chat';
 type ChatAutoNavigateParams = ChatRoomParams;
@@ -79,8 +79,8 @@ async function createOrGetRoomOnServer(args: {
     type: mapSourceToChatType(args.source),
     typeId: args.typeId,
     toUserId: args.toUserId,
-    message: args.message,
-    messageType: 'text',              // 서버 규약
+    // message: args.message,
+    // messageType: 'text',              // 서버 규약
   };
   try {
     console.log('[chat] createOrGetRoom payload', payload);
