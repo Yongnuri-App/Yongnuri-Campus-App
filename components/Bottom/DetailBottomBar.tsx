@@ -19,6 +19,8 @@ import styles from './DetailBottomBar.styles';
 import { api } from '@/api/client';
 import { upsertRoomOnOpen } from '@/storage/chatStore';
 import type { ChatCategory } from '@/types/chat';
+import { getLocalIdentity } from '@/utils/localIdentity';
+import { buildMarketRoomId } from '@/utils/openChatRoom';
 
 type Variant = 'detail' | 'chat';
 type ChatAutoNavigateParams = ChatRoomParams;
@@ -154,7 +156,7 @@ const DetailBottomBar: React.FC<Props> = ({
       if (!chatAutoNavigateParams) {
         Alert.alert('알림', '채팅방 이동 정보를 찾을 수 없어요.');
       } else {
-        // (A) ChatList 미리보기 반영
+        // (A) roomId/목록 프리뷰 준비
         let roomId = '';
         let category: ChatCategory = 'market';
         let nickname = '';
@@ -162,29 +164,61 @@ const DetailBottomBar: React.FC<Props> = ({
         let productPrice: number | undefined;
         let productImageUri: string | undefined;
 
+        // ✅ 현재 로그인 사용자(= 구매자) 메타 확보
+        const { userEmail, userId } = await getLocalIdentity();
+        const buyer = { email: userEmail ?? null, id: userId ?? null };
+
         if (chatAutoNavigateParams.source === 'market') {
           const p = chatAutoNavigateParams;
           category = 'market';
-          roomId = `market-${p.postId}-${p.sellerNickname}`;
           nickname = p.sellerNickname;
           productTitle = p.productTitle;
           productPrice = p.productPrice;
           productImageUri = p.productImageUri;
+
+          // ✅ 판매자 메타(작성자) 보강: authorEmail/authorId가 있으면 사용
+          const seller = {
+            email: (p as any).authorEmail ?? null,
+            id: (p as any).authorId ?? null,
+            nickname: p.sellerNickname,
+          };
+          // ✅ 충돌 없는 roomId 생성 (post + seller + buyer)
+          roomId = buildMarketRoomId(String(p.postId), seller, buyer);
         } else if (chatAutoNavigateParams.source === 'lost') {
-          const p = chatAutoNavigateParams;
+          // (참고) 분실물도 동일한 원리 적용 권장: poster(상대) + buyer(나)
+          const p = chatAutoNavigateParams as any;
           category = 'lost';
-          roomId = `lost-${p.postId}-${p.posterNickname}`;
           nickname = p.posterNickname;
           productTitle = p.postTitle;
           productImageUri = p.postImageUri;
+
+          // 간단 폴백 roomId (필요시 openChatRoom에 lost용 빌더 추가 권장)
+          const posterKey = (p.posterEmail ?? p.authorEmail ?? p.posterId ?? p.authorId ?? '').toString().toLowerCase();
+          const buyerKey = (buyer.email ?? buyer.id ?? '').toString().toLowerCase();
+          roomId = `l_${p.postId}__poster_${posterKey}__u_${buyerKey}`;
         } else {
-          const p = chatAutoNavigateParams; // groupbuy
+          // groupbuy
+          const p = chatAutoNavigateParams as any;
           category = 'group';
-          roomId = `group-${p.postId}-${p.authorNickname}`;
           nickname = p.authorNickname;
           productTitle = p.postTitle;
           productImageUri = p.postImageUri;
+
+          const authorKey = (p.authorEmail ?? p.authorId ?? '').toString().toLowerCase();
+          const buyerKey = (buyer.email ?? buyer.id ?? '').toString().toLowerCase();
+          roomId = `g_${p.postId}__a_${authorKey}__u_${buyerKey}`;
         }
+
+        // ✅ 쓰레드 키가 "판매자+구매자"를 포함하도록 origin.params에 buyer 식별자 주입
+        // makeThreadKey는 p1= seller/author, p2= buyer/opponent/user* 를 참고하므로,
+        // 여기서 buyerEmail/buyerId(or userEmail/userId) 를 넣어주면 충돌이 사라집니다.
+        const originParams = {
+          ...chatAutoNavigateParams,
+          buyerEmail: buyer.email ?? undefined,
+          buyerId: buyer.id != null ? String(buyer.id) : undefined,
+          userEmail: buyer.email ?? undefined, // 보조 키
+          userId: buyer.id != null ? String(buyer.id) : undefined, // 보조 키
+        };
 
         await upsertRoomOnOpen({
           roomId,
@@ -196,13 +230,12 @@ const DetailBottomBar: React.FC<Props> = ({
           preview: msg,
           origin: {
             source: chatAutoNavigateParams.source,
-            params: chatAutoNavigateParams,
+            params: originParams,
           },
         });
 
-        // --- (B) 서버 채팅방 생성 시도 ---
+        // --- (B) 서버 방 생성 시도 (상대 toUserId는 판매자/작성자/상대 기준)
         let serverRoomId: number | undefined = undefined;
-
         try {
           const src = chatAutoNavigateParams.source; // 'market' | 'lost' | 'groupbuy'
           const typeId = toNum((chatAutoNavigateParams as any)?.postId);
@@ -214,7 +247,7 @@ const DetailBottomBar: React.FC<Props> = ({
             toNum(p.opponentId) ??
             undefined;
 
-          if (toUserId === undefined) {
+          if (!toUserId) {
             const targetEmail =
               ensureStr(p.sellerEmail) ||
               ensureStr(p.authorEmail) ||
@@ -226,9 +259,8 @@ const DetailBottomBar: React.FC<Props> = ({
           }
 
           if (typeId && toUserId) {
-            // ✅ 여기: 방 생성 후 serverRoomId 반환 받기
             serverRoomId = await createOrGetRoomOnServer({
-              source: src,
+              source: src as any,
               typeId,
               toUserId,
               message: msg,
@@ -240,11 +272,12 @@ const DetailBottomBar: React.FC<Props> = ({
           console.log('[chat] createOrGetRoom skipped (error)', e);
         }
 
-        // --- (C) ChatRoom으로 네비 (serverRoomId 포함) ---
+        // --- (C) ChatRoom으로 네비: ✅ 계산한 roomId를 반드시 넘긴다
         navigation.navigate('ChatRoom', {
-          ...chatAutoNavigateParams,
+          ...originParams,     // buyer 식별자 포함된 파라미터
+          roomId,              // ✅ 필수
           initialMessage: msg,
-          serverRoomId, // ✅ 추가
+          serverRoomId,
         } as any);
       }
     } else {

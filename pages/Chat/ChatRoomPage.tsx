@@ -32,8 +32,8 @@ import { getLocalIdentity } from '@/utils/localIdentity';
 import marketTradeRepo from '@/repositories/trades/MarketTradeRepo';
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 
-import { resolveRoomIdForOpen, updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
 import { getRoomDetail } from '@/api/chat';
+import { resolveRoomIdForOpen, updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
 
 const calendarIcon = require('../../assets/images/calendar.png');
 
@@ -48,6 +48,29 @@ const toLabel = (s?: ApiSaleStatus): SaleStatusLabel => {
     default:         return '판매중';
   }
 };
+
+// ---------- 유틸: 파라미터 보강 (buyerEmail/Id 채우기) ----------
+function enrichWithBuyer(p: any, myEmail: string | null, myId: string | null) {
+  const hasBuyerEmail = !!(p?.buyerEmail ?? p?.userEmail);
+  const hasBuyerId    = !!(p?.buyerId ?? p?.userId);
+
+  // 문자열 정규화 헬퍼
+  const toStr = (v: unknown) => (v == null ? undefined : String(v));
+
+  return {
+    ...p,
+    // 1) 우선 buyer* 채우기 (없으면 내 계정으로 보강)
+    buyerEmail: p?.buyerEmail ?? p?.userEmail ?? toStr(myEmail),
+    buyerId: toStr(p?.buyerId ?? p?.userId ?? myId),
+
+    // 2) 보조 키들도 보강 (makeThreadKey에서 fallback으로 씀)
+    userEmail: p?.userEmail ?? toStr(myEmail),
+    userId: toStr(p?.userId ?? myId),
+
+    // 3) 안전 가드: 둘 다 원래부터 있었다면 기존 값 유지
+    ...(hasBuyerEmail || hasBuyerId ? { /* 기존값 유지 */ } : {}),
+  };
+}
 
 // ---------- 유틸: 상대 닉네임 결정 ----------
 function pickOtherNickname(opts: {
@@ -138,36 +161,6 @@ export default function ChatRoomPage() {
   // 실제 사용할 정규 roomId (동적으로 갱신)
   const [roomId, setRoomId] = useState<string | null>(proposedId ?? null);
 
-  // ✅ 최초 마운트/params 변경 시, 정규 roomId로 정렬 + 필요하면 메시지 이관
-  useEffect(() => {
-    (async () => {
-      if (!proposedId) {
-        setRoomId(null);
-        return;
-      }
-      try {
-        // 정규 roomId 계산
-        const canonical = await resolveRoomIdForOpen(raw, proposedId);
-        const finalId = canonical ?? proposedId;
-
-        // 키 변경 시 기존 메시지 이관
-        if (finalId !== proposedId) {
-          const K = 'chat_messages_';
-          const from = await AsyncStorage.getItem(K + proposedId);
-          const to = await AsyncStorage.getItem(K + finalId);
-          if (from && !to) {
-            await AsyncStorage.setItem(K + finalId, from);
-            await AsyncStorage.removeItem(K + proposedId);
-          }
-        }
-
-        setRoomId(finalId);
-      } catch {
-        setRoomId(proposedId);
-      }
-    })();
-  }, [proposedId, raw]);
-
   const initialMessage: string | undefined = raw?.initialMessage;
 
   // 권한 판단에 필요한 작성자 정보
@@ -211,6 +204,49 @@ export default function ChatRoomPage() {
     })();
   }, []);
   const identityReady = (myEmail !== null || myId !== null);
+  // ✅ route.params(raw)에 buyer 정보 보강
+  const enriched = useMemo(() => {
+    return enrichWithBuyer(raw, myEmail, myId);
+  }, [raw, myEmail, myId]);
+
+  // ✅ 최초 마운트/params 변경 시, 정규 roomId로 정렬 + 필요하면 메시지 이관
+  useEffect(() => {
+    (async () => {
+      if (!proposedId) {
+        setRoomId(null);
+        return;
+      }
+      try {
+        // ✅ buyer/user 식별자가 보강되어 있으면 굳이 기존 방으로 "정규화"하지 않음
+        const hasBuyerIdentity =
+          !!(enriched?.buyerEmail || enriched?.buyerId || enriched?.userEmail || enriched?.userId);
+
+        const shouldBypassResolve = !!raw?.roomId && hasBuyerIdentity;
+
+        // ✅ 덮어쓰기 방지: 가능한 경우 그냥 proposedId를 그대로 사용
+        const canonical = shouldBypassResolve
+          ? proposedId
+          : await resolveRoomIdForOpen(enriched, proposedId);
+
+        const finalId = canonical ?? proposedId;
+
+        // 키 변경 시 기존 메시지 이관
+        if (finalId !== proposedId) {
+          const K = 'chat_messages_';
+          const from = await AsyncStorage.getItem(K + proposedId);
+          const to = await AsyncStorage.getItem(K + finalId);
+          if (from && !to) {
+            await AsyncStorage.setItem(K + finalId, from);
+            await AsyncStorage.removeItem(K + proposedId);
+          }
+        }
+
+        setRoomId(finalId);
+      } catch {
+        setRoomId(proposedId);
+      }
+    })();
+  }, [proposedId, enriched, raw]);
 
   const sellerEmail = raw?.sellerEmail ?? raw?.authorEmail ?? undefined;
   const buyerEmail  = raw?.buyerEmail  ?? raw?.opponentEmail ?? raw?.userEmail ?? undefined;
@@ -439,7 +475,7 @@ export default function ChatRoomPage() {
           productPrice: isMarket ? raw?.productPrice : undefined,
           productImageUri: isMarket ? raw?.productImageUri : undefined,
           preview: initialMessage,
-          origin: { source: isMarket ? 'market' : isLost ? 'lost' : 'groupbuy', params: raw },
+          origin: { source: isMarket ? 'market' : isLost ? 'lost' : 'groupbuy', params: enriched },
         });
       } catch (e) {
         console.log('upsertRoomOnOpen error', e);
@@ -450,8 +486,8 @@ export default function ChatRoomPage() {
   // (B) 전송 시 헤더 닉네임/미리보기 갱신
   useEffect(() => {
     if (!roomId || !identityReady || !headerTitle) return;
-    updateRoomOnSendSmart({ roomId, originParams: raw, nickname: headerTitle }).catch(() => {});
-  }, [roomId, identityReady, headerTitle, raw]);
+    updateRoomOnSendSmart({ roomId, originParams: enriched, nickname: headerTitle }).catch(() => {});
+  }, [roomId, identityReady, headerTitle, enriched]);
 
   // (C) 서버 방 상세 조회
   useEffect(() => {
@@ -469,7 +505,7 @@ export default function ChatRoomPage() {
             productPrice: isMarket ? raw?.productPrice : undefined,
             productImageUri: isMarket ? raw?.productImageUri : undefined,
             preview: data?.messages?.[data.messages.length - 1]?.message ?? initialMessage,
-            origin: { source: isMarket ? 'market' : isLost ? 'lost' : 'groupbuy', params: raw },
+            origin: { source: isMarket ? 'market' : isLost ? 'lost' : 'groupbuy', params: enriched },
           });
         }
 
