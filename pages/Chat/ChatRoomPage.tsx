@@ -3,13 +3,21 @@
 // 채팅방 화면 (중고거래 / 분실물 / 공동구매 공통)
 // - 헤더 하단 "게시글 카드"는 ChatHeader가 렌더
 // - 여기서는 카드에 필요한 메타를 계산해서 ChatHeader에 전달
+// - 서버 방 생성 타임아웃/락 경합 시에도 화면·입력 차단 없이 작동
 // ---------------------------------------------------------
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import type { RootStackParamList } from '../../types/navigation';
 import styles from './ChatRoomPage.styles';
 
@@ -32,7 +40,7 @@ import { getLocalIdentity } from '@/utils/localIdentity';
 import marketTradeRepo from '@/repositories/trades/MarketTradeRepo';
 import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 
-import { getRoomDetail } from '@/api/chat';
+import { getRoomDetail, sendMessage } from '@/api/chat';
 import { resolveRoomIdForOpen, updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
 
 const calendarIcon = require('../../assets/images/calendar.png');
@@ -49,26 +57,36 @@ const toLabel = (s?: ApiSaleStatus): SaleStatusLabel => {
   }
 };
 
+// ---------- 유틸: 타입/파싱 ----------
+type ChatTypeEnum = 'USED_ITEM' | 'LOST_ITEM' | 'GROUP_BUY';
+function mapSourceToChatType(source?: string): ChatTypeEnum {
+  switch ((source ?? '').toLowerCase()) {
+    case 'lost':     return 'LOST_ITEM';
+    case 'groupbuy': return 'GROUP_BUY';
+    default:         return 'USED_ITEM';
+  }
+}
+const toNum = (v: unknown): number | undefined => {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string' && /^\d+$/.test(v.trim())) return Number(v.trim());
+  return undefined;
+};
+const ensureStr = (v: unknown, fb = ''): string =>
+  typeof v === 'string' ? v : v != null ? String(v) : fb;
+
 // ---------- 유틸: 파라미터 보강 (buyerEmail/Id 채우기) ----------
 function enrichWithBuyer(p: any, myEmail: string | null, myId: string | null) {
   const hasBuyerEmail = !!(p?.buyerEmail ?? p?.userEmail);
   const hasBuyerId    = !!(p?.buyerId ?? p?.userId);
-
-  // 문자열 정규화 헬퍼
   const toStr = (v: unknown) => (v == null ? undefined : String(v));
 
   return {
     ...p,
-    // 1) 우선 buyer* 채우기 (없으면 내 계정으로 보강)
     buyerEmail: p?.buyerEmail ?? p?.userEmail ?? toStr(myEmail),
     buyerId: toStr(p?.buyerId ?? p?.userId ?? myId),
-
-    // 2) 보조 키들도 보강 (makeThreadKey에서 fallback으로 씀)
     userEmail: p?.userEmail ?? toStr(myEmail),
     userId: toStr(p?.userId ?? myId),
-
-    // 3) 안전 가드: 둘 다 원래부터 있었다면 기존 값 유지
-    ...(hasBuyerEmail || hasBuyerId ? { /* 기존값 유지 */ } : {}),
+    ...(hasBuyerEmail || hasBuyerId ? {} : {}),
   };
 }
 
@@ -125,11 +143,38 @@ function mapServerMsg(m: any) {
   } as any;
 }
 
+// 서버에서 방 생성 API 직접 호출 (타임아웃 옵션 X)
+async function sendCreateRoom(
+  source: 'market' | 'lost' | 'groupbuy',
+  typeId: number,
+  toUserId: number,
+  message: string
+): Promise<number | undefined> {
+  try {
+    const payload = {
+      type: mapSourceToChatType(source),
+      typeId,
+      toUserId,
+      message,
+      messageType: 'text',
+    };
+    const { api } = await import('@/api/client');
+    const res = await api.post('/chat/rooms', payload);
+    return typeof res?.data?.roomInfo?.roomId === 'number'
+      ? res.data.roomInfo.roomId
+      : undefined;
+  } catch (e) {
+    console.log('[chat] sendCreateRoom error', e);
+    return undefined;
+  }
+}
+
+// ============================================================
 export default function ChatRoomPage() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<any>();
   const raw = (route.params ?? {}) as any;
-  const serverRoomId: number | undefined = raw?.serverRoomId;
+  const [serverRoomId, setServerRoomId] = useState<number | undefined>(raw?.serverRoomId);
 
   const [open, setOpen] = useState(false);
 
@@ -138,11 +183,11 @@ export default function ChatRoomPage() {
   const isMarket = raw?.source === 'market';
   const isGroupBuy = raw?.source === 'groupbuy';
 
-  // ✅ 헤더 카드에 내려줄 기본 메타
+  // ✅ 헤더 카드 메타
   const cardTitle: string = isMarket ? (raw?.productTitle ?? '게시글 제목') : (raw?.postTitle ?? '게시글 제목');
   const cardImageUri: string | undefined = isMarket ? raw?.productImageUri : raw?.postImageUri;
 
-  // 🔽 부가 정보 계산 (헤더 카드에서 사용)
+  // 부가 라벨
   const priceLabel = useMemo(() => {
     if (!isMarket) return '';
     const price = raw?.productPrice;
@@ -150,7 +195,6 @@ export default function ChatRoomPage() {
     if (price === 0) return '나눔🩵';
     return '';
   }, [isMarket, raw?.productPrice]);
-
   const placeLabel: string = isLost ? (raw?.place ?? '장소 정보 없음') : '';
   const purpose: 'lost' | 'found' | undefined =
     isLost ? (raw?.purpose === 'found' ? 'found' : 'lost') : undefined;
@@ -163,7 +207,7 @@ export default function ChatRoomPage() {
 
   const initialMessage: string | undefined = raw?.initialMessage;
 
-  // 권한 판단에 필요한 작성자 정보
+  // 권한 판단용 작성자 정보
   const authorEmailAny: string | null =
     raw?.authorEmail ?? raw?.writerEmail ?? raw?.posterEmail ?? raw?.sellerEmail ??
     raw?.postOwnerEmail ?? raw?.ownerEmail ?? raw?.lostOwnerEmail ??
@@ -183,12 +227,7 @@ export default function ChatRoomPage() {
   const authorIdU: string | number | undefined =
     (authorIdAny ?? undefined) as string | number | undefined;
 
-  const { isOwner } = usePermissions({
-    authorId: authorIdU,
-    authorEmail: authorEmailU,
-    routeParams: { isOwner: raw?.isOwner },
-  });
-
+  // 내 계정
   const [myEmail, setMyEmail] = useState<string | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
   useEffect(() => {
@@ -204,50 +243,18 @@ export default function ChatRoomPage() {
     })();
   }, []);
   const identityReady = (myEmail !== null || myId !== null);
-  // ✅ route.params(raw)에 buyer 정보 보강
-  const enriched = useMemo(() => {
-    return enrichWithBuyer(raw, myEmail, myId);
-  }, [raw, myEmail, myId]);
 
-  // ✅ 최초 마운트/params 변경 시, 정규 roomId로 정렬 + 필요하면 메시지 이관
-  useEffect(() => {
-    (async () => {
-      if (!proposedId) {
-        setRoomId(null);
-        return;
-      }
-      try {
-        // ✅ buyer/user 식별자가 보강되어 있으면 굳이 기존 방으로 "정규화"하지 않음
-        const hasBuyerIdentity =
-          !!(enriched?.buyerEmail || enriched?.buyerId || enriched?.userEmail || enriched?.userId);
+  // route.params에 buyer 정보 보강
+  const enriched = useMemo(() => enrichWithBuyer(raw, myEmail, myId), [raw, myEmail, myId]);
 
-        const shouldBypassResolve = !!raw?.roomId && hasBuyerIdentity;
+  // 권한
+  const { isOwner } = usePermissions({
+    authorId: authorIdU,
+    authorEmail: authorEmailU,
+    routeParams: { isOwner: raw?.isOwner },
+  });
 
-        // ✅ 덮어쓰기 방지: 가능한 경우 그냥 proposedId를 그대로 사용
-        const canonical = shouldBypassResolve
-          ? proposedId
-          : await resolveRoomIdForOpen(enriched, proposedId);
-
-        const finalId = canonical ?? proposedId;
-
-        // 키 변경 시 기존 메시지 이관
-        if (finalId !== proposedId) {
-          const K = 'chat_messages_';
-          const from = await AsyncStorage.getItem(K + proposedId);
-          const to = await AsyncStorage.getItem(K + finalId);
-          if (from && !to) {
-            await AsyncStorage.setItem(K + finalId, from);
-            await AsyncStorage.removeItem(K + proposedId);
-          }
-        }
-
-        setRoomId(finalId);
-      } catch {
-        setRoomId(proposedId);
-      }
-    })();
-  }, [proposedId, enriched, raw]);
-
+  // 상대 닉네임 계산
   const sellerEmail = raw?.sellerEmail ?? raw?.authorEmail ?? undefined;
   const buyerEmail  = raw?.buyerEmail  ?? raw?.opponentEmail ?? raw?.userEmail ?? undefined;
   const sellerId = raw?.sellerId ?? raw?.authorId ?? undefined;
@@ -271,17 +278,61 @@ export default function ChatRoomPage() {
     });
   }, [myEmail, myId, isOwner, sellerEmail, buyerEmail, sellerId, buyerId, sellerName, buyerName, raw?.opponentNickname]);
 
+  // 판매 상태
   const [saleStatusLabel, setSaleStatusLabel] = useState<SaleStatusLabel>(
     toLabel(raw?.initialSaleStatus as ApiSaleStatus | undefined)
   );
 
-  // ✅ initialMessage를 훅에 넘겨서 "비어있을 때 1회 시딩"을 훅이 보장하도록
+  // ✅ useChatRoom 훅 (초기 메시지는 훅이 1회 시딩)
   const {
     messages, setMessages,
     attachments, extraBottomPad,
-    addAttachments, removeAttachmentAt, send, pushSystemAppointment
-  } = useChatRoom(roomId ?? '', roomId ? initialMessage : undefined);
+    addAttachments, removeAttachmentAt,
+    send, pushSystemAppointment,
+  } = useChatRoom(roomId ?? '', roomId ? initialMessage : undefined, {
+    originParams: enriched,
+    nickname: headerTitle,
+  });
 
+  // ✅ 최초 마운트/params 변경 시, 정규 roomId로 정렬 + 필요하면 메시지 이관
+  useEffect(() => {
+    (async () => {
+      if (!proposedId) {
+        setRoomId(null);
+        return;
+      }
+      try {
+        // buyer/user 식별자가 보강되어 있으면 굳이 기존 방으로 정규화하지 않음
+        const hasBuyerIdentity =
+          !!(enriched?.buyerEmail || enriched?.buyerId || enriched?.userEmail || enriched?.userId);
+
+        const shouldBypassResolve = !!raw?.roomId && hasBuyerIdentity;
+
+        const canonical = shouldBypassResolve
+          ? proposedId
+          : await resolveRoomIdForOpen(enriched, proposedId);
+
+        const finalId = canonical ?? proposedId;
+
+        // 키 변경 시 기존 메시지 이관(이전 버전 스토리지 호환)
+        if (finalId !== proposedId) {
+          const K = 'chat_messages_';
+          const from = await AsyncStorage.getItem(K + proposedId);
+          const to = await AsyncStorage.getItem(K + finalId);
+          if (from && !to) {
+            await AsyncStorage.setItem(K + finalId, from);
+            await AsyncStorage.removeItem(K + proposedId);
+          }
+        }
+
+        setRoomId(finalId);
+      } catch {
+        setRoomId(proposedId);
+      }
+    })();
+  }, [proposedId, enriched, raw]);
+
+  // 분실물 회수 버튼 표시 여부
   const isLostContext = useMemo(() => {
     const s =
       raw?.source ?? raw?.category ?? raw?.origin?.source ?? raw?.origin?.params?.source;
@@ -328,6 +379,7 @@ export default function ChatRoomPage() {
     recipientEmails: [authorEmailAny ?? undefined, opponentEmailX ?? undefined].filter(Boolean) as string[],
   });
 
+  // 차단 관련
   const opponent = useMemo<BlockedUser | null>(() => {
     const idLike =
       raw?.opponentId ?? raw?.sellerId ?? raw?.authorId ?? raw?.userId ??
@@ -395,6 +447,7 @@ export default function ChatRoomPage() {
     );
   };
 
+  // 판매 상태 변경 → 캐시 반영
   const handleChangeSaleStatus = async (nextLabel: SaleStatusLabel) => {
     setSaleStatusLabel(nextLabel);
     if (raw?.postId) {
@@ -412,6 +465,7 @@ export default function ChatRoomPage() {
     }
   };
 
+  // 거래 완료 시 기록
   const recordTradeCompletion = useCallback(async () => {
     try {
       if (!isMarket || !raw?.postId) return;
@@ -481,7 +535,7 @@ export default function ChatRoomPage() {
         console.log('upsertRoomOnOpen error', e);
       }
     })();
-  }, [roomId, identityReady, headerTitle, isMarket, isLost, raw, initialMessage]);
+  }, [roomId, identityReady, headerTitle, isMarket, isLost, raw, initialMessage, enriched]);
 
   // (B) 전송 시 헤더 닉네임/미리보기 갱신
   useEffect(() => {
@@ -489,7 +543,84 @@ export default function ChatRoomPage() {
     updateRoomOnSendSmart({ roomId, originParams: enriched, nickname: headerTitle }).catch(() => {});
   }, [roomId, identityReady, headerTitle, enriched]);
 
-  // (C) 서버 방 상세 조회
+  // ✅ 방 생성 보충기 (서버가 아직 방을 안 만들어줬을 때)
+  const [creatingRoom, setCreatingRoom] = useState(false);
+  const ensureServerRoomId = useCallback(async (): Promise<number | undefined> => {
+    if (serverRoomId || creatingRoom) return serverRoomId;
+    const src = (raw?.source ?? 'market') as 'market' | 'lost' | 'groupbuy';
+    const typeId = toNum(raw?.postId ?? raw?.typeId);
+    const toUserId = toNum(raw?.toUserId ?? raw?.opponentId ?? raw?.sellerId ?? raw?.authorId);
+    const initMsg = (raw?.initialMessage ?? '').toString();
+    if (!typeId || !toUserId) return undefined;
+    setCreatingRoom(true);
+
+    const MAX = 3;
+    for (let i = 0; i < MAX; i++) {
+      const rid = await sendCreateRoom(src, typeId, toUserId, initMsg);
+      if (rid) {
+        setServerRoomId(rid);
+        navigation.setParams({ serverRoomId: rid } as any);
+        setCreatingRoom(false);
+        return rid;
+      }
+      await new Promise(r => setTimeout(r, 600 * Math.pow(2, i))); // 0.6s, 1.2s, 2.4s
+    }
+    setCreatingRoom(false);
+    return undefined;
+  }, [serverRoomId, creatingRoom, raw, navigation]);
+
+  // ✅ 서버 전송 통합 (로컬 반영 + 서버 전송)
+  const sendWithServer = useCallback(async (text: string) => {
+    await send(text); // 로컬 즉시 반영
+    try {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+
+      let rid = serverRoomId;
+      if (!rid) {
+        rid = await ensureServerRoomId();
+        if (!rid) return; // 방 생성 실패 시 조용히 종료(로컬은 이미 반영)
+      }
+
+      const { userId } = await getLocalIdentity();
+      if (userId != null) {
+        await sendMessage({
+          roomId: rid,
+          sender: Number(userId),
+          message: trimmed,
+          type: 'text',
+        });
+      }
+    } catch (e) {
+      console.log('[ChatRoom] sendWithServer error', e);
+    }
+  }, [send, serverRoomId, ensureServerRoomId]);
+
+  // ✅ 초기 메시지 서버 반영 (1회)
+  const [initialPushed, setInitialPushed] = useState(false);
+  useEffect(() => {
+    (async () => {
+      if (initialPushed) return;
+      const msg = (initialMessage ?? '').toString().trim();
+      if (!msg) return;
+      const { userId } = await getLocalIdentity();
+      if (!userId) return;
+
+      let rid = serverRoomId;
+      if (!rid) rid = await ensureServerRoomId();
+      if (!rid) { setInitialPushed(true); return; }
+
+      try {
+        await sendMessage({ roomId: rid, sender: Number(userId), message: msg, type: 'text' });
+      } catch (e) {
+        console.log('[ChatRoom] initial sendMessage error', e);
+      } finally {
+        setInitialPushed(true);
+      }
+    })();
+  }, [initialMessage, serverRoomId, ensureServerRoomId, initialPushed]);
+
+  // 서버에서 기존 메시지 불러오기(있을 때만)
   useEffect(() => {
     (async () => {
       if (!serverRoomId || !roomId) return;
@@ -528,9 +659,9 @@ export default function ChatRoomPage() {
         }
       }
     })();
-  }, [serverRoomId, roomId, isMarket, isLost, raw, initialMessage, navigation, setMessages]);
+  }, [serverRoomId, roomId, isMarket, isLost, raw, initialMessage, navigation, setMessages, enriched]);
 
-  // ====== 헤더 카드 존재 확인 콜백 (훅으로 선언해 JSX에 전달) ======
+  // ====== 헤더 카드 존재 확인 콜백 ======
   const checkPostExistsExternally = useCallback(
     async (meta: { source: 'market'|'lost'|'group'; postId: string }) => {
       const keyBySource: Record<typeof meta.source, string> = {
@@ -565,7 +696,7 @@ export default function ChatRoomPage() {
     );
   }
 
-  // 헤더에 전달할 카드 메타 구성
+  // 헤더에 전달할 카드 메타
   const headerSource: 'market'|'lost'|'group' = isMarket ? 'market' : isLost ? 'lost' : 'group';
   const headerPostId = (isMarket ? (raw?.postId ? String(raw.postId) : null) : generalizedPostId) ?? null;
 
@@ -581,7 +712,7 @@ export default function ChatRoomPage() {
           postId: headerPostId,
           title: cardTitle,
           thumbnailUri: cardImageUri,
-          // 🔽 부가 정보 전달!
+          // 부가 정보
           priceLabel,
           purpose,
           placeLabel,
@@ -627,7 +758,7 @@ export default function ChatRoomPage() {
         <DetailBottomBar
           variant="chat"
           placeholder="메세지를 입력해주세요."
-          onPressSend={send}
+          onPressSend={sendWithServer}
           onAddImages={addAttachments}
           attachmentsCount={attachments.length}
         />

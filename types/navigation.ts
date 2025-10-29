@@ -62,6 +62,9 @@ export type ChatRoomParams =
       /** ✅ 상대 닉네임(판매자) — 리스트/헤더/스레드키 정합성을 위해 필수 */
       sellerNickname: string;
 
+      // 서버 방 상세 조회용
+      serverRoomId?: number;
+
       /** (선택) 초기 판매 상태 */
       initialSaleStatus?: SaleStatusApi;
     } & OwnerMeta &

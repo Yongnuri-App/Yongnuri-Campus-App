@@ -1,6 +1,6 @@
 // hooks/useChatRoom.ts
 // -------------------------------------------------------------
-// 채팅방 로직 훅 (ID 충돌 방지 + 시딩 1회 보장 + 리스트 미리보기 갱신)
+// 채팅방 로직 훅 (ID 충돌 방지 + 시딩 1회 보장 + 리스트 미리보기/닉네임 동기화)
 // - 고유 ID 생성기(makeMsgId) (timestamp + seq + random)
 // - 로드/저장 시 중복 ID 자동 수정(fixDuplicateIds)
 // - senderEmail(우선)/senderId(폴백) 저장
@@ -9,9 +9,11 @@
 // - 전송/시스템메시지 후 ChatList 미리보기 즉시 갱신
 // - ✅ roomId 미확정(빈값)일 때는 어떤 저장/시딩도 하지 않음(안전 가드)
 // - ✅ roomId 변경 시 시딩 가드 리셋(정규 roomId로 전환 시 시딩 보장)
+// - ✅ 미리보기 갱신 시 updateRoomOnSendSmart 사용(맥락 기반 동기화)
 // -------------------------------------------------------------
 
-import { updateRoomOnSend } from '@/storage/chatStore';
+import { updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
+import { DeviceEventEmitter } from 'react-native';
 import type { ChatMessage } from '@/types/chat';
 import { getLocalIdentity } from '@/utils/localIdentity';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -19,8 +21,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 const STORAGE_PREFIX = 'chat_messages_'; // 방별 메시지 저장 키: chat_messages_{roomId}
 
-/** ✅ 고유 ID 생성기: 같은 ms/이중 클릭/동시 전송에도 충돌 방지 */
+/** 외부에서 전달할 선택 옵션 */
+type UseChatRoomOpts = {
+  /** ChatRoom에 넘겨준 원본 네비게이션 params(raw) — 스마트 동기화에 사용 */
+  originParams?: any;
+  /** 계산된 상대 닉네임(헤더 타이틀) — 리스트 닉네임 동기화에 사용 */
+  nickname?: string;
+};
+
 let __seq = 0;
+/** ✅ 고유 ID 생성기: 같은 ms/이중 클릭/동시 전송에도 충돌 방지 */
 function makeMsgId(prefix: 'm-' | 'img-' | 'sys-') {
   const ts = Date.now();
   __seq = (__seq + 1) & 0xffff;
@@ -45,28 +55,35 @@ function fixDuplicateIds(arr: ChatMessage[]): ChatMessage[] {
 /** ✅ 미리보기 문구 생성(배치 전송 대응: 이미지+텍스트 동시 전송 등) */
 function previewForBatch(created: ChatMessage[]): string {
   if (!created.length) return '';
-  // 텍스트가 있으면 텍스트 우선
   const textMsg = created.find((m) => m.type === 'text') as Extract<ChatMessage, { type: 'text' }> | undefined;
   if (textMsg) return textMsg.text;
 
-  // 전부 이미지면 개수로 표시
   const imgCount = created.filter((m) => m.type === 'image').length;
   if (imgCount > 0) return imgCount > 1 ? `사진 ${imgCount}장` : '사진';
 
-  // 그 외(시스템 등)는 마지막 텍스트
   const last = created[created.length - 1];
   return last.type === 'image' ? '사진' : (last as any).text ?? '';
 }
 
 /**
  * 채팅방 훅
- * @param roomId - 방 ID (예: market-<postId>-<nickname>) — 반드시 유효한 문자열이어야 저장/전송이 수행됩니다.
+ * @param roomId - 방 ID (예: m_<post>__s_<seller>__b_<buyer>) — 반드시 유효한 문자열이어야 저장/전송이 수행됩니다.
  * @param initialMessage - 최초 진입 시 대화가 비어있다면 한 번만 자동 시딩할 텍스트
+ * @param opts - 스마트 동기화용 originParams/닉네임
  */
-export default function useChatRoom(roomId: string, initialMessage?: string) {
+export default function useChatRoom(
+  roomId: string,
+  initialMessage?: string,
+  opts?: {
+    originParams?: any;   // ChatRoomPage에서 넘겨주는 enriched
+    nickname?: string;    // headerTitle
+  }
+) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [extraBottomPad, setExtraBottomPad] = useState(0);
+
+  const { originParams, nickname } = opts;
 
   // ✅ 시딩/로딩 중복 방지 가드
   const seedingDoneRef = useRef(false); // initialMessage 시딩 1회 보장
@@ -82,8 +99,7 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
 
   /** 저장 */
   const persist = useCallback(async (arr: ChatMessage[]) => {
-    // ✅ roomId 미확정이면 저장하지 않음
-    if (!validRoomId) return;
+    if (!validRoomId) return; // ✅ 미확정이면 저장 금지
     try {
       const fixed = fixDuplicateIds(arr);
       await AsyncStorage.setItem(STORAGE_PREFIX + roomId, JSON.stringify(fixed));
@@ -94,9 +110,8 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
 
   /** 로드 + (최초 시딩) */
   const loadAndSeed = useCallback(async () => {
-    // ✅ roomId 미확정이면 로드/시딩하지 않음
     if (!validRoomId) return;
-    if (loadingRef.current) return; // 동시 호출 방지
+    if (loadingRef.current) return;
     loadingRef.current = true;
     try {
       const raw = await AsyncStorage.getItem(STORAGE_PREFIX + roomId);
@@ -104,14 +119,13 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
       const fixed = fixDuplicateIds(loaded);
       setMessages(fixed);
 
-      // 중복이 있었으면 즉시 저장 반영
       if (fixed.length !== loaded.length || fixed.some((m, i) => m.id !== loaded[i]?.id)) {
         await persist(fixed);
       }
 
       // ✅ 최초 진입 + 아직 시딩 안했고 + 대화가 비어있을 때만 1회 시딩
       if (!seedingDoneRef.current && initialMessage && fixed.length === 0) {
-        seedingDoneRef.current = true; // 다시 못 들어오게 플래그
+        seedingDoneRef.current = true;
         await send(initialMessage);
       }
     } catch (e) {
@@ -134,9 +148,24 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
     setAttachments(prev => prev.filter((_, i) => i !== idx));
   }, []);
 
+  /** 공통: 리스트 미리보기/닉네임 스마트 동기화 */
+  const syncPreviewSmart = useCallback(async (preview: string, isoTime: string) => {
+    try {
+      const ts = new Date(isoTime).getTime();
+      await updateRoomOnSendSmart({
+        roomId,               // 우선 roomId로 시도
+        originParams,         // 실패 시 맥락으로 역탐색
+        preview,
+        lastTs: ts,
+        nickname,             // 계산된 상대 닉네임도 함께 동기화
+      });
+    } catch (e) {
+      console.log('syncPreviewSmart error', e);
+    }
+  }, [roomId, originParams, nickname]);
+
   /** 전송 (텍스트/이미지) */
   const send = useCallback(async (textOrEmpty?: string) => {
-    // ✅ roomId 미확정이면 전송 금지
     if (!validRoomId) return;
 
     try {
@@ -172,7 +201,6 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
         });
       }
 
-      // 보낼 게 없으면 종료
       if (created.length === 0) return;
 
       // 첨부 초기화
@@ -183,22 +211,44 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
         const next = fixDuplicateIds([...prev, ...created]);
         void persist(next);
 
-        // ✅ ChatList 미리보기 갱신 (마지막 생성 메시지 기준 시간)
-        const last = created[created.length - 1];
-        const ts = new Date(last.time).getTime();
+        // ✅ ChatList 미리보기/닉네임 스마트 동기화
         const preview = previewForBatch(created);
-        void updateRoomOnSend(roomId, preview, ts);
+        // ✅ ChatList 미리보기 + 닉네임 동기화(스마트)
+        void updateRoomOnSendSmart({
+          roomId,
+          originParams: opts?.originParams,
+          preview,
+          nickname: opts?.nickname,
+        });
 
-        return next;
-      });
-    } catch (e) {
-      console.log('send error', e);
-    }
-  }, [attachments, persist, roomId, validRoomId]);
+        // ✅ (선택) 낙관적 방 생성/업데이트 — 서버 리스트 반영 전에도 로컬 리스트에 보이게
+        const src = (opts?.originParams?.source ?? opts?.originParams?.category) as 'market'|'lost'|'groupbuy'|undefined;
+        const category = src === 'lost' ? 'lost' : src === 'groupbuy' ? 'group' : 'market';
+        void upsertRoomOnOpen({
+          roomId,
+          category,
+          nickname: opts?.nickname ?? '상대방',
+          productTitle: opts?.originParams?.productTitle,
+          productPrice: opts?.originParams?.productPrice,
+          productImageUri: opts?.originParams?.productImageUri,
+          preview,
+          origin: { source: src ?? 'market', params: opts?.originParams },
+        });
+
+        // ✅ ChatList에게 “새로고침해!” 이벤트 쏘기
+        DeviceEventEmitter.emit('EVT_CHAT_LIST_NEEDS_REFRESH');
+                const last = created[created.length - 1];
+                void syncPreviewSmart(preview, last.time);
+
+                return next;
+              });
+            } catch (e) {
+              console.log('send error', e);
+            }
+          }, [attachments, persist, validRoomId, syncPreviewSmart]);
 
   /** 시스템(약속 등) 메시지 */
   const pushSystemAppointment = useCallback((date: string, time: string, place: string) => {
-    // ✅ roomId 미확정이면 금지
     if (!validRoomId) return;
 
     const msg: ChatMessage = {
@@ -213,13 +263,12 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
       const next = fixDuplicateIds([...prev, msg]);
       void persist(next);
 
-      // ✅ ChatList 미리보기 갱신
-      const ts = new Date(msg.time).getTime();
-      void updateRoomOnSend(roomId, msg.text, ts);
+      // ✅ ChatList 미리보기/닉네임 스마트 동기화
+      void syncPreviewSmart(msg.text, msg.time);
 
       return next;
     });
-  }, [persist, roomId, validRoomId]);
+  }, [persist, validRoomId, syncPreviewSmart]);
 
   return {
     messages, setMessages,
