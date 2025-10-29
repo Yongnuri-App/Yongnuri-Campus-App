@@ -1,11 +1,19 @@
 // /src/storage/chatStore.ts
 // 채팅방 목록/미리보기/쓰레드 인덱스 관리 (AsyncStorage 기반)
 
+import type { ChatCategory, ChatMessage, ChatRoomOrigin, ChatRoomSummary } from '@/types/chat';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { ChatCategory, ChatRoomOrigin, ChatRoomSummary } from '@/types/chat';
 
 const CHAT_ROOMS_KEY = 'chat_rooms_v1';
 const THREAD_INDEX_KEY = 'chat_thread_index_v1';
+
+/** ✅ 방별 메시지 저장 키(prefix) — useChatRoom과 동일하게 맞춰야 읽을 수 있음 */
+const MESSAGE_PREFIX = 'chat_messages_';
+
+/** ✅ 사용자별 마지막 읽음 시각 저장소
+ * 구조: { [roomId]: { [identity]: lastSeenTs(ms) } }
+ */
+const READ_STATE_KEY = 'chat_read_state_v1';
 
 // ----------------------------- 공통 유틸 -----------------------------
 function clipPreview(s: string, max = 80): string {
@@ -34,6 +42,11 @@ async function saveJson(key: string, value: unknown) {
 
 function norm(x: unknown): string {
   return (x ?? '').toString().trim().toLowerCase();
+}
+
+function normIdentity(x?: string | number | null): string {
+  if (x == null) return '';
+  return String(x).trim().toLowerCase();
 }
 
 function canonSource(x: unknown): string {
@@ -102,6 +115,16 @@ async function loadThreadIndex(): Promise<Record<string, string>> {
 
 async function saveThreadIndex(index: Record<string, string>) {
   await saveJson(THREAD_INDEX_KEY, index);
+}
+
+/** ✅ 읽음 상태 로드/저장 */
+type ReadStateMap = Record<string, Record<string, number>>; // roomId -> (identity -> ts)
+
+async function loadReadState(): Promise<ReadStateMap> {
+  return loadJson<ReadStateMap>(READ_STATE_KEY, {});
+}
+async function saveReadState(state: ReadStateMap) {
+  await saveJson(READ_STATE_KEY, state);
 }
 
 // ----------------------------- 방 탐색/정규화 -----------------------------
@@ -287,12 +310,80 @@ export async function updateRoomOnSendSmart(args: {
   }
 }
 
-export async function markRoomRead(roomId: string) {
+/** ✅ 방의 메시지를 로드 (unread 계산용) */
+async function loadRoomMessages(roomId: string): Promise<ChatMessage[]> {
+  const raw = await AsyncStorage.getItem(MESSAGE_PREFIX + roomId);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as ChatMessage[];
+  } catch {
+    return [];
+  }
+}
+
+/** ✅ unread 개수 재계산:
+ * - 기준: lastSeenTs 이후에 들어온 "상대가 보낸" 메시지 개수
+ * - system 메시지는 제외
+ */
+async function computeUnreadCount(roomId: string, myIdentity: string): Promise<number> {
+  const messages = await loadRoomMessages(roomId);
+  const readState = await loadReadState();
+  const lastSeen = readState[roomId]?.[myIdentity] ?? 0;
+
+  let cnt = 0;
+  for (const m of messages) {
+    const ts = m?.time ? new Date(m.time).getTime() : 0;
+    if (!ts || ts <= lastSeen) continue;
+
+    const senderEmail = normIdentity((m as any).senderEmail ?? null);
+    const senderId    = normIdentity((m as any).senderId ?? null);
+    const isMine = senderEmail === myIdentity || senderId === myIdentity;
+
+    if (!isMine && (m as any).type !== 'system') cnt++;
+  }
+  return cnt;
+}
+
+/** ✅ 특정 방의 unread를 재계산해서 ChatRoomSummary에 반영 */
+export async function refreshUnreadForRoom(roomId: string, myIdentity: string) {
   const rooms = await loadChatRooms();
   const idx = rooms.findIndex((r) => r.roomId === roomId);
   if (idx === -1) return;
-  rooms[idx].unreadCount = 0;
+
+  const unread = await computeUnreadCount(roomId, myIdentity);
+  rooms[idx] = { ...rooms[idx], unreadCount: unread };
   await persist(rooms);
+}
+
+/** ✅ 전체 방에 대해 unread를 재계산 (앱 시작/로그인 직후 등에서 유용) */
+export async function refreshAllUnread(myIdentity: string) {
+  const rooms = await loadChatRooms();
+  for (let i = 0; i < rooms.length; i++) {
+    const unread = await computeUnreadCount(rooms[i].roomId, myIdentity);
+    rooms[i] = { ...rooms[i], unreadCount: unread };
+  }
+  await persist(rooms);
+}
+
+/** ✅ 방 포커스 시 호출: 사용자별 lastSeenTs 저장 + 목록에서 unread=0 반영 */
+export async function markRoomRead(roomId: string, myIdentityRaw: string, seenAt?: number) {
+  const myIdentity = normIdentity(myIdentityRaw);
+  if (!myIdentity) return;
+
+  // 1) ReadState 업데이트
+  const state = await loadReadState();
+  const now = Number.isFinite(seenAt as number) ? (seenAt as number) : Date.now();
+  state[roomId] = state[roomId] ?? {};
+  state[roomId][myIdentity] = Math.max(state[roomId][myIdentity] ?? 0, now);
+  await saveReadState(state);
+
+  // 2) 목록에서도 즉시 0으로
+  const rooms = await loadChatRooms();
+  const idx = rooms.findIndex((r) => r.roomId === roomId);
+  if (idx !== -1) {
+    rooms[idx] = { ...rooms[idx], unreadCount: 0 };
+    await persist(rooms);
+  }
 }
 
 // ----------------------------- 삭제 -----------------------------
@@ -362,7 +453,11 @@ const chatStore = {
   updateRoomOnSend,
   updateRoomOnSendSmart,
   updateRoomPreview,
+  /** ✅ 업데이트된 시그니처 */
   markRoomRead,
+  /** ✅ 새로 추가 */
+  refreshUnreadForRoom,
+  refreshAllUnread,
   deleteChatRoom,
   deleteChatRooms,
   deleteByContext,

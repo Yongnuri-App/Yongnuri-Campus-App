@@ -1,20 +1,10 @@
 // hooks/useChatRoom.ts
-// -------------------------------------------------------------
-// 채팅방 로직 훅 (ID 충돌 방지 + 시딩 1회 보장 + 리스트 미리보기 갱신)
-// - 고유 ID 생성기(makeMsgId) (timestamp + seq + random)
-// - 로드/저장 시 중복 ID 자동 수정(fixDuplicateIds)
-// - senderEmail(우선)/senderId(폴백) 저장
-// - system/이미지/텍스트 메시지 지원
-// - initialMessage 시딩 1회 보장(StrictMode/포커스 중복 방지)
-// - 전송/시스템메시지 후 ChatList 미리보기 즉시 갱신
-// - ✅ roomId 미확정(빈값)일 때는 어떤 저장/시딩도 하지 않음(안전 가드)
-// - ✅ roomId 변경 시 시딩 가드 리셋(정규 roomId로 전환 시 시딩 보장)
-// -------------------------------------------------------------
 
-import { updateRoomOnSend } from '@/storage/chatStore';
+import { markRoomRead, refreshUnreadForRoom, updateRoomOnSend } from '@/storage/chatStore';
 import type { ChatMessage } from '@/types/chat';
 import { getLocalIdentity } from '@/utils/localIdentity';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const STORAGE_PREFIX = 'chat_messages_'; // 방별 메시지 저장 키: chat_messages_{roomId}
@@ -45,22 +35,17 @@ function fixDuplicateIds(arr: ChatMessage[]): ChatMessage[] {
 /** ✅ 미리보기 문구 생성(배치 전송 대응: 이미지+텍스트 동시 전송 등) */
 function previewForBatch(created: ChatMessage[]): string {
   if (!created.length) return '';
-  // 텍스트가 있으면 텍스트 우선
   const textMsg = created.find((m) => m.type === 'text') as Extract<ChatMessage, { type: 'text' }> | undefined;
   if (textMsg) return textMsg.text;
-
-  // 전부 이미지면 개수로 표시
   const imgCount = created.filter((m) => m.type === 'image').length;
   if (imgCount > 0) return imgCount > 1 ? `사진 ${imgCount}장` : '사진';
-
-  // 그 외(시스템 등)는 마지막 텍스트
   const last = created[created.length - 1];
   return last.type === 'image' ? '사진' : (last as any).text ?? '';
 }
 
 /**
  * 채팅방 훅
- * @param roomId - 방 ID (예: market-<postId>-<nickname>) — 반드시 유효한 문자열이어야 저장/전송이 수행됩니다.
+ * @param roomId - 방 ID — 반드시 유효한 문자열이어야 저장/전송이 수행됩니다.
  * @param initialMessage - 최초 진입 시 대화가 비어있다면 한 번만 자동 시딩할 텍스트
  */
 export default function useChatRoom(roomId: string, initialMessage?: string) {
@@ -82,7 +67,6 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
 
   /** 저장 */
   const persist = useCallback(async (arr: ChatMessage[]) => {
-    // ✅ roomId 미확정이면 저장하지 않음
     if (!validRoomId) return;
     try {
       const fixed = fixDuplicateIds(arr);
@@ -94,9 +78,8 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
 
   /** 로드 + (최초 시딩) */
   const loadAndSeed = useCallback(async () => {
-    // ✅ roomId 미확정이면 로드/시딩하지 않음
     if (!validRoomId) return;
-    if (loadingRef.current) return; // 동시 호출 방지
+    if (loadingRef.current) return;
     loadingRef.current = true;
     try {
       const raw = await AsyncStorage.getItem(STORAGE_PREFIX + roomId);
@@ -104,14 +87,12 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
       const fixed = fixDuplicateIds(loaded);
       setMessages(fixed);
 
-      // 중복이 있었으면 즉시 저장 반영
       if (fixed.length !== loaded.length || fixed.some((m, i) => m.id !== loaded[i]?.id)) {
         await persist(fixed);
       }
 
-      // ✅ 최초 진입 + 아직 시딩 안했고 + 대화가 비어있을 때만 1회 시딩
       if (!seedingDoneRef.current && initialMessage && fixed.length === 0) {
-        seedingDoneRef.current = true; // 다시 못 들어오게 플래그
+        seedingDoneRef.current = true;
         await send(initialMessage);
       }
     } catch (e) {
@@ -125,6 +106,34 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
   // 마운트/roomId 변경 시 로드
   useEffect(() => { void loadAndSeed(); }, [loadAndSeed]);
 
+  /** ✅ 화면 포커스될 때 이 방을 읽음 처리 */
+  useFocusEffect(
+    useCallback(() => {
+      if (!validRoomId) return;
+
+      let cancelled = false;
+      (async () => {
+        try {
+          const { userEmail, userId } = await getLocalIdentity();
+          const me = (userEmail ?? userId) ? (userEmail ?? userId)!.toString() : '';
+          if (!me) return;
+
+          const now = Date.now();
+          await markRoomRead(roomId, me, now);
+
+          // 백그라운드에서 저장된 새 메시지 대비 한 번 더 재계산
+          if (!cancelled) {
+            await refreshUnreadForRoom(roomId, me.toLowerCase());
+          }
+        } catch (e) {
+          console.log('focus read error', e);
+        }
+      })();
+
+      return () => { cancelled = true; };
+    }, [roomId, validRoomId])
+  );
+
   /** 첨부 제어 */
   const addAttachments = useCallback((uris: string[]) => {
     setAttachments(prev => [...prev, ...uris]);
@@ -136,7 +145,6 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
 
   /** 전송 (텍스트/이미지) */
   const send = useCallback(async (textOrEmpty?: string) => {
-    // ✅ roomId 미확정이면 전송 금지
     if (!validRoomId) return;
 
     try {
@@ -189,6 +197,12 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
         const preview = previewForBatch(created);
         void updateRoomOnSend(roomId, preview, ts);
 
+        // ✅ 내가 보낸 직후엔 내 unread=0 유지 (상대방 unread는 상대/서버에서)
+        const me = (userEmail ?? userId) ? (userEmail ?? userId)!.toString() : '';
+        if (me) {
+          void markRoomRead(roomId, me, ts);
+        }
+
         return next;
       });
     } catch (e) {
@@ -198,7 +212,6 @@ export default function useChatRoom(roomId: string, initialMessage?: string) {
 
   /** 시스템(약속 등) 메시지 */
   const pushSystemAppointment = useCallback((date: string, time: string, place: string) => {
-    // ✅ roomId 미확정이면 금지
     if (!validRoomId) return;
 
     const msg: ChatMessage = {

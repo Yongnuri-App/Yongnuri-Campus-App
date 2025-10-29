@@ -1,14 +1,4 @@
 // pages/Chat/ChatListPage.tsx
-/**
- * 채팅 리스트 페이지
- * - 카테고리 필터(전체/중고/분실/공동구매)
- * - 스와이프(오른쪽) → 삭제 버튼 (내 목록에서만 제거)
- * - 롱프레스 등 확장 액션은 추후 추가 가능(차단/신고 등)
- *
- * ⚠️ 훅 규칙 준수:
- *   FlatList의 renderItem 콜백 안에서 훅(useRef 등)을 호출하지 않기 위해
- *   아이템 전담 컴포넌트(ChatRowItem)로 분리했다.
- */
 
 import { useFocusEffect } from '@react-navigation/native';
 import React, {
@@ -40,8 +30,10 @@ import {
   deleteChatRoom,
   loadChatRooms,
   markRoomRead,
+  refreshAllUnread,
 } from '@/storage/chatStore';
 import type { ChatCategory, ChatRoomSummary } from '@/types/chat';
+import { getLocalIdentity } from '@/utils/localIdentity';
 
 const CHAT_CATEGORIES: CategoryItem[] = [
   { id: 'all', label: '전체' },
@@ -79,7 +71,6 @@ const ChatRowItem = memo(function ChatRowItem({
   onPress,
   onDeleted,
 }: ChatRowItemProps) {
-  // ✅ 훅은 컴포넌트 최상단에서만
   const swipeRef = useRef<Swipeable | null>(null);
 
   // 스와이프 닫기
@@ -108,7 +99,6 @@ const ChatRowItem = memo(function ChatRowItem({
   return (
     <Swipeable
       ref={swipeRef}
-      // 오른쪽(왼→오 스와이프) 액션: 삭제
       renderRightActions={() => (
         <View style={styles.swipeActionContainer}>
           <TouchableOpacity
@@ -159,7 +149,7 @@ const ChatRowItem = memo(function ChatRowItem({
           </Text>
         </View>
 
-        {/* 안 읽은 점 */}
+        {/* 안 읽은 점: 숫자 없이 원형 배지 */}
         {item.unreadCount > 0 && <View style={styles.unreadDot} />}
       </TouchableOpacity>
     </Swipeable>
@@ -171,13 +161,23 @@ export default function ChatListPage({ navigation }: Props) {
   const [chip, setChip] = useState<string>('all');
   const [rooms, setRooms] = useState<ChatRoomSummary[]>([]);
 
-  // 화면 포커스될 때마다 로컬 저장소에서 최신 목록 로딩
+  // ✅ 화면 포커스 시: 내 아이덴티티 기준으로 전체 unread 동기화 → 최신 rooms 로딩
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
       (async () => {
-        const data = await loadChatRooms();
-        if (mounted) setRooms(Array.isArray(data) ? data : []);
+        try {
+          const { userEmail, userId } = await getLocalIdentity();
+          const me = (userEmail ?? userId) ? (userEmail ?? userId)!.toString().toLowerCase() : '';
+          if (me) {
+            await refreshAllUnread(me); // 안읽음 계산 업데이트
+          }
+          const data = await loadChatRooms(); // 최신 rooms 반영
+          if (mounted) setRooms(Array.isArray(data) ? data : []);
+        } catch (e) {
+          const data = await loadChatRooms();
+          if (mounted) setRooms(Array.isArray(data) ? data : []);
+        }
       })();
       return () => {
         mounted = false;
@@ -194,9 +194,19 @@ export default function ChatListPage({ navigation }: Props) {
     return [...list].sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
   }, [chip, rooms]);
 
-  /** 채팅방 입장 */
+  /** ✅ 채팅방 입장: 읽음 처리 + 낙관적 UI 반영 후 네비게이션 */
   const enterRoom = useCallback(async (room: ChatRoomSummary) => {
-    await markRoomRead(room.roomId);
+    try {
+      const { userEmail, userId } = await getLocalIdentity();
+      const me = (userEmail ?? userId) ? (userEmail ?? userId)!.toString() : '';
+      if (me) {
+        await markRoomRead(room.roomId, me, Date.now());
+        // 낙관적 업데이트: 점 즉시 제거
+        setRooms(prev => prev.map(r => r.roomId === room.roomId ? { ...r, unreadCount: 0 } : r));
+      }
+    } catch (e) {
+      // 식별 불가 시 skip
+    }
 
     // 기존 저장된 네비게이션 파라미터가 있으면 그대로 사용
     if (room.origin?.params) {
