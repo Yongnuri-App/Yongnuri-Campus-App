@@ -9,7 +9,7 @@ export type ChatListType = ChatType | 'ALL';
 export type ChatMessageType = 'text' | 'img';
 
 export type CreateRoomReq = {
-  type: ChatType;
+  type: Exclude<ChatType, 'ALL'>;
   typeId: number;     // 게시글 ID
   toUserId: number;   // 상대방 사용자 ID
   message: string;
@@ -19,7 +19,7 @@ export type CreateRoomReq = {
 export type CreateRoomRes = {
   roomInfo: {
     roomId: number;
-    chatType: ChatType;
+    chatType: Exclude<ChatType, 'ALL'>;
     chatTypeId?: number | null;
     opponentId: number;
     opponentNickname: string;
@@ -63,7 +63,7 @@ export type ChatListItem = {
   toUserNickName: string;
 };
 
-export async function getRooms(type: ChatType = 'ALL'): Promise<ChatListItem[]> {
+export async function getRooms(type: ChatListType = 'ALL'): Promise<ChatListItem[]> {
   // ✅ 반드시 쿼리로 type 전송
   const res = await api.get('/chat/rooms', { params: { type } });
   return res.data as ChatListItem[];
@@ -74,10 +74,9 @@ export type SendMessageReq = {
   roomId: number;        // 서버 채팅방 ID
   sender: number;        // 내 사용자 ID
   message: string;       // 보낼 텍스트
-  type: 'text' | 'img';  // 명세상 'text' 사용
+  type: 'text' | 'img';
 };
 
-// 서버 응답 스키마가 정확히 정해지지 않았다면 any로 받아도 OK
 export type SendMessageRes = {
   roomId: number;
   sender: number;
@@ -89,4 +88,9 @@ export type SendMessageRes = {
 export async function sendMessage(req: SendMessageReq): Promise<SendMessageRes> {
   const res = await api.post('/chat/rooms/messages', req);
   return res.data as SendMessageRes;
+}
+
+/** ====== 내 쪽 채팅방 삭제 (상대방에게는 유지) ====== */
+export async function deleteRoom(roomId: number): Promise<void> {
+  await api.delete(`/chat/rooms/${roomId}`);
 }

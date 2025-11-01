@@ -4,7 +4,7 @@
  * - /chat/rooms에서 목록을 불러와 표시
  * - 칩(전체/중고/분실/공동구매)에 따라 서버에 type 파라미터 전송
  * - 아이템 탭 시 ChatRoom으로 이동(서버 roomId 기반)
- * - 오른쪽 스와이프 → 내 목록에서만 삭제
+ * - 오른쪽 스와이프 → 내 목록에서만 삭제 (서버 DELETE 연동)
  */
 
 import { useFocusEffect } from '@react-navigation/native';
@@ -24,12 +24,8 @@ import CategoryChips, { CategoryItem } from '../../components/CategoryChips/Cate
 import HeaderIcons from '../../components/Header/HeaderIcons';
 import styles from './ChatListPage.styles';
 
-import { getRooms, type ChatListItem, type ChatListType } from '@/api/chat';
-import {
-  deleteChatRoom,
-  markRoomRead,
-  refreshAllUnread
-} from '@/storage/chatStore';
+import { deleteRoom as deleteRoomApi, getRooms, type ChatListItem, type ChatListType } from '@/api/chat';
+import { deleteChatRoom as deleteLocalRoom, markRoomRead, refreshAllUnread } from '@/storage/chatStore';
 import type { ChatCategory, ChatRoomSummary } from '@/types/chat';
 import { getLocalIdentity } from '@/utils/localIdentity';
 
@@ -39,8 +35,6 @@ const CHAT_CATEGORIES: CategoryItem[] = [
   { id: 'lost',   label: '분실물' },
   { id: 'group',  label: '공동구매' },
 ];
-
-type Props = { navigation: any };
 
 /** 서버 type -> 앱 카테고리 매핑 */
 function mapServerTypeToCategory(t: ChatListItem['type']): ChatCategory {
@@ -57,31 +51,32 @@ function mapChipToServerType(chip: string): ChatListType {
   return 'ALL';
 }
 
-/** 서버 아이템 → 화면에서 쓰는 요약모델로 변환 */
-function mapApiToSummary(it: ChatListItem): ChatRoomSummary & { apiUpdateText: string } {
+/** 서버 아이템 → 화면 요약모델(+ 서버 roomId 보존) */
+type ListRow = ChatRoomSummary & {
+  apiUpdateText: string;   // “12시간 전”
+  serverRoomId: number;    // 서버의 실제 roomId (ChatRoom 상세 조회용)
+};
+
+function mapApiToSummary(it: ChatListItem): ListRow {
   const category = mapServerTypeToCategory(it.type);
   return {
     roomId: String(it.id),               // 로컬 키는 문자열
     category,
     nickname: it.toUserNickName,
     lastMessage: it.lastMessage || '',
-    lastTs: Date.now(),                  // 서버 정렬 신뢰 → 표시용 숫자
+    lastTs: Date.now(),                  // 표시용
     unreadCount: 0,
-    origin: {
-      source: category === 'group' ? 'groupbuy' : (category as any),
-      params: {
-        source: category === 'group' ? 'groupbuy' : (category as any),
-        serverRoomId: it.id,             // ✅ ChatRoom에서 서버 상세 조회
-      },
-    },
-    apiUpdateText: it.updateTime,        // “12시간 전”
+    // ⚠️ origin/params에 미정의 필드 넣어서 타입 에러 나던 부분 제거
+    origin: undefined,
+    apiUpdateText: it.updateTime,
+    serverRoomId: it.id,
   };
 }
 
 /** 리스트 한 줄 전담 컴포넌트 */
 type RowProps = {
-  item: ChatRoomSummary & { apiUpdateText: string };
-  onPress: (room: ChatRoomSummary) => void;
+  item: ListRow;
+  onPress: (room: ListRow) => void;
   onDeleted: (roomId: string) => void;
 };
 
@@ -106,8 +101,20 @@ const ChatRowItem = memo(function ChatRowItem({ item, onPress, onDeleted }: RowP
           text: '삭제',
           style: 'destructive',
           onPress: async () => {
-            await deleteChatRoom(item.roomId);
-            onDeleted(item.roomId);
+            try {
+              // 1) 서버에 내 쪽 삭제 요청
+              await deleteRoomApi(item.serverRoomId);
+            } catch (e) {
+              console.log('[ChatList] deleteRoomApi error', e);
+              Alert.alert('오류', '삭제 중 문제가 발생했어요. 다시 시도해주세요.');
+              return;
+            }
+            try {
+              // 2) 로컬 인덱스/미리보기 정리
+              await deleteLocalRoom(item.roomId);
+            } finally {
+              onDeleted(item.roomId);
+            }
           },
         },
       ],
@@ -154,19 +161,24 @@ const ChatRowItem = memo(function ChatRowItem({ item, onPress, onDeleted }: RowP
   );
 });
 
-export default function ChatListPage({ navigation }: Props) {
+export default function ChatListPage({ navigation }: { navigation: any }) {
   const [tab, setTab] = useState<TabKey>('chat');
   const [chip, setChip] = useState<string>('all');
-  const [rooms, setRooms] = useState<(ChatRoomSummary & { apiUpdateText: string })[]>([]);
+  const [rooms, setRooms] = useState<ListRow[]>([]);
   const [loading, setLoading] = useState(false);
 
-  /** 목록 로더 (칩에 맞춰 서버 호출) */
+  /** 목록 로더 (칩에 맞춰 서버 호출) — 최근 순 정렬 가정 */
   const load = useCallback(async (chipVal: string) => {
     setLoading(true);
     try {
       const serverType = mapChipToServerType(chipVal);
       const list = await getRooms(serverType);
       const mapped = list.map(mapApiToSummary);
+
+      // ✅ “가장 최근 대화 위로” 보장:
+      // 서버가 이미 정렬해 줄 가능성이 높지만, 안전하게 id 내림차순(최근 생성/업데이트 가정)
+      mapped.sort((a, b) => b.serverRoomId - a.serverRoomId);
+
       setRooms(mapped);
     } catch (e) {
       console.log('[ChatList] getRooms error', e);
@@ -211,47 +223,42 @@ export default function ChatListPage({ navigation }: Props) {
     return [...list].sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
   }, [chip, rooms]);
 
-  /** 채팅방 입장: 읽음 처리 + 낙관적 UI 반영 후 네비게이션 */
-  const enterRoom = useCallback(async (room: ChatRoomSummary) => {
+  /** 채팅방 입장: 읽음 처리(낙관적) + 서버호출 가드 + 네비게이션 파라미터 통합 */
+  const enterRoom = useCallback(async (room: ListRow) => {
     // 1) 낙관적: 리스트에서 즉시 unread 제거
     setRooms(prev =>
       prev.map(r => (r.roomId === room.roomId ? { ...r, unreadCount: 0 } : r))
     );
-    // 2) 읽음 처리 (서버/로컬 어느 쪽이든 가능하게 보호적으로 호출)
+
+    // 2) 읽음 처리 (로컬/서버 시그니처 둘 다 대응)
     try {
       const { userEmail, userId } = await getLocalIdentity();
       const me = (userEmail ?? userId) ? (userEmail ?? userId)!.toString() : '';
       const ts = Date.now();
 
-      // (A) 로컬 저장소용 시그니처: markRoomRead(roomId, me, ts)
-      // (B) 서버 API용 시그니처:    markRoomRead(roomId)
-      // 둘 중 구현된 쪽만 성공하도록 순차 시도
       try {
+        // (A) 로컬 저장소용 시그니처: markRoomRead(roomId, me, ts)
         await markRoomRead(room.roomId, me, ts);
       } catch {
         try {
-          // @ts-expect-error 시그니처 차이 허용 (존재 시 정상 동작)
+          // (B) 서버 API용 시그니처: markRoomRead(roomId)
+          // @ts-expect-error 다른 시그니처 허용
           await markRoomRead(room.roomId);
         } catch {
-          // 둘 다 없으면 스킵
+          // 둘 다 실패해도 UI는 이미 낙관적으로 처리됨
         }
       }
     } catch {
-      // 아이덴티티 불가 등 → 읽음 처리 스킵 (UI는 낙관적으로 0 처리됨)
+      // 아이덴티티 불가 등 → 읽음 처리 스킵(낙관적 0 유지)
     }
 
-    // 3) 네비게이션
-    if (room.origin?.params) {
-      navigation.navigate('ChatRoom', {
-        ...room.origin.params,
-        roomId: room.roomId,
-      });
-    } else {
-      navigation.navigate('ChatRoom', {
-        ...(room.origin?.params || {}),
-        roomId: room.roomId,
-      });
-    }
+    // 3) 네비게이션: origin.params(있으면) + serverRoomId/source 힌트까지 통합 전달
+    navigation.navigate('ChatRoom', {
+      ...(room.origin?.params || {}),
+      roomId: room.roomId,                 // 로컬 키
+      serverRoomId: room.serverRoomId,     // 서버 상세 조회용
+      source: room.category === 'group' ? 'groupbuy' : room.category, // 상단 카드/버튼 힌트
+    });
   }, [navigation]);
 
   const handleDeleted = useCallback((roomId: string) => {
@@ -279,7 +286,7 @@ export default function ChatListPage({ navigation }: Props) {
         data={rooms}
         keyExtractor={(it) => it.roomId}
         renderItem={({ item }) => (
-          <ChatRowItem item={item as any} onPress={enterRoom} onDeleted={handleDeleted} />
+          <ChatRowItem item={item} onPress={enterRoom} onDeleted={handleDeleted} />
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         contentContainerStyle={styles.listContent}
@@ -290,7 +297,6 @@ export default function ChatListPage({ navigation }: Props) {
             <Text style={{ fontSize: 14, fontWeight: '600', color: '#1E1E1E' }}>
               아직 시작한 대화가 없어요
             </Text>
-            {/* 따옴표 경고 해결: JSX 안에서는 다음처럼 작성 */}
             <Text style={{ fontSize: 12, color: '#979797', marginTop: 4 }}>
               상세페이지에서 {'"채팅하기"'}를 눌러 시작해보세요
             </Text>
