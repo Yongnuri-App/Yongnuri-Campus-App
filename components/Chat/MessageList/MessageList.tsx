@@ -1,8 +1,8 @@
 // src/components/Chat/MessageList/MessageList.tsx
 import type { ChatMessage } from '@/types/chat';
 import { getLocalIdentity } from '@/utils/localIdentity';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, FlatList, useWindowDimensions } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FlatList } from 'react-native';
 import MessageItem from '../MessageItem/MessageItem';
 import styles from './MessageList.styles';
 
@@ -37,11 +37,6 @@ export default function MessageList({
   const [meEmail, setMeEmail] = useState<string | null>(null);
   const [meId, setMeId] = useState<string | null>(null);
   const prevLengthRef = useRef(0);
-  const [contentHeight, setContentHeight] = useState(0);
-  const { height: windowHeight } = useWindowDimensions();
-  
-  // ✅ 애니메이션 값
-  const animatedPadding = useRef(new Animated.Value(12)).current;
 
   useEffect(() => {
     (async () => {
@@ -71,7 +66,8 @@ export default function MessageList({
     prevLengthRef.current = sorted.length;
   }, [sorted.length]);
 
-  const isMine = (m: ChatMessage) => {
+  // ✅ isMine 함수를 useCallback으로 메모이제이션
+  const isMine = useCallback((m: ChatMessage) => {
     const sEmail = (m as any).senderEmail as string | null | undefined;
     if (sEmail && meEmail) {
       if (normEmail(sEmail) === normEmail(meEmail)) return true;
@@ -82,55 +78,54 @@ export default function MessageList({
       if (sId === meId) return true;
     }
     return false;
-  };
+  }, [meEmail, meId]);
 
-  // ✅ 메시지 내용이 화면을 꽉 채우는지 확인
-  const needsInset = contentHeight > windowHeight * 0.3;
+  // ✅ renderItem을 useCallback으로 메모이제이션
+  const renderItem = useCallback(
+    ({ item }: { item: ChatMessage }) => <MessageItem item={item} mine={isMine(item)} />,
+    [isMine]
+  );
 
-  // ✅ paddingTop을 부드럽게 애니메이션
-  useEffect(() => {
-    Animated.timing(animatedPadding, {
-      toValue: needsInset ? bottomInset : 12,
-      duration: 250,
-      useNativeDriver: false,
-    }).start();
-  }, [needsInset, bottomInset, animatedPadding]);
-
-  // ✅ AnimatedFlatList 생성
-  const AnimatedFlatList = Animated.createAnimatedComponent(FlatList<ChatMessage>);
+  // ✅ keyExtractor를 useCallback으로
+  const keyExtractor = useCallback(
+    (item: ChatMessage, idx: number) => getKey(item, idx),
+    []
+  );
 
   return (
-    <AnimatedFlatList
+    <FlatList
       ref={flatRef}
       data={sorted}
-      keyExtractor={(item, idx) => getKey(item, idx)}
-      renderItem={({ item }) => <MessageItem item={item} mine={isMine(item)} />}
+      keyExtractor={keyExtractor}
+      renderItem={renderItem}
       inverted
       
       contentContainerStyle={[
         styles.listContent,
-        { 
-          flexGrow: 1,
-          justifyContent: 'flex-end',
-          paddingTop: animatedPadding,  // ✅ Animated 값 사용
-          paddingBottom: 12,
-        }
+      {
+        paddingTop: bottomInset,
+        paddingBottom: 12,
+      }
       ]}
       
       onContentSizeChange={(width, height) => {
-        setContentHeight(height);
-        onContentHeightChange?.(height);  // ✅ 부모로 전달
+        onContentHeightChange?.(height);
       }}
       
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
+      
+      // ✅ 성능 최적화 설정
       initialNumToRender={20}
-      maxToRenderPerBatch={20}
-      windowSize={7}
-      removeClippedSubviews={false}
-      maintainVisibleContentPosition={{
-        minIndexForVisible: 0,
-      }}
+      maxToRenderPerBatch={5}
+      windowSize={5}
+      updateCellsBatchingPeriod={100}
+      removeClippedSubviews={false}  // ✅ 이미지 깜빡임 방지
+      onEndReachedThreshold={0.5}
+      
+      // ✅ 스크롤 성능 개선
+      legacyImplementation={false}
+      disableVirtualization={false}
     />
   );
 }

@@ -1,5 +1,5 @@
 import type { ChatMessage } from '@/types/chat';
-import React from 'react';
+import React, { memo } from 'react';
 import { Image, Text, View } from 'react-native';
 import styles from './MessageItem.styles';
 
@@ -7,6 +7,9 @@ type Props = {
   item: ChatMessage;
   mine?: boolean;
 };
+
+// ✅ 이미지 소스를 컴포넌트 밖으로 (한 번만 require)
+const AVATAR_SOURCE = require('../../../assets/images/yongnuri-icon-black.png');
 
 function formatTimeLabel(iso?: string): string {
   if (!iso) return '';
@@ -21,7 +24,8 @@ function formatTimeLabel(iso?: string): string {
   return `${ampm} ${hh}:${mm}`;
 }
 
-export default function MessageItem({ item, mine }: Props) {
+// ✅ 일반 함수로 먼저 선언
+function MessageItem({ item, mine }: Props) {
   const isMine = typeof mine === 'boolean' ? mine : !!(item as any).mine;
   const timeLabel = formatTimeLabel((item as any).time);
 
@@ -38,7 +42,7 @@ export default function MessageItem({ item, mine }: Props) {
       <View style={styles.rowLeft}>
         <View style={styles.avatar}>
           <Image
-            source={require('../../../assets/images/yongnuri-icon-black.png')}
+            source={AVATAR_SOURCE}
             style={styles.avatarIcon}
             resizeMode="contain"
           />
@@ -64,7 +68,7 @@ export default function MessageItem({ item, mine }: Props) {
       <View style={styles.rowLeft}>
         <View style={styles.avatar}>
           <Image
-            source={require('../../../assets/images/yongnuri-icon-black.png')}
+            source={AVATAR_SOURCE}
             style={styles.avatarIcon}
             resizeMode="contain"
           />
@@ -90,3 +94,6 @@ export default function MessageItem({ item, mine }: Props) {
 
   return <View />;
 }
+
+// ✅ export 할 때 memo로 감싸기
+export default memo(MessageItem);
