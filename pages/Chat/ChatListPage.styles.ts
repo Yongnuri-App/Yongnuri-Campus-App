@@ -27,7 +27,7 @@ export default StyleSheet.create({
   // 📜 리스트
   listContent: {
     paddingHorizontal: 16,
-    paddingBottom: 22,
+    paddingBottom: 100,
   },
   chatRow: {
     flexDirection: 'row',

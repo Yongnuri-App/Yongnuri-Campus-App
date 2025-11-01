@@ -3,7 +3,9 @@
 // 채팅방 화면 (중고거래 / 분실물 / 공동구매 공통)
 // ---------------------------------------------------------
 
+import useKeyboardHeight from '@/hooks/useKeyboardHeight';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -17,6 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RootStackParamList } from '../../types/navigation';
 import styles from './ChatRoomPage.styles';
 
@@ -236,6 +239,20 @@ export default function ChatRoomPage() {
     originParams: enriched,
     nickname: titleFinal, // ✅ 현재 시점의 타이틀 전달
   });
+
+  const kbHeight = useKeyboardHeight();              // 키보드 높이
+  const insets = useSafeAreaInsets();                // 안전영역
+  const headerHeight = useHeaderHeight();            // 헤더 높이
+  const [bottomBarHeight, setBottomBarHeight] = useState(80);
+
+  const INPUT_BAR_HEIGHT = 56;
+  const ATTACH_BAR_HEIGHT = attachments.length > 0 ? 88 : 0;
+  const listBottomInset =
+    INPUT_BAR_HEIGHT +
+    // bottomBarHeight +
+    ATTACH_BAR_HEIGHT +
+    // extraBottomPad +
+    insets.bottom;
 
   // ✅ 상단 게시글 카드 상태: 초기값(네이티브 파라미터) + 서버 보강
   const [headerPost, setHeaderPost] = useState<PostMeta | undefined>(() => {
@@ -714,11 +731,14 @@ export default function ChatRoomPage() {
     );
   }
 
+  // ✅ 메시지 개수 확인용 상태 추가
+  const hasEnoughMessages = messages.length > 3;
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.select({ ios: 0, android: 0 }) ?? 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}  // ✅ 항상 활성화
+      keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
     >
       <ChatHeader
         title={titleFinal}
@@ -748,8 +768,14 @@ export default function ChatRoomPage() {
           )}
         </View>
       </View>
-
-      <MessageList data={messages} bottomInset={100 + extraBottomPad} />
+      
+      <View style={{ flex: 1 }}>
+        <MessageList
+          data={messages}
+          bottomInset={hasEnoughMessages ? listBottomInset : 0}
+          // keyboardHeight={kbHeight}
+        />
+      </View>  
       <AttachmentBar uris={attachments} onRemoveAt={removeAttachmentAt} />
 
       {isBlocked ? (

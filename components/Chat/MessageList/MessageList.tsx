@@ -2,7 +2,7 @@
 import type { ChatMessage } from '@/types/chat';
 import { getLocalIdentity } from '@/utils/localIdentity';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList } from 'react-native';
+import { Animated, FlatList, useWindowDimensions } from 'react-native';
 import MessageItem from '../MessageItem/MessageItem';
 import styles from './MessageList.styles';
 
@@ -11,11 +11,11 @@ type Props = {
   bottomInset: number;
   autoScrollOnKeyboard?: boolean;
   keyboardHeight?: number;
+  onContentHeightChange?: (height: number) => void;
 };
 
 const normEmail = (s?: string | null) => (s ?? '').trim().toLowerCase();
 
-// 다양한 시간 필드 허용
 const toMs = (m: any): number => {
   const t = m?.time ?? m?.ts ?? m?.createdAt ?? m?.created_at ?? m?.timestamp ?? 0;
   if (typeof t === 'number') return t;
@@ -31,10 +31,17 @@ export default function MessageList({
   bottomInset,
   autoScrollOnKeyboard = true,
   keyboardHeight = 0,
+  onContentHeightChange,
 }: Props) {
   const flatRef = useRef<FlatList<ChatMessage>>(null);
   const [meEmail, setMeEmail] = useState<string | null>(null);
   const [meId, setMeId] = useState<string | null>(null);
+  const prevLengthRef = useRef(0);
+  const [contentHeight, setContentHeight] = useState(0);
+  const { height: windowHeight } = useWindowDimensions();
+  
+  // ✅ 애니메이션 값
+  const animatedPadding = useRef(new Animated.Value(12)).current;
 
   useEffect(() => {
     (async () => {
@@ -51,22 +58,19 @@ export default function MessageList({
 
   const sorted = useMemo(() => {
     const arr = Array.isArray(data) ? [...data] : [];
-    arr.sort((a, b) => toMs(a) - toMs(b));
+    arr.sort((a, b) => toMs(b) - toMs(a));
     return arr;
   }, [data]);
 
   useEffect(() => {
-    const id = setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 0);
-    return () => clearTimeout(id);
+    if (sorted.length > prevLengthRef.current && sorted.length > 0) {
+      requestAnimationFrame(() => {
+        flatRef.current?.scrollToOffset({ offset: 0, animated: true });
+      });
+    }
+    prevLengthRef.current = sorted.length;
   }, [sorted.length]);
 
-  useEffect(() => {
-    if (!autoScrollOnKeyboard) return;
-    const id = setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 10);
-    return () => clearTimeout(id);
-  }, [keyboardHeight, autoScrollOnKeyboard]);
-
-  /** ✅ 좌/우 판정: mine 플래그 무시하고, (email → id) 순서만 사용 */
   const isMine = (m: ChatMessage) => {
     const sEmail = (m as any).senderEmail as string | null | undefined;
     if (sEmail && meEmail) {
@@ -80,21 +84,53 @@ export default function MessageList({
     return false;
   };
 
+  // ✅ 메시지 내용이 화면을 꽉 채우는지 확인
+  const needsInset = contentHeight > windowHeight * 0.3;
+
+  // ✅ paddingTop을 부드럽게 애니메이션
+  useEffect(() => {
+    Animated.timing(animatedPadding, {
+      toValue: needsInset ? bottomInset : 12,
+      duration: 250,
+      useNativeDriver: false,
+    }).start();
+  }, [needsInset, bottomInset, animatedPadding]);
+
+  // ✅ AnimatedFlatList 생성
+  const AnimatedFlatList = Animated.createAnimatedComponent(FlatList<ChatMessage>);
+
   return (
-    <FlatList
+    <AnimatedFlatList
       ref={flatRef}
       data={sorted}
       keyExtractor={(item, idx) => getKey(item, idx)}
       renderItem={({ item }) => <MessageItem item={item} mine={isMine(item)} />}
-      contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset }]}
+      inverted
+      
+      contentContainerStyle={[
+        styles.listContent,
+        { 
+          flexGrow: 1,
+          justifyContent: 'flex-end',
+          paddingTop: animatedPadding,  // ✅ Animated 값 사용
+          paddingBottom: 12,
+        }
+      ]}
+      
+      onContentSizeChange={(width, height) => {
+        setContentHeight(height);
+        onContentHeightChange?.(height);  // ✅ 부모로 전달
+      }}
+      
       keyboardShouldPersistTaps="handled"
-      onContentSizeChange={() => flatRef.current?.scrollToEnd({ animated: false })}
-      onLayout={() => flatRef.current?.scrollToEnd({ animated: false })}
       showsVerticalScrollIndicator={false}
       initialNumToRender={20}
       maxToRenderPerBatch={20}
       windowSize={7}
       removeClippedSubviews={false}
+      maintainVisibleContentPosition={{
+        minIndexForVisible: 0,
+      }}
     />
   );
 }

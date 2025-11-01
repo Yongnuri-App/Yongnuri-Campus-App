@@ -2,6 +2,9 @@
 import { StyleSheet } from 'react-native';
 
 export default StyleSheet.create({
+  container: {  // ✅ 추가
+    flex: 1,
+  },
   // 기존 ChatRoomPage.styles.ts의 listContent와 동일
   listContent: {
     paddingHorizontal: 10,
