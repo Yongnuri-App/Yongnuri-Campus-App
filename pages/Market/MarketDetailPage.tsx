@@ -335,8 +335,7 @@ export default function MarketDetailPage({
       sellerId: sellerIdKey ?? undefined,
       buyerEmail: meEmail ?? undefined,
       buyerId: meId ?? undefined,
-      opponentEmail: meEmail ?? undefined,
-
+      opponentEmail: item.authorEmail ?? undefined,
       sellerNickname: authorNickname,
       productTitle: item.title,
       productPrice: item.mode === 'donate' ? 0 : Number(item.price ?? 0),

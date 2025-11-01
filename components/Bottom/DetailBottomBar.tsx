@@ -278,7 +278,6 @@ const DetailBottomBar: React.FC<Props> = ({
         navigation.navigate('ChatRoom', {
           ...originParams,     // buyer 식별자 포함된 파라미터
           roomId,              // ✅ 필수
-          initialMessage: msg,
           serverRoomId,
         } as any);
       }

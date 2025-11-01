@@ -22,8 +22,8 @@ function formatTimeLabel(iso?: string): string {
 }
 
 export default function MessageItem({ item, mine }: Props) {
-  const isMine = typeof mine === 'boolean' ? mine : !!item.mine;
-  const timeLabel = formatTimeLabel(item.time);
+  const isMine = typeof mine === 'boolean' ? mine : !!(item as any).mine;
+  const timeLabel = formatTimeLabel((item as any).time);
 
   // ===== 이미지 메시지 =====
   if (item.type === 'image') {
@@ -31,12 +31,11 @@ export default function MessageItem({ item, mine }: Props) {
       <View style={styles.rowRight}>
         <Text style={styles.timeRight}>{timeLabel}</Text>
         <View style={styles.imageBubbleMine}>
-          <Image source={{ uri: item.uri }} style={styles.msgImageMine} />
+          <Image source={{ uri: (item as any).uri }} style={styles.msgImageMine} />
         </View>
       </View>
     ) : (
       <View style={styles.rowLeft}>
-        {/* ✅ 아바타 영역 */}
         <View style={styles.avatar}>
           <Image
             source={require('../../../assets/images/yongnuri-icon-black.png')}
@@ -44,9 +43,8 @@ export default function MessageItem({ item, mine }: Props) {
             resizeMode="contain"
           />
         </View>
-
         <View style={styles.imageBubbleOthers}>
-          <Image source={{ uri: item.uri }} style={styles.msgImageOthers} />
+          <Image source={{ uri: (item as any).uri }} style={styles.msgImageOthers} />
         </View>
         <Text style={styles.timeLeft}>{timeLabel}</Text>
       </View>
@@ -59,12 +57,11 @@ export default function MessageItem({ item, mine }: Props) {
       <View style={styles.rowRight}>
         <Text style={styles.timeRight}>{timeLabel}</Text>
         <View style={styles.bubbleMine}>
-          <Text style={styles.bubbleTextMine}>{item.text}</Text>
+          <Text style={styles.bubbleTextMine}>{(item as any).text}</Text>
         </View>
       </View>
     ) : (
       <View style={styles.rowLeft}>
-        {/* ✅ 아바타 영역 */}
         <View style={styles.avatar}>
           <Image
             source={require('../../../assets/images/yongnuri-icon-black.png')}
@@ -72,9 +69,8 @@ export default function MessageItem({ item, mine }: Props) {
             resizeMode="contain"
           />
         </View>
-
         <View style={styles.bubbleOthers}>
-          <Text style={styles.bubbleTextOthers}>{item.text}</Text>
+          <Text style={styles.bubbleTextOthers}>{(item as any).text}</Text>
         </View>
         <Text style={styles.timeLeft}>{timeLabel}</Text>
       </View>
@@ -86,7 +82,7 @@ export default function MessageItem({ item, mine }: Props) {
     return (
       <View style={styles.systemWrap}>
         <View style={styles.systemPill}>
-          <Text style={styles.systemText}>{item.text}</Text>
+          <Text style={styles.systemText}>{(item as any).text}</Text>
         </View>
       </View>
     );
