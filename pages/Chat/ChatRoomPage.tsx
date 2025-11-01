@@ -1,4 +1,8 @@
-// /src/pages/Chat/ChatRoomPage.tsx
+// src/pages/Chat/ChatRoomPage.tsx
+// ---------------------------------------------------------
+// 채팅방 화면 (중고거래 / 분실물 / 공동구매 공통)
+// ---------------------------------------------------------
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -7,6 +11,8 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Platform,
   Text,
   TouchableOpacity,
   View,
@@ -15,7 +21,7 @@ import type { RootStackParamList } from '../../types/navigation';
 import styles from './ChatRoomPage.styles';
 
 import AttachmentBar from '@/components/Chat/AttachmentBar/AttachmentBar';
-import ChatHeader from '@/components/Chat/ChatHeader/ChatHeader';
+import ChatHeader, { type PostMeta } from '@/components/Chat/ChatHeader/ChatHeader';
 import LostCloseButton from '@/components/Chat/LostCloseButton/LostCloseButton';
 import MessageList from '@/components/Chat/MessageList/MessageList';
 import MoreMenu from '@/components/Chat/MoreMenu/MoreMenu';
@@ -36,7 +42,7 @@ import DetailBottomBar from '../../components/Bottom/DetailBottomBar';
 import { getRoomDetail, sendMessage } from '@/api/chat';
 import { resolveRoomIdForOpen, updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
 
-// ✅ 강화된 병합 유틸
+// ✅ 서버 → 앱 메시지 매핑/병합
 import { mergeServerMessages } from '@/utils/chatMap';
 
 const calendarIcon = require('../../assets/images/calendar.png');
@@ -74,7 +80,7 @@ function enrichWithBuyer(p: any, myEmail: string | null, myId: string | null) {
     buyerEmail: p?.buyerEmail ?? p?.userEmail ?? toStr(myEmail),
     buyerId: toStr(p?.buyerId ?? p?.userId ?? myId),
     userEmail: p?.userEmail ?? toStr(myEmail),
-    userId: toStr(p?.userId ?? myId),
+    userId: p?.userId ?? toStr(myId),
   };
 }
 
@@ -199,7 +205,10 @@ export default function ChatRoomPage() {
   const buyerName =
     raw?.buyerNickname ?? raw?.userNickname ?? raw?.opponentBuyerNickname ?? '';
 
-  const headerTitle: string = useMemo(() => {
+  // ✅ 서버 닉네임 우선 적용을 위한 오버라이드 상태
+  const [headerNickname, setHeaderNickname] = useState<string | undefined>(undefined);
+
+  const computedTitle: string = useMemo(() => {
     return pickOtherNickname({
       meEmail: myEmail,
       meId: myId,
@@ -210,6 +219,9 @@ export default function ChatRoomPage() {
       opponentNickname: raw?.opponentNickname,
     });
   }, [myEmail, myId, isOwner, sellerEmail, buyerEmail, sellerId, buyerId, sellerName, buyerName, raw?.opponentNickname]);
+
+  // 최종 타이틀: 서버 응답(opponentNickname) 있으면 우선
+  const titleFinal = headerNickname || computedTitle;
 
   const [saleStatusLabel, setSaleStatusLabel] = useState<SaleStatusLabel>(
     toLabel(raw?.initialSaleStatus as ApiSaleStatus | undefined)
@@ -222,7 +234,36 @@ export default function ChatRoomPage() {
     send, pushSystemAppointment,
   } = useChatRoom(roomId ?? '', /* seed은 useChatRoom이 담당 */ undefined, {
     originParams: enriched,
-    nickname: headerTitle,
+    nickname: titleFinal, // ✅ 현재 시점의 타이틀 전달
+  });
+
+  // ✅ 상단 게시글 카드 상태: 초기값(네이티브 파라미터) + 서버 보강
+  const [headerPost, setHeaderPost] = useState<PostMeta | undefined>(() => {
+    const src: PostMeta['source'] = isMarket ? 'market' : isLost ? 'lost' : 'group';
+    const pid =
+      (raw?.postId && String(raw.postId)) ||
+      (raw?.id && String(raw.id)) ||
+      (raw?.typeId && String(raw.typeId)) ||
+      null;
+    if (!pid) return undefined;
+
+    const base: PostMeta = {
+      source: src,
+      postId: pid,
+      title: raw?.productTitle || raw?.postTitle || '제목 없음',
+      thumbnailUri: raw?.productImageUri || raw?.postImageUri,
+    };
+
+    if (src === 'market') {
+      const p = raw?.productPrice ?? 0;
+      base.priceLabel = p > 0 ? `₩ ${Number(p).toLocaleString('ko-KR')}` : '나눔🩵';
+    } else if (src === 'lost') {
+      base.purpose = raw?.purpose === 'found' ? 'found' : 'lost';
+      base.placeLabel = raw?.place ?? '장소 정보 없음';
+    } else if (src === 'group') {
+      base.recruitLabel = raw?.recruitLabel ?? '';
+    }
+    return base;
   });
 
   // roomId 정규화 + 메시지 이관
@@ -309,7 +350,7 @@ export default function ChatRoomPage() {
     const idLike =
       raw?.opponentId ?? raw?.sellerId ?? raw?.authorId ?? raw?.userId ??
       raw?.opponentEmail ?? raw?.sellerEmail ?? raw?.authorEmail;
-    const nameLike = headerTitle || raw?.opponentNickname || sellerName || buyerName;
+    const nameLike = titleFinal || raw?.opponentNickname || sellerName || buyerName;
     if (!idLike || !nameLike) return null;
     return {
       id: String(idLike),
@@ -317,7 +358,7 @@ export default function ChatRoomPage() {
       dept: raw?.opponentDept ?? raw?.department ?? undefined,
       avatarUri: raw?.opponentAvatarUri ?? raw?.avatarUri ?? undefined,
     };
-  }, [raw, headerTitle, sellerName, buyerName]);
+  }, [raw, titleFinal, sellerName, buyerName]);
 
   const [isBlocked, setIsBlocked] = useState(false);
   useEffect(() => {
@@ -389,7 +430,7 @@ export default function ChatRoomPage() {
     }
   };
 
-  const recordTradeCompletion = React.useCallback(async () => {
+  const recordTradeCompletion = useCallback(async () => {
     try {
       if (!isMarket || !raw?.postId) return;
 
@@ -440,13 +481,13 @@ export default function ChatRoomPage() {
 
   // ChatList 즉시 반영
   useEffect(() => {
-    if (!roomId || !identityReady || !headerTitle) return;
+    if (!roomId || !identityReady || !titleFinal) return;
     (async () => {
       try {
         await upsertRoomOnOpen({
           roomId,
           category: isMarket ? 'market' : isLost ? 'lost' : 'group',
-          nickname: headerTitle,
+          nickname: titleFinal,
           productTitle: isMarket ? raw?.productTitle : undefined,
           productPrice: isMarket ? raw?.productPrice : undefined,
           productImageUri: isMarket ? raw?.productImageUri : undefined,
@@ -457,32 +498,32 @@ export default function ChatRoomPage() {
         console.log('upsertRoomOnOpen error', e);
       }
     })();
-  }, [roomId, identityReady, headerTitle, isMarket, isLost, raw, initialMessage, enriched]);
+  }, [roomId, identityReady, titleFinal, isMarket, isLost, raw, initialMessage, enriched]);
 
   // 닉네임/미리보기 동기
   useEffect(() => {
-    if (!roomId || !identityReady || !headerTitle) return;
-    updateRoomOnSendSmart({ roomId, originParams: enriched, nickname: headerTitle }).catch(() => {});
-  }, [roomId, identityReady, headerTitle, enriched]);
+    if (!roomId || !identityReady || !titleFinal) return;
+    updateRoomOnSendSmart({ roomId, originParams: enriched, nickname: titleFinal }).catch(() => {});
+  }, [roomId, identityReady, titleFinal, enriched]);
 
-  // ====== 서버 방 보장 (메시지 없이 생성/획득만) ======
+  // 전송(로컬 → 서버)
   const [creatingRoom, setCreatingRoom] = useState(false);
   const ensureServerRoomId = useCallback(async (): Promise<number | undefined> => {
     if (serverRoomId || creatingRoom) return serverRoomId;
     const src = (raw?.source ?? 'market') as 'market' | 'lost' | 'groupbuy';
     const typeId = toNum(raw?.postId ?? raw?.typeId);
     const toUserId = toNum(raw?.toUserId ?? raw?.opponentId ?? raw?.sellerId ?? raw?.authorId);
+    const initMsg = (raw?.initialMessage ?? '').toString();
     if (!typeId || !toUserId) return undefined;
     setCreatingRoom(true);
 
     try {
       const { api } = await import('@/api/client');
-      // ❗중요: 여기서 메시지를 절대 전송하지 않는다(중복 생성 방지)
       const payload = {
         type: mapSourceToChatType(src),
         typeId,
         toUserId,
-        message: '',           // ← 빈 문자열: 백이 “생성만” 하고 메시지는 만들지 않게
+        message: initMsg || '안녕하세요!',
         messageType: 'text',
       };
       const res = await api.post('/chat/rooms', payload);
@@ -502,7 +543,6 @@ export default function ChatRoomPage() {
     return undefined;
   }, [serverRoomId, creatingRoom, raw, navigation]);
 
-  // ====== 전송(로컬 낙관 → 서버) ======
   const sendWithServer = useCallback(async (text: string) => {
     await send(text); // 로컬 낙관
     try {
@@ -515,11 +555,11 @@ export default function ChatRoomPage() {
         if (!rid) return;
       }
 
-      const { userId, userEmail } = await getLocalIdentity();
+      const { userId } = await getLocalIdentity();
       if (userId != null) {
         await sendMessage({
           roomId: rid,
-          sender: Number(userId),
+          sender: Number(userId), // 백엔드가 토큰기반이라도 정합성 유지
           message: trimmed,
           type: 'text',
         });
@@ -529,18 +569,17 @@ export default function ChatRoomPage() {
     }
   }, [send, serverRoomId, ensureServerRoomId]);
 
-  // ====== 상세에서 온 initialMessage: 방만 없을 때 1회 전송 ======
+  // 상세에서 넘어온 initialMessage를 이미 서버에 저장했다면 여기선 seed 안 함
   const [initialPushed, setInitialPushed] = useState(false);
   useEffect(() => {
     (async () => {
       if (initialPushed) return;
       const msg = (initialMessage ?? '').toString().trim();
       if (!msg) return;
-
       const { userId } = await getLocalIdentity();
       if (!userId) return;
 
-      // 상세에서 이미 서버가 보냈으면 여기선 안 보낸다.
+      // serverRoomId 없으면(상세에서 못 만들어줬다면) 1회 보장
       if (!serverRoomId) {
         let rid = await ensureServerRoomId();
         if (!rid) { setInitialPushed(true); return; }
@@ -557,14 +596,16 @@ export default function ChatRoomPage() {
     })();
   }, [initialMessage, serverRoomId, ensureServerRoomId, initialPushed]);
 
-  // ====== 서버 메시지 가져와 병합(강화판) ======
+  // 서버 메시지 가져와 병합 + 🔁 헤더 게시글/닉네임 보강
   useEffect(() => {
     (async () => {
       if (!serverRoomId || !roomId) return;
       try {
         const data = await getRoomDetail(serverRoomId);
 
+        // ✅ 헤더 상대 닉네임: 서버 우선 덮어쓰기
         if (data?.roomInfo?.opponentNickname) {
+          setHeaderNickname(data.roomInfo.opponentNickname);
           await upsertRoomOnOpen({
             roomId,
             category: isMarket ? 'market' : isLost ? 'lost' : 'group',
@@ -577,13 +618,55 @@ export default function ChatRoomPage() {
           });
         }
 
+        // 🔁 상단 게시글 카드: 서버 정보로 안전 보강(없는 값만 채움)
+        if (data?.roomInfo) {
+          const src: PostMeta['source'] =
+            data.roomInfo.chatType === 'USED_ITEM' ? 'market'
+              : data.roomInfo.chatType === 'LOST_ITEM' ? 'lost'
+              : 'group';
+
+          const pid =
+            (data.roomInfo.chatTypeId && String(data.roomInfo.chatTypeId)) ||
+            headerPost?.postId ||
+            null;
+
+          if (pid) {
+            const incoming: PostMeta = {
+              source: src,
+              postId: pid,
+              title: data.roomInfo.title ?? headerPost?.title ?? '제목 없음',
+              thumbnailUri: data.roomInfo.imageUrl ?? headerPost?.thumbnailUri,
+            };
+
+            if (src === 'market') {
+              if (typeof data.roomInfo.price === 'string') {
+                const priceNum = Number(data.roomInfo.price);
+                incoming.priceLabel =
+                  Number.isFinite(priceNum) && priceNum > 0
+                    ? `₩ ${priceNum.toLocaleString('ko-KR')}`
+                    : (headerPost?.priceLabel ?? '나눔🩵');
+              } else {
+                incoming.priceLabel = headerPost?.priceLabel ?? '나눔🩵';
+              }
+            } else if (src === 'lost') {
+              incoming.purpose = headerPost?.purpose ?? undefined; // 서버측에 purpose가 없으면 유지
+              incoming.placeLabel = headerPost?.placeLabel ?? undefined;
+            } else if (src === 'group') {
+              incoming.recruitLabel = headerPost?.recruitLabel ?? undefined;
+            }
+
+            setHeaderPost(prev => ({ ...(prev ?? {} as any), ...incoming }));
+          }
+        }
+
         if (Array.isArray(data?.messages)) {
+          // ✅ 내 식별자 가져와서 병합에 전달
           const { userId, userEmail } = await getLocalIdentity();
           const myIdStr = userId != null ? String(userId) : null;
-          const myEmailNorm = userEmail ?? null;
+          const myEmailNorm = (userEmail ?? '').trim().toLowerCase();
 
           setMessages(prev =>
-            mergeServerMessages(prev, data.messages as any, myIdStr, myEmailNorm)
+            mergeServerMessages(prev, data.messages, myIdStr, myEmailNorm)
           );
         }
       } catch (e: any) {
@@ -596,7 +679,7 @@ export default function ChatRoomPage() {
         }
       }
     })();
-  }, [serverRoomId, roomId, isMarket, isLost, raw, navigation, setMessages, enriched]);
+  }, [serverRoomId, roomId, isMarket, isLost, raw, navigation, setMessages, enriched]); // headerPost는 의존성에서 제외
 
   const checkPostExistsExternally = useCallback(
     async (meta: { source: 'market'|'lost'|'group'; postId: string }) => {
@@ -631,25 +714,17 @@ export default function ChatRoomPage() {
     );
   }
 
-  const headerSource: 'market'|'lost'|'group' = isMarket ? 'market' : isLost ? 'lost' : 'group';
-  const headerPostId = (isMarket ? (raw?.postId ? String(raw.postId) : null) : generalizedPostId) ?? null;
-
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.select({ ios: 0, android: 0 }) ?? 0}
+    >
       <ChatHeader
-        title={headerTitle}
+        title={titleFinal}
         onPressBack={() => navigation.goBack()}
         onPressMore={() => setMenuVisible(true)}
-        post={headerPostId ? {
-          source: headerSource,
-          postId: headerPostId,
-          title: cardTitle,
-          thumbnailUri: cardImageUri,
-          priceLabel,
-          purpose,
-          placeLabel,
-          recruitLabel,
-        } : undefined}
+        post={headerPost}
         checkPostExistsExternally={checkPostExistsExternally}
       />
 
@@ -702,13 +777,13 @@ export default function ChatRoomPage() {
 
       <AppointmentModal
         visible={open}
-        partnerNickname={headerTitle}
+        partnerNickname={titleFinal}
         onClose={() => setOpen(false)}
         onSubmit={({ date, time, place }) => {
           pushSystemAppointment(date ?? '', time ?? '', place ?? '');
           setOpen(false);
         }}
       />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
