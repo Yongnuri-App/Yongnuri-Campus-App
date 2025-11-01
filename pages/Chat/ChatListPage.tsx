@@ -111,7 +111,7 @@ function mapApiToSummary(it: ChatListItem, fallbackOrder: number): ListRow {
   //    - updateTime이 ISO면 그대로 사용
   //    - ISO가 아니면 fallback으로 “최근 먼저” 보장
   const ts = toKstTimestamp(it.updateTime);
-  const lastTs = ts ?? (Date.now() + fallbackOrder); // fallbackOrder로 안정 내림차순
+  const lastTs = ts ?? (Date.now() - fallbackOrder); // fallbackOrder로 안정 내림차순
 
   // 2) 표시용 라벨
   const timeLabel = ts ? formatListTimeLabel(ts) : (it.updateTime || '');
