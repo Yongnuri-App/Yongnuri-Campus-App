@@ -60,10 +60,28 @@ export type GroupbuyChatOriginParams = {
   postImageUri?: string;
 };
 
+// ===== ① 공통 메타(서버 채팅방 ID) =====
+type ChatOriginServerMeta = {
+  /** 서버 채팅방 ID (서버 상세 조회/재입장용) */
+  serverRoomId?: number | string;
+};
+
+// ===== ② 느슨한 파라미터(리스트용): source는 필수, 나머지는 Partial 허용 =====
+export type ChatRoomOriginParamsLoose =
+  | ({ source: 'market' }  & Partial<MarketChatOriginParams>  & ChatOriginServerMeta)
+  | ({ source: 'lost' }    & Partial<LostChatOriginParams>    & ChatOriginServerMeta)
+  | ({ source: 'groupbuy'} & Partial<GroupbuyChatOriginParams> & ChatOriginServerMeta);
+
 export type ChatRoomOriginParams =
   | MarketChatOriginParams
   | LostChatOriginParams
   | GroupbuyChatOriginParams;
+
+// ===== ③ 리스트에서 쓸 느슨한 origin =====
+export type ChatRoomOriginLoose = {
+  source: ChatRoomOriginParamsLoose['source']; // 'market' | 'lost' | 'groupbuy'
+  params: ChatRoomOriginParamsLoose;
+};
 
 export type ChatRoomOrigin = {
   source: ChatRoomOriginParams['source']; // 'market' | 'lost' | 'groupbuy'
@@ -85,7 +103,7 @@ export interface ChatRoomSummary {
   productPrice?: number;
   productImageUri?: string;
 
-  origin?: ChatRoomOrigin;
+  origin?: ChatRoomOrigin | ChatRoomOriginLoose;
 
   sellerId?: string | number | null;
   sellerEmail?: string | null;
