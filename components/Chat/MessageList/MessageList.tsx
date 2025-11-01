@@ -2,7 +2,7 @@
 import type { ChatMessage } from '@/types/chat';
 import { getLocalIdentity } from '@/utils/localIdentity';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList } from 'react-native';
+import { FlatList, useWindowDimensions } from 'react-native';
 import MessageItem from '../MessageItem/MessageItem';
 import styles from './MessageList.styles';
 
@@ -37,6 +37,8 @@ export default function MessageList({
   const [meEmail, setMeEmail] = useState<string | null>(null);
   const [meId, setMeId] = useState<string | null>(null);
   const prevLengthRef = useRef(0);
+  const [contentHeight, setContentHeight] = useState(0);
+  const { height: windowHeight } = useWindowDimensions();
 
   useEffect(() => {
     (async () => {
@@ -92,6 +94,10 @@ export default function MessageList({
     []
   );
 
+  // ✅ 메시지가 화면을 꽉 채우는지 확인 (입력창 높이 고려)
+  const availableHeight = windowHeight - bottomInset - 80; // 80은 대략적인 입력창 높이
+  const needsFlexEnd = contentHeight > availableHeight;
+
   return (
     <FlatList
       ref={flatRef}
@@ -102,13 +108,16 @@ export default function MessageList({
       
       contentContainerStyle={[
         styles.listContent,
-      {
-        paddingTop: bottomInset,
-        paddingBottom: 12,
-      }
-      ]}
+        {
+          flexGrow: 1,
+          justifyContent: needsFlexEnd ? undefined : 'flex-end',  // ✅ 조건부 적용
+          paddingTop: bottomInset,
+          paddingBottom: 12,
+        }
+    ]}
       
       onContentSizeChange={(width, height) => {
+        setContentHeight(height);
         onContentHeightChange?.(height);
       }}
       
