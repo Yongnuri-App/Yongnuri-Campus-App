@@ -1,16 +1,18 @@
-// pages/Chat/ChatListPage.tsx
 /**
  * 채팅 리스트 페이지 (API 연동판)
  * - /chat/rooms에서 목록을 불러와 표시
  * - 칩(전체/중고/분실/공동구매)에 따라 서버에 type 파라미터 전송
  * - 아이템 탭 시 ChatRoom으로 이동(서버 roomId 기반)
  * - 오른쪽 스와이프 → 내 목록에서만 삭제 (서버 DELETE 연동)
+ * - ✅ 마지막 메시지 시각 기준 정렬/표시
+ * - ✅ 새 메시지(보냄/수신) 시 자동 새로고침
  */
 
 import { useFocusEffect } from '@react-navigation/native';
-import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  DeviceEventEmitter,
   FlatList,
   Image,
   Text,
@@ -26,6 +28,7 @@ import styles from './ChatListPage.styles';
 
 import { deleteRoom as deleteRoomApi, getRooms, type ChatListItem, type ChatListType } from '@/api/chat';
 import { computeUnreadCount, deleteChatRoom as deleteLocalRoom, markRoomRead, refreshAllUnread } from '@/storage/chatStore';
+
 import type { ChatCategory, ChatRoomSummary } from '@/types/chat';
 import { getLocalIdentity } from '@/utils/localIdentity';
 
@@ -39,7 +42,7 @@ const CHAT_CATEGORIES: CategoryItem[] = [
 /** 서버 type -> 앱 카테고리 매핑 */
 function mapServerTypeToCategory(t: ChatListItem['type']): ChatCategory {
   if (t === 'USED_ITEM') return 'market';
-  if (t === 'LOST_ITEM')  return 'lost';
+  if (t === 'LOST_ITEM') return 'lost';
   return 'group'; // GROUP_BUY
 }
 
@@ -51,25 +54,81 @@ function mapChipToServerType(chip: string): ChatListType {
   return 'ALL';
 }
 
+/** 서버 ISO/문자열을 KST 기준 타임스탬프로 */
+function toKstTimestamp(isoOrText?: string): number | null {
+  if (!isoOrText) return null;
+
+  // ISO 형태면 그대로 파싱
+  // 예시: "2025-11-02T02:55:48"
+  const maybe = new Date(isoOrText);
+  if (!Number.isNaN(maybe.getTime())) {
+    return maybe.getTime();
+  }
+
+  // "19분 전", "4시간 전" 같은 상대표현은 정렬에 불리 → null 리턴해서 아래서 보정
+  return null;
+}
+
+/** KST 기준 “오늘/어제/날짜(YYYY.MM.DD)” 라벨 생성 */
+function formatListTimeLabel(ts: number): string {
+  const now = new Date();
+  const kstNow = new Date(now.getTime());
+  const d = new Date(ts);
+
+  // 오늘 00:00, 어제 00:00 경계 계산
+  const startOfToday = new Date(kstNow.getFullYear(), kstNow.getMonth(), kstNow.getDate(), 0, 0, 0, 0).getTime();
+  const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
+
+  if (ts >= startOfToday) {
+    // 오늘 → HH:MM 24시간제
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  }
+  if (ts >= startOfYesterday) {
+    return '어제';
+  }
+  // 그 이전 → YYYY.MM.DD
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}.${m}.${day}`;
+}
+
 /** 서버 아이템 → 화면 요약모델(+ 서버 roomId 보존) */
 type ListRow = ChatRoomSummary & {
-  apiUpdateText: string;   // “12시간 전”
+  apiUpdateIso?: string;   // 서버가 내려준 ISO면 여기
+  apiUpdateText?: string;  // 서버가 상대표현으로 줄 수도 있으니 보존
   serverRoomId: number;    // 서버의 실제 roomId (ChatRoom 상세 조회용)
+  timeLabel: string;       // 우측 시간 라벨(오늘/어제/날짜)
+  fallbackOrder: number;   // 정렬 타이브레이커(앞에 온 게 더 최신 가정)
 };
 
-function mapApiToSummary(it: ChatListItem): ListRow {
+function mapApiToSummary(it: ChatListItem, fallbackOrder: number): ListRow {
   const category = mapServerTypeToCategory(it.type);
+
+  // 1) 정렬에 사용할 기준값(마지막 메시지 시각)
+  //    - updateTime이 ISO면 그대로 사용
+  //    - ISO가 아니면 fallback으로 “최근 먼저” 보장
+  const ts = toKstTimestamp(it.updateTime);
+  const lastTs = ts ?? (Date.now() + fallbackOrder); // fallbackOrder로 안정 내림차순
+
+  // 2) 표시용 라벨
+  const timeLabel = ts ? formatListTimeLabel(ts) : (it.updateTime || '');
+
   return {
     roomId: String(it.id),               // 로컬 키는 문자열
     category,
     nickname: it.toUserNickName,
     lastMessage: it.lastMessage || '',
-    lastTs: Date.now(),                  // 표시용
+    lastTs,                              // ✅ “마지막 메시지” 기준 정렬에 사용
     unreadCount: 0,
-    // ⚠️ origin/params에 미정의 필드 넣어서 타입 에러 나던 부분 제거
-    origin: undefined,
+    origin: undefined,                   // (기존: 타입 깨지던 부분 방지)
+    apiUpdateIso: ts ? new Date(ts).toISOString() : undefined,
     apiUpdateText: it.updateTime,
     serverRoomId: it.id,
+    timeLabel,
+    fallbackOrder,
   };
 }
 
@@ -79,12 +138,6 @@ type RowProps = {
   onPress: (room: ListRow) => void;
   onDeleted: (roomId: string) => void;
 };
-
-// const ChatRowItem = memo(function ChatRowItem({
-//   item,
-//   onPress,
-//   onDeleted,
-// }: ChatRowItemProps) {
 
 const ChatRowItem = memo(function ChatRowItem({ item, onPress, onDeleted }: RowProps) {
   const swipeRef = useRef<Swipeable | null>(null);
@@ -148,13 +201,15 @@ const ChatRowItem = memo(function ChatRowItem({ item, onPress, onDeleted }: RowP
             <Text style={styles.nickname} numberOfLines={1}>
               {item.nickname || '상대방'}
             </Text>
-            <Text style={styles.time}>{item.apiUpdateText || ''}</Text>
+            <Text style={styles.time}>
+              {item.timeLabel}
+            </Text>
           </View>
           <Text style={styles.lastMessage} numberOfLines={1}>
             {item.lastMessage || '메시지가 없습니다'}
           </Text>
         </View>
-        {/* 안 읽은 점: 숫자 없이 원형 배지 */}
+
         {item.unreadCount > 0 && <View style={styles.unreadDot} />}
       </TouchableOpacity>
     </Swipeable>
@@ -167,33 +222,49 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
   const [rooms, setRooms] = useState<ListRow[]>([]);
   const [loading, setLoading] = useState(false);
 
-  /** 목록 로더 (칩에 맞춰 서버 호출) — 최근 순 정렬 가정 */
+  /** 목록 로더 (칩에 맞춰 서버 호출) — "마지막 메시지" 시각 기준 정렬 보장 */
   const load = useCallback(async (chipVal: string) => {
     setLoading(true);
     try {
       const serverType = mapChipToServerType(chipVal);
       const list = await getRooms(serverType);
-      const mapped = list.map(mapApiToSummary);
 
-      // ✅ 로컬 저장소에서 unread 상태 병합
+      // 1) 서버 응답 → 요약 모델로 변환 (+fallbackOrder 부여)
+      const mapped = list.map((it, idx) => mapApiToSummary(it, idx)); // idx는 fallbackOrder
+
+      // 2) 로컬 기준 unread 병합 (병렬 계산)
       try {
         const { userEmail, userId } = await getLocalIdentity();
-        const myIdentity = (userEmail ?? userId)
-          ? (userEmail ?? userId)!.toString().toLowerCase()
-          : '';
-        
+        const myIdentity =
+          (userEmail ?? userId) ? (userEmail ?? userId)!.toString().toLowerCase() : '';
+
         if (myIdentity) {
-          // 각 방의 unread를 계산해서 업데이트
-          for (const room of mapped) {
-            const unread = await computeUnreadCount(room.roomId, myIdentity);
-            room.unreadCount = unread;
-          }
+          const unreadList = await Promise.all(
+            mapped.map(r =>
+              computeUnreadCount(r.roomId, myIdentity).catch(() => 0)
+            )
+          );
+          unreadList.forEach((cnt, i) => {
+            mapped[i] = { ...mapped[i], unreadCount: cnt };
+          });
         }
       } catch (e) {
         console.log('[ChatList] unread calculation error', e);
       }
 
-      mapped.sort((a, b) => b.serverRoomId - a.serverRoomId);
+      // 3) 정렬: 마지막 메시지 시각 ↓ → fallbackOrder ↑ → serverRoomId ↓
+      mapped.sort((a, b) => {
+        const at = a.lastTs ?? 0;
+        const bt = b.lastTs ?? 0;
+        if (bt !== at) return bt - at;
+
+        const af = a.fallbackOrder ?? 0;
+        const bf = b.fallbackOrder ?? 0;
+        if (af !== bf) return af - bf;
+
+        return (b.serverRoomId ?? 0) - (a.serverRoomId ?? 0);
+      });
+
       setRooms(mapped);
     } catch (e) {
       console.log('[ChatList] getRooms error', e);
@@ -214,14 +285,9 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
             ? (userEmail ?? userId)!.toString().toLowerCase()
             : '';
           if (me) {
-            await refreshAllUnread(me); // 안읽음 계산 업데이트
+            await refreshAllUnread(me); // 안읽음 계산 업데이트(기존 기능 유지)
           }
-          // const data = await loadChatRooms(); // 최신 rooms 반영
-          // if (mounted) setRooms(Array.isArray(data) ? data : []);
-        } catch (e) {
-          // const data = await loadChatRooms();
-          // if (mounted) setRooms(Array.isArray(data) ? data : []);
-        }
+        } catch {}
         if (!alive) return;
         await load(chip);
       })();
@@ -229,14 +295,15 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
     }, [chip, load]),
   );
 
-  // 카테고리 필터 + 최신 메시지 시간순 정렬
-  const filtered = useMemo(() => {
-    const list =
-      chip === 'all'
-        ? rooms
-        : rooms.filter((r) => r.category === (chip as ChatCategory));
-    return [...list].sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
-  }, [chip, rooms]);
+  // ✅ 새 메시지 보냄/수신 시 목록 자동 새로고침
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('EVT_CHAT_LIST_NEEDS_REFRESH', async () => {
+      try {
+        await load(chip);
+      } catch {}
+    });
+    return () => sub.remove();
+  }, [chip, load]);
 
   /** 채팅방 입장: 읽음 처리(낙관적) + 서버호출 가드 + 네비게이션 파라미터 통합 */
   const enterRoom = useCallback(async (room: ListRow) => {
@@ -259,26 +326,32 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
           // (B) 서버 API용 시그니처: markRoomRead(roomId)
           // @ts-expect-error 다른 시그니처 허용
           await markRoomRead(room.roomId);
-        } catch {
-          // 둘 다 실패해도 UI는 이미 낙관적으로 처리됨
-        }
+        } catch {}
       }
-    } catch {
-      // 아이덴티티 불가 등 → 읽음 처리 스킵(낙관적 0 유지)
-    }
+    } catch {}
 
     // 3) 네비게이션: origin.params(있으면) + serverRoomId/source 힌트까지 통합 전달
     navigation.navigate('ChatRoom', {
       ...(room.origin?.params || {}),
       roomId: room.roomId,                 // 로컬 키
       serverRoomId: room.serverRoomId,     // 서버 상세 조회용
-      source: room.category === 'group' ? 'groupbuy' : room.category, // 상단 카드/버튼 힌트
+      source: room.category === 'group' ? 'groupbuy' : room.category,
     });
   }, [navigation]);
 
   const handleDeleted = useCallback((roomId: string) => {
     setRooms(prev => prev.filter(r => r.roomId !== roomId));
   }, []);
+
+  // 칩(카테고리) 필터 + “마지막 메시지 시각” 기준 정렬(보강)
+  const filtered = useMemo(() => {
+    const list =
+      chip === 'all'
+        ? rooms
+        : rooms.filter((r) => r.category === (chip as ChatCategory));
+    // 혹시라도 setRooms 전에 순서가 어긋날 수 있으니 한번 더 보강
+    return [...list].sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
+  }, [chip, rooms]);
 
   return (
     <View style={styles.container}>
@@ -298,7 +371,7 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
 
       {/* 리스트 */}
       <FlatList
-        data={rooms}
+        data={filtered}
         keyExtractor={(it) => it.roomId}
         renderItem={({ item }) => (
           <ChatRowItem item={item} onPress={enterRoom} onDeleted={handleDeleted} />
