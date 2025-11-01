@@ -25,7 +25,7 @@ import HeaderIcons from '../../components/Header/HeaderIcons';
 import styles from './ChatListPage.styles';
 
 import { deleteRoom as deleteRoomApi, getRooms, type ChatListItem, type ChatListType } from '@/api/chat';
-import { deleteChatRoom as deleteLocalRoom, markRoomRead, refreshAllUnread } from '@/storage/chatStore';
+import { computeUnreadCount, deleteChatRoom as deleteLocalRoom, markRoomRead, refreshAllUnread } from '@/storage/chatStore';
 import type { ChatCategory, ChatRoomSummary } from '@/types/chat';
 import { getLocalIdentity } from '@/utils/localIdentity';
 
@@ -175,10 +175,25 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
       const list = await getRooms(serverType);
       const mapped = list.map(mapApiToSummary);
 
-      // ✅ “가장 최근 대화 위로” 보장:
-      // 서버가 이미 정렬해 줄 가능성이 높지만, 안전하게 id 내림차순(최근 생성/업데이트 가정)
-      mapped.sort((a, b) => b.serverRoomId - a.serverRoomId);
+      // ✅ 로컬 저장소에서 unread 상태 병합
+      try {
+        const { userEmail, userId } = await getLocalIdentity();
+        const myIdentity = (userEmail ?? userId)
+          ? (userEmail ?? userId)!.toString().toLowerCase()
+          : '';
+        
+        if (myIdentity) {
+          // 각 방의 unread를 계산해서 업데이트
+          for (const room of mapped) {
+            const unread = await computeUnreadCount(room.roomId, myIdentity);
+            room.unreadCount = unread;
+          }
+        }
+      } catch (e) {
+        console.log('[ChatList] unread calculation error', e);
+      }
 
+      mapped.sort((a, b) => b.serverRoomId - a.serverRoomId);
       setRooms(mapped);
     } catch (e) {
       console.log('[ChatList] getRooms error', e);

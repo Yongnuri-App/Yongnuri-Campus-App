@@ -276,7 +276,6 @@ export default function useChatRoom(
     setAttachments((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  /** 전송 (텍스트/이미지) */
   // const send = useCallback(async (textOrEmpty?: string) => {
   //   if (!validRoomId) return;
 
@@ -299,18 +298,7 @@ export default function useChatRoom(
   //         });
   //       }
   //     }
-
-  //     // 2) 텍스트 메시지
-  //     const text = (textOrEmpty ?? '').trim();
-  //     if (text.length > 0) {
-  //       created.push({
-  //         id: makeMsgId('m-'),
-  //         type: 'text',
-  //         text,
-  //         time: nowIso,
-  //         senderEmail: userEmail ?? null,
-  //         senderId: userEmail ? null : (userId ?? null),
-
+  
   /** 미리보기 동기화 (별도 노출용) */
   const syncPreviewSmart = useCallback(
     async (preview: string, isoTime: string) => {
@@ -347,50 +335,6 @@ export default function useChatRoom(
       setMessages((prev) => {
         const next = fixDuplicateIds([...prev, msg]);
         void persist(next);
-
-  //       // ✅ ChatList 미리보기 갱신 (마지막 생성 메시지 기준 시간)
-  //       const last = created[created.length - 1];
-  //       const ts = new Date(last.time).getTime();
-  //       const preview = previewForBatch(created);
-  //       void updateRoomOnSend(roomId, preview, ts);
-
-  //       // ✅ 내가 보낸 직후엔 내 unread=0 유지 (상대방 unread는 상대/서버에서)
-  //       const me = (userEmail ?? userId) ? (userEmail ?? userId)!.toString() : '';
-  //       if (me) {
-  //         void markRoomRead(roomId, me, ts);
-  //       }
-
-  //       return next;
-  //     });
-  //   } catch (e) {
-  //     console.log('send error', e);
-  //   }
-  // }, [attachments, persist, roomId, validRoomId]);
-
-  // /** 시스템(약속 등) 메시지 */
-  // const pushSystemAppointment = useCallback((date: string, time: string, place: string) => {
-  //   if (!validRoomId) return;
-
-  //   const msg: ChatMessage = {
-  //     id: makeMsgId('sys-'),
-  //     type: 'system',
-  //     text: `✨ 약속 제안 ✨\n날짜: ${date} / 시간: ${time} / 장소: ${place}`,
-  //     time: new Date().toISOString(),
-  //     senderEmail: null,
-  //     senderId: null,
-  //   };
-  //  setMessages(prev => {
-  //   const next = fixDuplicateIds([...prev, msg]);
-  //   void persist(next);
-
-  //     // ✅ ChatList 미리보기 갱신
-  //     const ts = new Date(msg.time).getTime();
-  //     void updateRoomOnSend(roomId, msg.text, ts);
-
-  //     return next;
-  //   });
-  // }, [persist, roomId, validRoomId]);
-
         void syncPreviewSmart(msg.text, msg.time);
         return next;
       });

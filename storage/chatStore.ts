@@ -325,7 +325,7 @@ async function loadRoomMessages(roomId: string): Promise<ChatMessage[]> {
  * - 기준: lastSeenTs 이후에 들어온 "상대가 보낸" 메시지 개수
  * - system 메시지는 제외
  */
-async function computeUnreadCount(roomId: string, myIdentity: string): Promise<number> {
+export async function computeUnreadCount(roomId: string, myIdentity: string): Promise<number> {
   const messages = await loadRoomMessages(roomId);
   const readState = await loadReadState();
   const lastSeen = readState[roomId]?.[myIdentity] ?? 0;
