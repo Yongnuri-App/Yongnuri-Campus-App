@@ -179,7 +179,10 @@ export default function useChatRoom(
           });
 
           // 리스트 새로고침 이벤트
-          DeviceEventEmitter.emit('EVT_CHAT_LIST_NEEDS_REFRESH');
+          setTimeout(() => {
+            DeviceEventEmitter.emit('EVT_CHAT_LIST_NEEDS_REFRESH');
+          }, 0);
+
 
           const last = created[created.length - 1];
           void (async () => {
