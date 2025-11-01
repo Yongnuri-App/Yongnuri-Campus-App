@@ -70,7 +70,7 @@ function mapSourceToChatType(source?: string): ChatTypeEnum {
 }
 
 /* ------------ 서버 방 생성(보내는 사람은 토큰으로 판별) ------------ */
-// (안의 구현만 교체)
+// DetailBottomBar.tsx 내부의 createOrGetRoomOnServer 교체본
 async function createOrGetRoomOnServer(args: {
   source: 'market' | 'lost' | 'groupbuy';
   typeId: number;
@@ -81,17 +81,19 @@ async function createOrGetRoomOnServer(args: {
     type: mapSourceToChatType(args.source),
     typeId: args.typeId,
     toUserId: args.toUserId,
-    // message: args.message,
-    // messageType: 'text',              // 서버 규약
+    message: args.message,
+    messageType: 'text',
   };
+
   try {
     console.log('[chat] createOrGetRoom payload', payload);
+    // ❗ timeout 옵션 제거 (전역 axios 기본값 사용)
     const res = await api.post('/chat/rooms', payload);
-    console.log('[chat] createOrGetRoom response', res?.status, res?.data ? 'ok' : '');
     const roomId = res?.data?.roomInfo?.roomId;
     return typeof roomId === 'number' ? roomId : undefined;
   } catch (e: any) {
-    console.log('[chat] createOrGetRoom error', e?.response?.status, e?.response?.data || e?.message);
+    // 여기서는 로그만 남기고, 네비/로컬 채팅은 그대로 진행
+    console.log('[chat] createOrGetRoom error', e?.response?.status, e?.message || e);
     return undefined;
   }
 }
@@ -276,7 +278,6 @@ const DetailBottomBar: React.FC<Props> = ({
         navigation.navigate('ChatRoom', {
           ...originParams,     // buyer 식별자 포함된 파라미터
           roomId,              // ✅ 필수
-          initialMessage: msg,
           serverRoomId,
         } as any);
       }
