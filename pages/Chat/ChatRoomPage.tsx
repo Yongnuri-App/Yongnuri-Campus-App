@@ -364,13 +364,29 @@ export default function ChatRoomPage() {
     return !!me && !!author && me === author;
   }, [myEmail, authorEmailAny]);
 
-  const showLostClose = isLostContext && !!generalizedPostId && isAuthorStrict;
-
-  // ✅ 서버에서 가져온 판매자 정보를 상태로 관리
+  // ✅ 서버에서 가져온 판매자 정보를 상태로 관리 (위로 이동!)
   const [serverSellerInfo, setServerSellerInfo] = useState<{
     sellerId?: string | number;
     sellerEmail?: string;
   } | null>(null);
+
+  // ✅✅✅ 분실물 작성자 정보 상태 (위로 이동!)
+  const [serverLostAuthorInfo, setServerLostAuthorInfo] = useState<{
+    authorId?: string | number;
+    authorEmail?: string;
+  } | null>(null);
+
+  const showLostClose = useMemo(() => {
+    if (!isLostContext || !generalizedPostId) return false;
+    
+    // 1. 기존 isAuthorStrict 체크
+    if (isAuthorStrict) return true;
+    
+    // 2. 서버에서 확인한 작성자 정보
+    if (serverLostAuthorInfo) return true;
+    
+    return false;
+  }, [isLostContext, generalizedPostId, isAuthorStrict, serverLostAuthorInfo]);
 
 const iAmSeller = useMemo(() => {
   const n = (v?: string | null) => (v ?? '').trim().toLowerCase();
@@ -774,6 +790,128 @@ const iAmSeller = useMemo(() => {
         }
         // 여기까지가 판매자 정보 추출 부분
 
+        if (data?.roomInfo && data.roomInfo.chatType === 'LOST_ITEM') {
+          const { userEmail: meEmail, userId: meId } = await getLocalIdentity();
+          const meIdStr = meId ? String(meId) : '';
+          const postId = data.roomInfo.chatTypeId;
+
+          if (postId && meIdStr) {
+            try {
+              // 1️⃣ 먼저 raw 파라미터에서 작성자 확인 (가장 빠른 경로)
+              const authorIdFromRaw =
+                raw?.authorId ?? raw?.writerId ?? raw?.userId ?? raw?.ownerId ?? raw?.postOwnerId;
+              const authorEmailFromRaw =
+                (raw?.authorEmail ?? raw?.writerEmail ?? raw?.userEmail ?? raw?.ownerEmail ?? '').trim().toLowerCase();
+
+              if (authorIdFromRaw || authorEmailFromRaw) {
+                const authorIdStr = authorIdFromRaw ? String(authorIdFromRaw) : '';
+                const meEmailNorm = (meEmail ?? '').trim().toLowerCase();
+
+                const iAmAuthor =
+                  (!!authorIdStr && authorIdStr === meIdStr) ||
+                  (!!authorEmailFromRaw && !!meEmailNorm && authorEmailFromRaw === meEmailNorm);
+
+                if (iAmAuthor) {
+                  console.log('[ChatRoom] ✅ 분실물 작성자 확인됨 (raw)');
+                  setServerLostAuthorInfo({
+                    authorId: meId ?? undefined,
+                    authorEmail: meEmail ?? undefined,
+                  });
+                }
+              } else {
+                // 2️⃣ AsyncStorage 캐시에서 분실물 게시글 찾기
+                const KEY = 'lost_found_posts_v1';
+                const rawList = await AsyncStorage.getItem(KEY);
+                let foundInCache = false;
+
+                if (rawList) {
+                  const list = JSON.parse(rawList);
+                  const post = Array.isArray(list)
+                    ? list.find((p: any) => String(p?.id) === String(postId))
+                    : null;
+
+                  if (post) {
+                    foundInCache = true;
+
+                    const postAuthorId = String(
+                      post.authorId ?? post.writerId ?? post.userId ?? post.ownerId ??
+                      post.author_id ?? post.writer_id ?? post.user_id ?? post.owner_id ?? ''
+                    );
+                    const postAuthorEmail = (
+                      post.authorEmail ?? post.writerEmail ?? post.userEmail ?? post.ownerEmail ??
+                      post.author_email ?? post.writer_email ?? post.user_email ?? post.owner_email ?? ''
+                    ).trim().toLowerCase();
+
+                    const meEmailNorm = (meEmail ?? '').trim().toLowerCase();
+
+                    const iAmAuthor =
+                      (!!postAuthorId && postAuthorId === meIdStr) ||
+                      (!!postAuthorEmail && !!meEmailNorm && postAuthorEmail === meEmailNorm);
+
+                    if (iAmAuthor) {
+                      console.log('[ChatRoom] ✅ 분실물 작성자 확인됨 (cache)');
+                      // ✅ 수정: 상태 업데이트 추가!
+                      setServerLostAuthorInfo({
+                        authorId: meId ?? undefined,
+                        authorEmail: meEmail ?? undefined,
+                      });
+                    }
+                  }
+                }
+
+                // 3️⃣ 캐시에 없으면 서버 API로 상세 조회
+                if (!foundInCache) {
+                  try {
+                    const { getLostFoundDetail } = await import('@/api/lost');
+                    const post = await getLostFoundDetail(postId);
+
+                    console.log('[ChatRoom] 서버에서 가져온 분실물 게시글:', post);
+
+                    if (post) {
+                      const postAuthorId = String(
+                        (post as any).authorId ?? (post as any).writerId ?? (post as any).userId ?? (post as any).ownerId ??
+                        (post as any).author_id ?? (post as any).writer_id ?? (post as any).user_id ?? (post as any).owner_id ?? ''
+                      );
+                      const postAuthorEmail = (
+                        (post as any).authorEmail ?? (post as any).writerEmail ?? (post as any).userEmail ?? (post as any).ownerEmail ??
+                        (post as any).author_email ?? (post as any).writer_email ?? (post as any).user_email ?? (post as any).owner_email ?? ''
+                      ).trim().toLowerCase();
+
+                      const meEmailNorm = (meEmail ?? '').trim().toLowerCase();
+
+                      const iAmAuthorFromServer =
+                        (!!postAuthorId && postAuthorId === meIdStr) ||
+                        (!!postAuthorEmail && !!meEmailNorm && postAuthorEmail === meEmailNorm);
+
+                      console.log('[ChatRoom] 분실물 작성자 비교(server):', {
+                        postAuthorId,
+                        meIdStr,
+                        postAuthorEmail,
+                        meEmailNorm,
+                        nicknameOnly: !postAuthorId && !postAuthorEmail,
+                        match: iAmAuthorFromServer,
+                      });
+
+                      if (iAmAuthorFromServer) {
+                        console.log('[ChatRoom] ✅ 분실물 작성자 확인됨 (server)');
+                        // ✅ 수정: 상태 업데이트 추가!
+                        setServerLostAuthorInfo({
+                          authorId: meId ?? undefined,
+                          authorEmail: meEmail ?? undefined,
+                        });
+                      }
+                    }
+                  } catch (apiError) {
+                    console.log('[ChatRoom] 서버에서 분실물 게시글 조회 실패:', apiError);
+                  }
+                }
+              }
+            } catch (e) {
+              console.log('[ChatRoom] check lost post author error', e);
+            }
+          }
+        }
+
         // ✅ 헤더 상대 닉네임: 서버 우선 덮어쓰기
         if (data?.roomInfo?.opponentNickname) {
           setHeaderNickname(data.roomInfo.opponentNickname);
@@ -901,25 +1039,6 @@ const iAmSeller = useMemo(() => {
         checkPostExistsExternally={checkPostExistsExternally}
       />
 
-      <View style={{ padding: 8, backgroundColor: '#fff0cc', borderWidth: 1, borderColor: '#ffc107', marginHorizontal: 27, marginTop: 6 }}>
-        <Text>isMarketContext(robust): {String(isMarketContext)}</Text>
-        <Text>isLostContext(robust): {String(isLostContext)}</Text>
-        <Text>iAmSeller(보정): {String(iAmSeller)}</Text>
-        <Text>generalizedPostId: {String(generalizedPostId)}</Text>
-        <Text>showLostClose: {String(showLostClose)}</Text>
-        
-        {/* 🆕 분실물 판단 근거 */}
-        <Text style={{marginTop: 8, fontWeight: 'bold'}}>--- 분실물 판단 근거 ---</Text>
-        <Text>raw.source: {String(raw?.source)}</Text>
-        <Text>raw.category: {String(raw?.category)}</Text>
-        <Text>raw.chatType: {String(raw?.chatType)}</Text>
-        <Text>raw.purpose: {String(raw?.purpose)}</Text>
-        <Text>raw.place: {String(raw?.place)}</Text>
-        <Text>raw.postImageUri: {String(raw?.postImageUri)}</Text>
-        <Text>headerPost?.source: {String(headerPost?.source)}</Text>
-        <Text>isLost(초기): {String(isLost)}</Text>
-        <Text>isAuthorStrict: {String(isAuthorStrict)}</Text>
-      </View>
       <View style={styles.actionsRow}>
         <View style={styles.actionsLeft}>
           <TouchableOpacity style={styles.scheduleBtn} onPress={() => setOpen(true)}>
