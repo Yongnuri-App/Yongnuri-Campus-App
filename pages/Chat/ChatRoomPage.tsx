@@ -317,16 +317,33 @@ export default function ChatRoomPage() {
     })();
   }, [proposedId, enriched, raw]);
 
+  /** ✅ 채팅 컨텍스트 보강: 서버 chatType/헤더보강 결과까지 모두 고려 */
+  const isMarketContext = useMemo(() => {
+    const src = (raw?.source ?? raw?.category ?? raw?.origin?.source ?? raw?.origin?.params?.source ?? '')
+      .toString()
+      .toLowerCase();
+    const chatType = (raw?.chatType ?? raw?.origin?.params?.chatType ?? '')
+      .toString()
+      .toUpperCase();
+    const fromHeader = headerPost?.source === 'market';
+    return src === 'market' || fromHeader || chatType === 'USED_ITEM';
+  }, [raw, headerPost?.source]);
+
   const isLostContext = useMemo(() => {
-    const s =
-      raw?.source ?? raw?.category ?? raw?.origin?.source ?? raw?.origin?.params?.source;
+    const src = (raw?.source ?? raw?.category ?? raw?.origin?.source ?? raw?.origin?.params?.source ?? '')
+      .toString()
+      .toLowerCase();
+    const chatType = (raw?.chatType ?? raw?.origin?.params?.chatType ?? '')
+      .toString()
+      .toUpperCase();
     const hasLostHints =
       raw?.purpose === 'lost' ||
       raw?.purpose === 'found' ||
       typeof raw?.place === 'string' ||
       typeof raw?.postImageUri === 'string';
-    return s === 'lost' || hasLostHints;
-  }, [raw]);
+    const fromHeader = headerPost?.source === 'lost';
+    return src === 'lost' || fromHeader || chatType === 'LOST_ITEM' || hasLostHints;
+  }, [raw, headerPost?.source]);
 
   const generalizedPostId: string | null = useMemo(() => {
     return (
@@ -335,10 +352,11 @@ export default function ChatRoomPage() {
       (raw?.post_id && String(raw.post_id)) ||
       (raw?.origin?.params?.postId && String(raw.origin.params.postId)) ||
       (raw?.origin?.params?.id && String(raw.origin.params.id)) ||
+      (headerPost?.postId ? String(headerPost.postId) : null) ||
       null
     );
-  }, [raw]);
-
+  }, [raw, headerPost?.postId]);
+  
   const isAuthorStrict = useMemo(() => {
     const n = (s?: string | null) => (s ?? '').trim().toLowerCase();
     const me = n(myEmail);
@@ -347,6 +365,32 @@ export default function ChatRoomPage() {
   }, [myEmail, authorEmailAny]);
 
   const showLostClose = isLostContext && !!generalizedPostId && isAuthorStrict;
+
+  // ✅ 서버에서 가져온 판매자 정보를 상태로 관리
+  const [serverSellerInfo, setServerSellerInfo] = useState<{
+    sellerId?: string | number;
+    sellerEmail?: string;
+  } | null>(null);
+
+const iAmSeller = useMemo(() => {
+  const n = (v?: string | null) => (v ?? '').trim().toLowerCase();
+  
+  // 우선순위: 서버 정보 > raw 파라미터
+  const sId = serverSellerInfo?.sellerId ?? raw?.sellerId ?? raw?.authorId ?? sellerId;
+  const sEmail = serverSellerInfo?.sellerEmail ?? raw?.sellerEmail ?? raw?.authorEmail ?? sellerEmail;
+  
+  const meEmail = n(myEmail);
+  const sellEmail = n(sEmail as any);
+  const meId = myId ? String(myId) : '';
+  const sellId = sId != null ? String(sId) : '';
+  
+  return (
+    isOwner ||
+    isAuthorStrict ||
+    (!!meEmail && !!sellEmail && meEmail === sellEmail) ||
+    (!!meId && !!sellId && meId === sellId)
+  );
+}, [isOwner, isAuthorStrict, myEmail, myId, serverSellerInfo, raw?.sellerId, raw?.authorId, sellerId, raw?.sellerEmail, raw?.authorEmail, sellerEmail]);
 
   const opponentEmailX: string | null = useMemo(() => {
     return (raw?.opponentEmail ?? raw?.buyerEmail ?? null) || null;
@@ -620,6 +664,116 @@ export default function ChatRoomPage() {
       try {
         const data = await getRoomDetail(serverRoomId);
 
+        // 판매자 정보 추출: 서버 API 또는 AsyncStorage에서 게시글 작성자 확인
+        if (data?.roomInfo && data.roomInfo.chatType === 'USED_ITEM') {
+          const { userEmail: meEmail, userId: meId } = await getLocalIdentity();
+          const meIdStr = meId ? String(meId) : '';
+          const postId = data.roomInfo.chatTypeId;
+
+          if (postId && meIdStr) {
+            try {
+              // 1️⃣ 먼저 raw 파라미터에서 작성자 확인 (빠른 경로)
+              const authorIdFromRaw = raw?.authorId ?? raw?.sellerId ?? raw?.postOwnerId;
+              if (authorIdFromRaw) {
+                const authorIdStr = String(authorIdFromRaw);
+                if (authorIdStr === meIdStr) {
+                  setServerSellerInfo({
+                    sellerId: meId ?? undefined,
+                    sellerEmail: meEmail ?? undefined,
+                  });
+                }
+              } else {
+                // 2️⃣ AsyncStorage에서 게시글 찾기
+                const KEY = 'market_posts_v1';
+                const rawList = await AsyncStorage.getItem(KEY);
+                let foundInCache = false;
+                
+                if (rawList) {
+                  const list = JSON.parse(rawList);
+                  const post = Array.isArray(list)
+                    ? list.find((p: any) => String(p?.id) === String(postId))
+                    : null;
+
+                  if (post) {
+                    foundInCache = true;
+                    const postAuthorId = String(
+                      post.authorId ?? post.sellerId ?? post.userId ?? post.writerId ?? 
+                      post.author_id ?? post.seller_id ?? post.user_id ?? ''
+                    );
+                    const postAuthorEmail = (
+                      post.authorEmail ?? post.sellerEmail ?? post.userEmail ?? post.writerEmail ??
+                      post.author_email ?? post.seller_email ?? post.user_email ?? ''
+                    ).trim().toLowerCase();
+                    const meEmailNorm = (meEmail ?? '').trim().toLowerCase();
+
+                    const iAmAuthor =
+                      (postAuthorId && postAuthorId === meIdStr) ||
+                      (postAuthorEmail && meEmailNorm && postAuthorEmail === meEmailNorm);
+
+                    if (iAmAuthor) {
+                      setServerSellerInfo({
+                        sellerId: meId ?? undefined,
+                        sellerEmail: meEmail ?? undefined,
+                      });
+                    }
+                  }
+                }
+
+                // 3️⃣ 캐시에 없으면 서버 API로 게시글 조회
+                if (!foundInCache) {
+                  try {
+                    const { getMarketPost } = await import('@/api/market');
+                    const post = await getMarketPost(postId);
+                    
+                    console.log('[ChatRoom] 서버에서 가져온 게시글:', post);
+                    
+                    if (post) {
+                      const postAuthorId = String(
+                        post.authorId ?? post.sellerId ?? post.userId ?? post.writerId ??
+                        post.author_id ?? post.seller_id ?? post.user_id ?? 
+                        post.writer_id ?? post.created_by ?? ''
+                      );
+                      const postAuthorEmail = (
+                        post.authorEmail ?? post.sellerEmail ?? post.userEmail ?? post.writerEmail ??
+                        post.author_email ?? post.seller_email ?? post.user_email ?? 
+                        post.writer_email ?? ''
+                      ).trim().toLowerCase();
+                      const meEmailNorm = (meEmail ?? '').trim().toLowerCase();
+
+                      console.log('[ChatRoom] 작성자 비교:', {
+                        postAuthorId,
+                        meIdStr,
+                        postAuthorEmail,
+                        meEmailNorm,
+                        match: postAuthorId === meIdStr || postAuthorEmail === meEmailNorm
+                      });
+
+                      const iAmAuthor =
+                        (postAuthorId && postAuthorId === meIdStr) ||
+                        (postAuthorEmail && meEmailNorm && postAuthorEmail === meEmailNorm);
+
+                      if (iAmAuthor) {
+                        console.log('[ChatRoom] ✅ 판매자 확인됨!');
+                        setServerSellerInfo({
+                          sellerId: meId ?? undefined,
+                          sellerEmail: meEmail ?? undefined,
+                        });
+                      } else {
+                        console.log('[ChatRoom] ❌ 판매자 아님');
+                      }
+                    }
+                  } catch (apiError) {
+                    console.log('[ChatRoom] 서버에서 게시글 조회 실패:', apiError);
+                  }
+                }
+              }
+            } catch (e) {
+              console.log('[ChatRoom] check post author error', e);
+            }
+          }
+        }
+        // 여기까지가 판매자 정보 추출 부분
+
         // ✅ 헤더 상대 닉네임: 서버 우선 덮어쓰기
         if (data?.roomInfo?.opponentNickname) {
           setHeaderNickname(data.roomInfo.opponentNickname);
@@ -666,7 +820,7 @@ export default function ChatRoomPage() {
                 incoming.priceLabel = headerPost?.priceLabel ?? '나눔🩵';
               }
             } else if (src === 'lost') {
-              incoming.purpose = headerPost?.purpose ?? undefined; // 서버측에 purpose가 없으면 유지
+              incoming.purpose = headerPost?.purpose ?? undefined;
               incoming.placeLabel = headerPost?.placeLabel ?? undefined;
             } else if (src === 'group') {
               incoming.recruitLabel = headerPost?.recruitLabel ?? undefined;
@@ -677,7 +831,6 @@ export default function ChatRoomPage() {
         }
 
         if (Array.isArray(data?.messages)) {
-          // ✅ 내 식별자 가져와서 병합에 전달
           const { userId, userEmail } = await getLocalIdentity();
           const myIdStr = userId != null ? String(userId) : null;
           const myEmailNorm = (userEmail ?? '').trim().toLowerCase();
@@ -696,7 +849,7 @@ export default function ChatRoomPage() {
         }
       }
     })();
-  }, [serverRoomId, roomId, isMarket, isLost, raw, navigation, setMessages, enriched]); // headerPost는 의존성에서 제외
+  }, [serverRoomId, roomId, isMarket, isLost, raw, navigation, setMessages, enriched]);
 
   const checkPostExistsExternally = useCallback(
     async (meta: { source: 'market'|'lost'|'group'; postId: string }) => {
@@ -748,6 +901,25 @@ export default function ChatRoomPage() {
         checkPostExistsExternally={checkPostExistsExternally}
       />
 
+      <View style={{ padding: 8, backgroundColor: '#fff0cc', borderWidth: 1, borderColor: '#ffc107', marginHorizontal: 27, marginTop: 6 }}>
+        <Text>isMarketContext(robust): {String(isMarketContext)}</Text>
+        <Text>isLostContext(robust): {String(isLostContext)}</Text>
+        <Text>iAmSeller(보정): {String(iAmSeller)}</Text>
+        <Text>generalizedPostId: {String(generalizedPostId)}</Text>
+        <Text>showLostClose: {String(showLostClose)}</Text>
+        
+        {/* 🆕 분실물 판단 근거 */}
+        <Text style={{marginTop: 8, fontWeight: 'bold'}}>--- 분실물 판단 근거 ---</Text>
+        <Text>raw.source: {String(raw?.source)}</Text>
+        <Text>raw.category: {String(raw?.category)}</Text>
+        <Text>raw.chatType: {String(raw?.chatType)}</Text>
+        <Text>raw.purpose: {String(raw?.purpose)}</Text>
+        <Text>raw.place: {String(raw?.place)}</Text>
+        <Text>raw.postImageUri: {String(raw?.postImageUri)}</Text>
+        <Text>headerPost?.source: {String(headerPost?.source)}</Text>
+        <Text>isLost(초기): {String(isLost)}</Text>
+        <Text>isAuthorStrict: {String(isAuthorStrict)}</Text>
+      </View>
       <View style={styles.actionsRow}>
         <View style={styles.actionsLeft}>
           <TouchableOpacity style={styles.scheduleBtn} onPress={() => setOpen(true)}>
@@ -756,7 +928,7 @@ export default function ChatRoomPage() {
           </TouchableOpacity>
         </View>
         <View style={styles.actionsRight}>
-          {isMarket && isOwner && !!raw?.postId && (
+          {isMarketContext && iAmSeller && !!generalizedPostId && (
             <SaleStatusSelector
               value={saleStatusLabel}
               onChange={handleChangeSaleStatus}
