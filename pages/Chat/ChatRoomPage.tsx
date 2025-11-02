@@ -348,9 +348,9 @@ export default function ChatRoomPage() {
   }, [send, serverRoomId, ensureServerRoomId]);
 
   // ✅ 판매 상태 변경
-  const handleChangeSaleStatus = async (nextLabel: SaleStatusLabel) => {
-    // 사전 가드: 약속 없는데 '예약중'을 누르면 모달로 유도
-    if (nextLabel === '예약중' && !hasAppointment) {
+  const handleChangeSaleStatus = async (nextLabel: SaleStatusLabel, skipAppointmentCheck = false) => {
+    // 사전 가드: 약속 없는데 '예약중'을 누르면 모달로 유도 (단, 약속 생성 직후 자동 호출은 제외)
+    if (nextLabel === '예약중' && !hasAppointment && !skipAppointmentCheck) {
       Alert.alert(
         '약속이 필요해요',
         '예약중으로 변경하려면 먼저 약속을 생성해주세요.',
@@ -714,7 +714,8 @@ export default function ChatRoomPage() {
             setOpen(false);
             Alert.alert('완료', '약속이 생성되었습니다.');
 
-            // await handleChangeSaleStatus('예약중');
+            // ✅ 자동으로 '예약중' 상태로 변경 (약속 체크 스킵)
+            await handleChangeSaleStatus('예약중', true);
           } catch (e: any) {
             console.log('[makeDeal] create error', e);
             Alert.alert('오류', '약속 생성 중 문제가 발생했어요. 잠시 후 다시 시도해주세요.');
