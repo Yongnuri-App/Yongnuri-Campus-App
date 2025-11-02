@@ -1,6 +1,6 @@
 // api/market.ts
+import type { CreateMarketPostReq, MarketStatus } from '../types/market';
 import { api } from './client';
-import type { CreateMarketPostReq } from '../types/market';
 
 /** 게시글 작성 */
 export async function createMarketPost(payload: CreateMarketPostReq) {
@@ -39,7 +39,7 @@ export type UpdateMarketPostReq = {
   method?: 'SELL' | 'DONATE';
   location?: string;
   price?: number;
-  status?: 'SELLING' | 'RESERVED' | 'SOLD';
+  status?: MarketStatus;
 };
 
 export async function updateMarketPost(
@@ -55,4 +55,21 @@ export async function updateMarketPost(
   };
   console.log('[updateMarketPost] response(norm)', norm);
   return norm as { post_id: number | string; message: string };
+}
+/** ✅ 게시글 상태 변경 (PATCH /board/market/{postId}/status)
+ * - RESERVED/SOLD 전환 시 buyerId 필요
+ * - SELLING/DELETED 전환 시 buyerId 생략 가능
+ */
+export async function patchMarketStatus(
+  postId: number | string,
+  status: MarketStatus,
+  buyerId?: number | null,
+  chatRoomId?: number | null
+): Promise<{ message: string }> {
+  const body: any = { status };
+  if (buyerId != null) body.buyerId = buyerId;
+  if (chatRoomId != null) body.chatRoomId = chatRoomId; 
+  const { data } = await api.patch(`/board/market/${postId}/status`, body);
+  // 서버는 현재 문자열 메시지 반환: "게시글 상태가 변경되었습니다."
+  return { message: String(data ?? 'OK') };
 }
