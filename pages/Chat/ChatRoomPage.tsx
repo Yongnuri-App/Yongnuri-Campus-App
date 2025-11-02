@@ -7,7 +7,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { createMakeDeal, type PostType } from '@/api/makedeal';
 import DetailBottomBar from '@/components/Bottom/DetailBottomBar';
 import AttachmentBar from '@/components/Chat/AttachmentBar/AttachmentBar';
 import ChatHeader, { type PostMeta } from '@/components/Chat/ChatHeader/ChatHeader';
@@ -22,16 +21,16 @@ import useChatRoom from '@/hooks/useChatRoom';
 import useChatRoomSetup from '@/hooks/useChatRoomSetup';
 import useLostClose from '@/hooks/useLostClose';
 import usePermissions from '@/hooks/usePermissions';
+import useSaleStatusManager from '@/hooks/useSaleStatusManager';
 
 import { blockUser, isBlockedUser, type BlockedUser } from '@/utils/blocked';
 import { deriveRoomIdFromParams } from '@/utils/chatId';
 import { mergeServerMessages } from '@/utils/chatMap';
+import { initHeaderPost, serverToLabel } from '@/utils/chatRoomHelpers';
 import { enrichWithBuyer, pickOtherNickname, toSaleStatusLabel } from '@/utils/chatRoomUtils';
 import { getLocalIdentity } from '@/utils/localIdentity';
 
 import { sendMessage } from '@/api/chat';
-import { patchMarketStatus } from '@/api/market';
-import marketTradeRepo from '@/repositories/trades/MarketTradeRepo';
 import { updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
 
 import type { RootStackParamList } from '@/types/navigation';
@@ -50,10 +49,6 @@ export default function ChatRoomPage() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [headerNickname, setHeaderNickname] = useState<string | undefined>(undefined);
   const [headerPost, setHeaderPost] = useState<PostMeta | undefined>(() => initHeaderPost(raw));
-  const [saleStatusLabel, setSaleStatusLabel] = useState<SaleStatusLabel>(
-    toSaleStatusLabel(raw?.initialSaleStatus)
-  );
-  const [hasAppointment, setHasAppointment] = useState(false);
 
   const proposedId = raw?.roomId ?? deriveRoomIdFromParams(raw);
 
@@ -75,7 +70,7 @@ export default function ChatRoomPage() {
 
   const enriched = useMemo(() => enrichWithBuyer(raw, myEmail, myId), [raw, myEmail, myId]);
 
-  // ✅ 채팅방 초기화 (NEW HOOK)
+  // ✅ 채팅방 초기화
   const { roomId, serverRoomId, ensureServerRoomId } = useChatRoomSetup({
     proposedId,
     raw,
@@ -134,12 +129,12 @@ export default function ChatRoomPage() {
 
       // ✅ 판매 상태 동기화 (서버 최신 상태 반영)
       if (data?.roomInfo?.chatType === 'USED_ITEM' && data?.roomInfo?.tradeStatus) {
-        const serverStatus = data.roomInfo.tradeStatus; // 'ON_SALE' | 'RESERVED' | 'SOLD'
+        const serverStatus = data.roomInfo.tradeStatus;
         const uiLabel = serverToLabel(serverStatus);
         setSaleStatusLabel(uiLabel);
         console.log('[ChatRoom] ✅ 판매 상태 동기화:', serverStatus, '→', uiLabel);
         
-        // 약속 여부도 함께 체크 (예약중이면 약속이 있다고 가정)
+        // 약속 여부도 함께 체크
         if (uiLabel === '예약중') {
           setHasAppointment(true);
         }
@@ -240,7 +235,6 @@ export default function ChatRoomPage() {
         const { getRoomDetail } = await import('@/api/chat');
         const data = await getRoomDetail(serverRoomId);
 
-        // 🔥 판매자인 경우에만 opponent를 buyerId로 저장
         if (iAmSeller) {
           const oppId = data?.roomInfo?.opponentId ?? null;
 
@@ -248,7 +242,6 @@ export default function ChatRoomPage() {
             const oppIdNum = Number(oppId);
             const myIdNum = myId != null ? Number(myId) : NaN;
 
-            // 상대방이 나 자신이 아닌지 확인
             if (Number.isFinite(oppIdNum) && oppIdNum !== myIdNum) {
               setBuyerIdFromRoom(oppIdNum);
               console.log('[ChatRoom] ✅ 구매자 ID 확인:', oppIdNum);
@@ -261,7 +254,6 @@ export default function ChatRoomPage() {
             console.log('[ChatRoom] ⚠️ opponentId 없음');
           }
         } else {
-          // 구매자 입장이면 buyerId 저장 안 함
           setBuyerIdFromRoom(null);
           console.log('[ChatRoom] 📦 구매자 입장 - buyerId 불필요');
         }
@@ -286,6 +278,41 @@ export default function ChatRoomPage() {
   } = useChatRoom(roomId ?? '', undefined, {
     originParams: enriched,
     nickname: titleFinal,
+  });
+
+  // ✅ 판매 상태 + 약속 관리
+  const {
+    saleStatusLabel,
+    setSaleStatusLabel,
+    hasAppointment,
+    setHasAppointment,
+    handleChangeSaleStatus,
+    recordTradeCompletion,
+    createAppointment,
+  } = useSaleStatusManager({
+    initialStatus: toSaleStatusLabel(raw?.initialSaleStatus),
+    generalizedPostId,
+    serverRoomId,
+    ensureServerRoomId,
+    myId,
+    buyerIdFromRoom,
+    raw,
+    enriched,
+    isMarketContext,
+    isLostContext,
+    opponent: useMemo<BlockedUser | null>(() => {
+      const idLike = raw?.opponentId ?? raw?.sellerId ?? raw?.authorId ?? raw?.opponentEmail;
+      const nameLike = titleFinal || raw?.opponentNickname;
+      if (!idLike || !nameLike) return null;
+      return {
+        id: String(idLike),
+        name: String(nameLike),
+        dept: raw?.opponentDept ?? raw?.department,
+        avatarUri: raw?.opponentAvatarUri ?? raw?.avatarUri,
+      };
+    }, [raw, titleFinal]),
+    setMessages,
+    pushSystemAppointment,
   });
 
   // ✅ 분실물 완료 처리
@@ -360,133 +387,20 @@ export default function ChatRoomPage() {
     }
   }, [send, serverRoomId, ensureServerRoomId]);
 
-  // ✅ 판매 상태 변경
-  const handleChangeSaleStatus = async (nextLabel: SaleStatusLabel, skipAppointmentCheck = false) => {
-    // 사전 가드: 약속 없는데 '예약중'을 누르면 모달로 유도 (단, 약속 생성 직후 자동 호출은 제외)
-    if (nextLabel === '예약중' && !hasAppointment && !skipAppointmentCheck) {
+  // ✅ 판매 상태 변경 래퍼 (약속 필요 시 모달 열기)
+  const handleSaleStatusChange = async (nextLabel: SaleStatusLabel) => {
+    const result = await handleChangeSaleStatus(nextLabel);
+    if (result === 'need-appointment') {
       Alert.alert(
         '약속이 필요해요',
         '예약중으로 변경하려면 먼저 약속을 생성해주세요.',
         [
           { text: '취소', style: 'cancel' },
-          { text: '약속 잡기', onPress: () => setOpen(true) }, // ✅ 모달 오픈
+          { text: '약속 잡기', onPress: () => setOpen(true) },
         ],
       );
-      return; // ❗️여기서 종료 → 서버 호출/상태 변경 안 함
-    }
-
-    const prev = saleStatusLabel;
-    setSaleStatusLabel(nextLabel); // ⛳️ 낙관적 반영
-
-    try {
-      const postIdStr = generalizedPostId;
-      if (!postIdStr) throw new Error('postId 미확인');
-
-      const serverStatus = labelToServer(nextLabel); // 'SELLING' | 'RESERVED' | 'SOLD'
-
-      // ✅ RESERVED/SOLD 시 buyerId 필수 검증
-      let buyerId: number | null | undefined = undefined;
-      if (serverStatus === 'RESERVED' || serverStatus === 'SOLD') {
-        const rawCandidate =
-          buyerIdFromRoom ?? raw?.buyerId ?? raw?.opponentId;
-        if (rawCandidate == null) {
-          throw new Error('구매자 정보를 확인할 수 없습니다.');
-        }
-        const candNum = Number(rawCandidate);
-        const myIdNum = myId != null ? Number(myId) : NaN;
-        if (!Number.isFinite(candNum)) {
-          throw new Error('구매자 ID가 올바르지 않습니다.');
-        }
-        if (candNum === myIdNum) {
-          throw new Error('본인을 구매자로 지정할 수 없습니다.');
-        }
-        buyerId = candNum;
-        console.log('[handleChangeSaleStatus] ✅ 구매자 ID:', buyerId);
-      }
-
-      // ✅ chatRoomId 확보(없으면 ensure)
-      let rid = serverRoomId;
-      if (!rid) {
-        rid = await ensureServerRoomId();
-        if (!rid) throw new Error('서버 채팅방 ID를 확인할 수 없어요.');
-      }
-
-      // ✅ 서버 호출: chatRoomId까지 같이 전달
-      await patchMarketStatus(Number(postIdStr), serverStatus, buyerId, Number(rid));
-
-      // (선택) 로컬 캐시 보정 동일
-      try {
-        const KEY = 'market_posts_v1';
-        const rawList = await AsyncStorage.getItem(KEY);
-        const list = rawList ? JSON.parse(rawList) : [];
-        const updated = Array.isArray(list)
-          ? list.map((it: any) =>
-              String(it?.id ?? it?.postId) === String(postIdStr)
-                ? { ...it, saleStatus: nextLabel }
-                : it
-            )
-          : list;
-        await AsyncStorage.setItem(KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.log('updateMarketCacheStatus error', e);
-      }
-    } catch (e: any) {
-      setSaleStatusLabel(prev);
-      const msg =
-        e?.message ?? '상태 변경 중 문제가 발생했어요. 잠시 후 다시 시도해주세요.';
-      Alert.alert('오류', msg);
     }
   };
-
-  // ✅ 거래 완료
-  const recordTradeCompletion = useCallback(async () => {
-    try {
-      if (!isMarketContext || !raw?.postId) return;
-
-      const { userEmail: meEmail, userId: meId } = await getLocalIdentity();
-      const meEmailNorm = (meEmail ?? '').trim().toLowerCase();
-      const meIdStr = (meId ?? '').toString();
-
-      let buyerEmailY = raw?.buyerEmail ?? raw?.opponentEmail ?? null;
-      let buyerIdY = buyerEmailY ? null : (opponent?.id ? String(opponent.id) : null);
-
-      const buyerEmailNorm = (buyerEmailY ?? '').trim().toLowerCase();
-      if (buyerEmailNorm && meEmailNorm && buyerEmailNorm === meEmailNorm) {
-        buyerEmailY = null;
-        buyerIdY = buyerIdY ?? (raw?.buyerId ? String(raw.buyerId) : null);
-      }
-      if (!buyerEmailY && buyerIdY && meIdStr && buyerIdY === meIdStr) {
-        buyerIdY = null;
-      }
-
-      await marketTradeRepo.upsert({
-        postId: String(raw.postId),
-        title: raw?.productTitle ?? '게시글 제목',
-        price: Number(raw?.productPrice) || undefined,
-        image: raw?.productImageUri,
-        sellerEmail: meEmail ?? raw?.sellerEmail ?? null,
-        sellerId: meId ?? (raw?.sellerId ? String(raw.sellerId) : null),
-        buyerEmail: buyerEmailY,
-        buyerId: buyerIdY,
-        postCreatedAt: raw?.postCreatedAt ?? raw?.createdAt,
-      });
-
-      setMessages(prev => [
-        ...prev,
-        {
-          id: `sys-${Date.now()}`,
-          type: 'system',
-          text: '판매자가 거래를 완료로 변경했어요. 구매자 거래내역에 반영됩니다.',
-          time: new Date().toISOString(),
-          senderEmail: null,
-          senderId: null,
-        } as any,
-      ]);
-    } catch (e) {
-      console.log('recordTradeCompletion error', e);
-      Alert.alert('오류', '거래완료 처리 중 문제가 발생했어요. 다시 시도해주세요.');
-    }
-  }, [isMarketContext, raw, opponent, setMessages]);
 
   // ✅ 메뉴 액션
   const handleReport = () => {
@@ -614,7 +528,7 @@ export default function ChatRoomPage() {
           {isMarketContext && iAmSeller && !!generalizedPostId && (
             <SaleStatusSelector
               value={saleStatusLabel}
-              onChange={handleChangeSaleStatus}
+              onChange={handleSaleStatusChange}
               onCompleteTrade={recordTradeCompletion}
             />
           )}
@@ -660,171 +574,11 @@ export default function ChatRoomPage() {
         visible={open}
         partnerNickname={titleFinal}
         onClose={() => setOpen(false)}
-        onSubmit={async ({ date, time, place }) => {
-          try {
-            // 1) 유효성
-            if (!date || !time || !place) {
-              Alert.alert('확인', '날짜/시간/장소를 모두 선택해주세요.');
-              return;
-            }
-            if (!serverRoomId) {
-              Alert.alert('오류', '서버 채팅방 ID를 확인할 수 없어요.');
-              return;
-            }
-            const postIdStr = generalizedPostId;
-            if (!postIdStr) {
-              Alert.alert('오류', '게시글 정보를 확인할 수 없어요.');
-              return;
-            }
-            // 2) 상대(구매자) ID 계산 (판매자만 생성 가능)
-            const buyerIdRaw =
-              buyerIdFromRoom ??
-              raw?.buyerId ??
-              raw?.opponentId ??
-              raw?.opponentUserId ??
-              raw?.userId ??                 // 일부 화면에서 상대 userId로 전달되는 경우
-              (enriched?.buyerId != null ? Number(enriched.buyerId) : null);
-
-            const buyerId = buyerIdRaw != null ? Number(buyerIdRaw) : NaN;
-
-            // 나 자신을 구매자로 잡는 실수를 방지 (내 ID와 같으면 무효)
-            const myIdAsNum = myId != null ? Number(myId) : NaN;
-            const buyerIdIsMe = Number.isFinite(buyerId) && Number.isFinite(myIdAsNum) && buyerId === myIdAsNum;
-
-            if (!Number.isFinite(buyerId) || buyerIdIsMe) {
-              console.log('[makeDeal] raw params:', raw);
-              console.log('[makeDeal] buyerIdFromRoom:', buyerIdFromRoom, 'enriched.buyerId:', enriched?.buyerId);
-              Alert.alert('오류', '상대 사용자 정보를 확인할 수 없어요.');
-              return;
-            }
-            // 3) 게시글 타입
-            const postType: PostType = isMarketContext ? 'USED_ITEM'
-                                  : isLostContext   ? 'LOST_ITEM'
-                                                    : 'USED_ITEM';
-            // 4) 한글 라벨 → 서버 포맷 변환
-            const yyyyMmDd = toServerDate(date);    // "2025-11-03"
-            const hhmm     = toServerTime(time);    // "14:30"
-            if (!yyyyMmDd || !hhmm) {
-              Alert.alert('오류', '날짜/시간 형식을 변환하는 중 문제가 발생했어요.');
-              return;
-            }
-            // 5) 서버 호출
-            await createMakeDeal({
-              chatRoomId: Number(serverRoomId),
-              buyerId,
-              postType,
-              postId: Number(postIdStr),
-              date: yyyyMmDd,
-              time: hhmm,
-              location: place,
-            });
-
-            // ✅ 약속 생성 성공 → 플래그 ON
-            setHasAppointment(true);
-
-            // 시스템 메시지 푸시 및 UX 처리
-            pushSystemAppointment(date, time, place);
-            setOpen(false);
-            Alert.alert('완료', '약속이 생성되었습니다.');
-
-            // ✅ 자동으로 '예약중' 상태로 변경 (약속 체크 스킵)
-            await handleChangeSaleStatus('예약중', true);
-          } catch (e: any) {
-            console.log('[makeDeal] create error', e);
-            Alert.alert('오류', '약속 생성 중 문제가 발생했어요. 잠시 후 다시 시도해주세요.');
-          }
+        onSubmit={async (params) => {
+          const success = await createAppointment(params);
+          if (success) setOpen(false);
         }}
       />
     </KeyboardAvoidingView>
   );
-}
-
-// ========== 헬퍼 함수 ==========
-
-function initHeaderPost(raw: any): PostMeta | undefined {
-  const isMarket = raw?.source === 'market';
-  const isLost = raw?.source === 'lost';
-  const isGroup = raw?.source === 'groupbuy';
-
-  const src: PostMeta['source'] = isMarket ? 'market' : isLost ? 'lost' : 'group';
-  const pid = String(raw?.postId ?? raw?.id ?? raw?.typeId ?? '');
-  if (!pid) return undefined;
-
-  const base: PostMeta = {
-    source: src,
-    postId: pid,
-    title: raw?.productTitle || raw?.postTitle || '제목 없음',
-    thumbnailUri: raw?.productImageUri || raw?.postImageUri,
-  };
-
-  if (src === 'market') {
-    const p = raw?.productPrice ?? 0;
-    base.priceLabel = p > 0 ? `₩ ${Number(p).toLocaleString('ko-KR')}` : '나눔🩵';
-  } else if (src === 'lost') {
-    base.purpose = raw?.purpose === 'found' ? 'found' : 'lost';
-    base.placeLabel = raw?.place ?? '장소 정보 없음';
-  } else if (src === 'group') {
-    base.recruitLabel = raw?.recruitLabel ?? '';
-  }
-
-  return base;
-}
-
-// ====== 약속 모달이 넘겨주는 한글 라벨 → 서버 포맷 변환 유틸 ======
-/** "2025년 11월 3일" → "2025-11-03" */
-function toServerDate(koreanDate: string): string | null {
-  try {
-    // 공백 허용, '년 월 일' 한글 구분자 제거 후 split
-    const m = koreanDate.match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
-    if (!m) return null;
-    const y = Number(m[1]);
-    const mo = Number(m[2]);
-    const d = Number(m[3]);
-    if (!y || !mo || !d) return null;
-    const mm = String(mo).padStart(2, '0');
-    const dd = String(d).padStart(2, '0');
-    return `${y}-${mm}-${dd}`;
-  } catch {
-    return null;
-  }
-}
-
-/** ================== 판매 상태 매핑 유틸 ================== */
-/** 한글 라벨 → 서버 Enum */
-function labelToServer(label: SaleStatusLabel): 'SELLING' | 'RESERVED' | 'SOLD' {
-  switch (label) {
-    case '판매중': return 'SELLING';
-    case '예약중': return 'RESERVED';
-    case '거래완료': return 'SOLD';
-  }
-}
-/** 서버 Enum → 한글 라벨 (서버 값을 UI에 반영할 때 사용 가능) */
-function serverToLabel(s: string): SaleStatusLabel {
-  switch (s) {
-    case 'SELLING': return '판매중';
-    case 'RESERVED': return '예약중';
-    case 'SOLD':    return '거래완료';
-    default:        return '판매중';
-  }
-}
-
-/** "오전 2시 05분" | "오후 12시 30분" → "HH:mm" (24시간) */
-function toServerTime(koreanTime: string): string | null {
-  try {
-    const m = koreanTime.match(/(오전|오후)\s*(\d{1,2})시\s*(\d{1,2})분/);
-    if (!m) return null;
-    const ap = m[1]; // 오전/오후
-    let h = Number(m[2]);
-    const min = Number(m[3]);
-    if (ap === '오전') {
-      if (h === 12) h = 0;
-    } else { // 오후
-      if (h !== 12) h = h + 12;
-    }
-    const hh = String(h).padStart(2, '0');
-    const mm = String(min).padStart(2, '0');
-    return `${hh}:${mm}`;
-  } catch {
-    return null;
-  }
 }
