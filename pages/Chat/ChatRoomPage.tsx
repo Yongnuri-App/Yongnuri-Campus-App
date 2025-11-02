@@ -132,6 +132,19 @@ export default function ChatRoomPage() {
         });
       }
 
+      // ✅ 판매 상태 동기화 (서버 최신 상태 반영)
+      if (data?.roomInfo?.chatType === 'USED_ITEM' && data?.roomInfo?.tradeStatus) {
+        const serverStatus = data.roomInfo.tradeStatus; // 'ON_SALE' | 'RESERVED' | 'SOLD'
+        const uiLabel = serverToLabel(serverStatus);
+        setSaleStatusLabel(uiLabel);
+        console.log('[ChatRoom] ✅ 판매 상태 동기화:', serverStatus, '→', uiLabel);
+        
+        // 약속 여부도 함께 체크 (예약중이면 약속이 있다고 가정)
+        if (uiLabel === '예약중') {
+          setHasAppointment(true);
+        }
+      }
+
       // 게시글 카드 보강
       if (data?.roomInfo) {
         const src: PostMeta['source'] =
