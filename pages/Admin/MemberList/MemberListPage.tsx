@@ -1,3 +1,4 @@
+// pages/Admin/MemberList/MemberListPage.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   SafeAreaView,
@@ -11,11 +12,11 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import styles from './MemberListPage.styles';
-import { getAdminUserInfo } from '../../../api/auth';
+import { getAdminUserInfo, type AdminUserInfo } from '../../../api/auth';
 
 // ✅ 컬럼 고정폭(+ 간격)
 const COL = {
-  NAME_W: 70,
+  NAME_W: 90,
   SID_W: 90,
   DEPT_W: 120,
   NICK_W: 96,
@@ -26,10 +27,14 @@ const COL = {
 
 // 가로 스크롤 총 너비
 const TOTAL_WIDTH =
-  COL.NAME_W + COL.GAP +
-  COL.SID_W  + COL.GAP +
-  COL.DEPT_W + COL.GAP_D2N +
-  COL.NICK_W + COL.GAP +
+  COL.NAME_W +
+  COL.GAP +
+  COL.SID_W +
+  COL.GAP +
+  COL.DEPT_W +
+  COL.GAP_D2N +
+  COL.NICK_W +
+  COL.GAP +
   COL.REPORT_W;
 
 type Member = {
@@ -46,8 +51,33 @@ const isProbablyAdmin = (u: any) => {
   const keys = ['admin', '관리자'];
   const name = String(u?.name ?? '').trim().toLowerCase();
   const nick = String(u?.userNickname ?? '').trim().toLowerCase();
-  const sid  = String(u?.studentId ?? '').trim().toLowerCase();
+  const sid = String(u?.studentId ?? '').trim().toLowerCase();
   return keys.includes(name) || keys.includes(nick) || keys.includes(sid);
+};
+
+// ✅ “탈퇴” 상태 감지 (여러 키 허용 + 숫자코드 허용)
+const isWithdrawnFrom = (u: unknown): boolean => {
+  const anyU = u as any;
+  const raw =
+    anyU?.status ?? anyU?.authStatus ?? anyU?.userStatus ?? anyU?.user_state;
+
+  if (raw == null) return false;
+
+  if (typeof raw === 'number') {
+    // 숫자코드일 경우 여기서 매핑 (예: 2가 WITHDRAWN이면 2)
+    return raw === 2;
+  }
+
+  const s = String(raw).trim().toUpperCase();
+  return (
+    s === 'WITHDRAWN' ||
+    s === 'DELETED' ||
+    s === 'LEAVED' ||
+    s === '탈퇴' ||
+    s === '삭제' ||
+    s === 'WITHDRAW' ||
+    s === 'WITHDRAWAL'
+  );
 };
 
 export default function MemberListPage() {
@@ -58,22 +88,25 @@ export default function MemberListPage() {
   // ===== 서버에서 회원 정보 불러오기 =====
   const load = useCallback(async () => {
     try {
-      const { data } = await getAdminUserInfo(); // [{ id,name,userNickname,studentId,major,reportCount }]
+      const { data } = await getAdminUserInfo(); // AdminUserInfo[]
       if (!Array.isArray(data)) {
         console.warn('[member list] Invalid response format');
         setMembers([]);
         return;
       }
 
-      // ✅ 관리자 제외
-      const onlyUsers = data.filter((u) => !isProbablyAdmin(u));
+      // 1) 관리자 추정 제외
+      let list: AdminUserInfo[] = data.filter((u) => !isProbablyAdmin(u));
 
-      // 이름순 정렬
-      const sorted = onlyUsers.sort((a, b) =>
+      // 2) ✅ 탈퇴 상태는 목록에서 “완전히 숨김”
+      list = list.filter((u) => !isWithdrawnFrom(u));
+
+      // 3) 이름순 정렬
+      const sorted = [...list].sort((a, b) =>
         (a.name || '').localeCompare(b.name || '')
       );
 
-      // 매핑
+      // 4) 화면 모델 매핑
       const mapped: Member[] = sorted.map((u) => ({
         id:
           u.studentId && String(u.studentId).trim().length > 0
@@ -85,7 +118,7 @@ export default function MemberListPage() {
             ? String(u.studentId)
             : '-',
         department: u.major ?? '-',
-        nickname: u.userNickname ?? '',
+        nickname: (u as any)?.userNickname ?? '',
         reportCount: typeof u.reportCount === 'number' ? u.reportCount : 0,
       }));
 

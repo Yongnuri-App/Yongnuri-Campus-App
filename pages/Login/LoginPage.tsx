@@ -59,11 +59,15 @@ export default function LoginPage({ navigation }: Props) {
   };
 
   /** ✅ 로그인 성공 공통 처리: 토큰 저장 + axios 헤더 + 세션/프로필 업서트 */
-  const handleLoginSuccess = async (emLower: string, tokens: { accessToken: string; refreshToken?: string }) => {
+  const handleLoginSuccess = async (
+    emLower: string,
+    tokens: { accessToken: string; refreshToken?: string }
+  ) => {
     const { accessToken, refreshToken } = tokens;
 
-    // 1) 토큰 저장 (호환 키 포함)
+    // ✅ 1) 토큰 저장 (모든 호환 키 포함)
     await AsyncStorage.multiSet([
+      ['auth_token', accessToken],      // ← 인터셉터 & WithdrawPage 참조 키
       [ACCESS_TOKEN_KEY, accessToken],
       ['accessToken', accessToken],
     ]);
@@ -74,10 +78,10 @@ export default function LoginPage({ navigation }: Props) {
       ]);
     }
 
-    // 2) axios Authorization 전역 세팅
+    // ✅ 2) axios Authorization 전역 세팅
     setAuthToken(accessToken);
 
-    // 3) 내 정보 조회 (없으면 스킵)
+    // ✅ 3) 내 정보 조회 (없으면 스킵)
     let me: any = null;
     try {
       const meRes = await authApi.me();
@@ -86,14 +90,15 @@ export default function LoginPage({ navigation }: Props) {
       console.log('[LOGIN] /users/me failed (continue without profile)', err);
     }
 
-    // 4) 로컬 DB 업서트 & 세션 저장
+    // ✅ 4) 로컬 DB 업서트 & 세션 저장
     const profile = {
       email: emLower,
       name: me?.name ?? '',
       nickname: me?.nickname ?? '',
       department: me?.major ?? me?.department ?? '',
       studentId: me?.studentId ? String(me?.studentId) : '',
-      isAdmin: !!me?.isAdmin || emLower === ADMIN_EMAIL.toLowerCase(), // 서버 값 우선, 없으면 관리자 메일 매칭
+      isAdmin:
+        !!me?.isAdmin || emLower === ADMIN_EMAIL.toLowerCase(), // 서버 값 우선
     };
 
     await upsertUser({
@@ -102,7 +107,7 @@ export default function LoginPage({ navigation }: Props) {
       nickname: profile.nickname,
       department: profile.department,
       studentId: profile.studentId,
-      password: '', // 서버 로그인이라 클라 보관 X
+      password: '', // 클라 비밀번호 저장 X
       isAdmin: profile.isAdmin,
       createdAt: new Date().toISOString(),
     });
@@ -111,11 +116,11 @@ export default function LoginPage({ navigation }: Props) {
     await setAuthEmailNormalized(emLower);
     await ensureLocalIdentity();
 
-    // 5) 관리자 플래그(앱 로컬 정책용)
+    // ✅ 5) 관리자 플래그(앱 로컬 정책용)
     if (profile.isAdmin) await setIsAdmin(true);
     else await clearIsAdmin();
 
-    // 6) 홈 이동
+    // ✅ 6) 홈 이동
     navigation.reset({
       index: 0,
       routes: [{ name: 'Main', params: { initialTab: 'market' } }],
@@ -137,16 +142,30 @@ export default function LoginPage({ navigation }: Props) {
       await clearIsAdmin();
       await clearSession();
 
-      // ✅ (A) 관리자 하드코딩 로그인 → 서버에서 실제 토큰을 받아 사용
-      if (em.toLowerCase() === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASSWORD) {
+      // ✅ (A) 관리자 하드코딩 로그인
+      if (
+        em.toLowerCase() === ADMIN_EMAIL.toLowerCase() &&
+        password === ADMIN_PASSWORD
+      ) {
         console.log('[LOGIN] ▶ /auth/login (admin)');
-        const res = await authApi.login({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
-        console.log('[LOGIN] ◀ /auth/login (admin)', res?.status, !!res?.data?.accessToken);
+        const res = await authApi.login({
+          email: ADMIN_EMAIL,
+          password: ADMIN_PASSWORD,
+        });
+        console.log(
+          '[LOGIN] ◀ /auth/login (admin)',
+          res?.status,
+          !!res?.data?.accessToken
+        );
         const accessToken: string | undefined = res?.data?.accessToken;
         const refreshToken: string | undefined = res?.data?.refreshToken;
-        if (!accessToken) throw new Error('서버에서 accessToken을 받지 못했습니다.');
+        if (!accessToken)
+          throw new Error('서버에서 accessToken을 받지 못했습니다.');
 
-        await handleLoginSuccess(ADMIN_EMAIL.toLowerCase(), { accessToken, refreshToken });
+        await handleLoginSuccess(ADMIN_EMAIL.toLowerCase(), {
+          accessToken,
+          refreshToken,
+        });
         return;
       }
 
@@ -157,9 +176,13 @@ export default function LoginPage({ navigation }: Props) {
 
       const accessToken: string | undefined = res?.data?.accessToken;
       const refreshToken: string | undefined = res?.data?.refreshToken;
-      if (!accessToken) throw new Error('서버에서 accessToken을 받지 못했습니다.');
+      if (!accessToken)
+        throw new Error('서버에서 accessToken을 받지 못했습니다.');
 
-      await handleLoginSuccess(em.toLowerCase(), { accessToken, refreshToken });
+      await handleLoginSuccess(em.toLowerCase(), {
+        accessToken,
+        refreshToken,
+      });
     } catch (e: any) {
       console.log('[LOGIN] ✖ error', {
         message: e?.message,
@@ -192,7 +215,9 @@ export default function LoginPage({ navigation }: Props) {
         />
 
         <Text style={styles.title}>Yongnuri Campus</Text>
-        <Text style={styles.subtitle}>용누리 캠퍼스와 함께하는 용인대학교 생활 :)</Text>
+        <Text style={styles.subtitle}>
+          용누리 캠퍼스와 함께하는 용인대학교 생활 :)
+        </Text>
 
         <TextInput
           style={styles.input}
@@ -231,11 +256,17 @@ export default function LoginPage({ navigation }: Props) {
         </TouchableOpacity>
 
         <View style={styles.bottomLinks}>
-          <TouchableOpacity disabled={loading} onPress={() => navigation.navigate('Signup')}>
+          <TouchableOpacity
+            disabled={loading}
+            onPress={() => navigation.navigate('Signup')}
+          >
             <Text style={styles.linkText}>회원가입</Text>
           </TouchableOpacity>
           <View style={styles.divider} />
-          <TouchableOpacity disabled={loading} onPress={() => navigation.navigate('PasswordReset')}>
+          <TouchableOpacity
+            disabled={loading}
+            onPress={() => navigation.navigate('PasswordReset')}
+          >
             <Text style={styles.linkText}>비밀번호 재설정</Text>
           </TouchableOpacity>
         </View>

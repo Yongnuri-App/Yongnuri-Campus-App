@@ -30,6 +30,20 @@ export const join             = (body: JoinReq)      => api.post('/auth/join', b
 export const login            = (body: LoginReq)     => api.post<LoginRes>('/auth/login', body);
 export const me               = ()                   => api.get('/users/me');
 
+/** ✅ 계정 탈퇴 */
+export const deleteAccount = async (accessToken?: string) => {
+  const headers: Record<string, string> = {};
+  const body: Record<string, string> = {};
+
+  // accessToken을 헤더와 body 둘 다 안전하게 전달
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+    body.accessToken = accessToken;
+  }
+
+  return api.post('/auth/deleteAccount', body, { headers });
+};
+
 // ====== 관리자: 회원 정보 보기 ======
 export type AdminUserInfo = {
   id: number;
@@ -38,6 +52,11 @@ export type AdminUserInfo = {
   studentId: string | null;
   major: string | null;
   reportCount: number;  // 서버가 준 그대로 사용
+
+  /** ▼ 응답에 있을 수도 있는 상태 필드들(있으면 프론트에서 사용) */
+  status?: string | number | null;
+  authStatus?: string | number | null;
+  userStatus?: string | number | null;
 };
 
 /** 관리자 회원 정보 목록 */
@@ -52,7 +71,12 @@ export const authApi = {
   login,
   me,
   resetPassword,
+
+  /** ✅ 계정 탈퇴 */
+  deleteAccount: (accessToken?: string) => deleteAccount(accessToken),
+
   mypage: () => api.get('/mypage'),
+
   /** 닉네임 수정: 명세상 body에 accessToken, nickName */
   updateMypage: (body: { accessToken?: string; nickName: string }) =>
     api.post('/mypage', body),

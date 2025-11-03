@@ -1,4 +1,3 @@
-// /api/client.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import Constants from 'expo-constants';
@@ -25,7 +24,6 @@ const PROFILE_PATH = extra.profilePath ?? '/mypage';
  */
 export const api = axios.create({
   baseURL: BASE_URL,
-  // headers: { 'Content-Type': 'application/json' },
   withCredentials: false,
 });
 
@@ -46,8 +44,9 @@ export const setAuthToken = (token?: string) => {
 /** --------------------------------------------------------------------------------
  * 요청 인터셉터
  * 1) /users/me → PROFILE_PATH 로 리라이트
- * 2) /auth/** 경로는 절대 Authorization 붙이지 않음 (로그인/회원가입 등)
- * 3) 그 외 요청에는 Authorization 없으면 AsyncStorage에서 토큰을 복구해 자동 부착
+ * 2) /auth/** 경로는 기본적으로 Authorization 붙이지 않음
+ *    단, /auth/deleteAccount 는 예외로 토큰을 반드시 포함
+ * 3) 그 외 요청에는 Authorization 없으면 AsyncStorage에서 복구해 자동 부착
  * --------------------------------------------------------------------------------*/
 
 /** 절대/상대 URL 모두에서 path만 뽑는 유틸 */
@@ -67,6 +66,9 @@ const isAuthFreePath = (path: string) => /^\/auth(\/|$)/.test(path);
 const isFormData = (v: any) =>
   typeof FormData !== 'undefined' && v instanceof FormData;
 
+/** ✅ 예외적으로 인증이 필요한 /auth 경로들 */
+const AUTH_FORCE_INCLUDE = ['/auth/deleteAccount'];
+
 api.interceptors.request.use(
   // ✅ AsyncStorage 접근이 필요하므로 async 인터셉터 사용
   async (config) => {
@@ -80,8 +82,12 @@ api.interceptors.request.use(
 
     const path = toPath(config.url);
 
-    // 2) /auth/** 요청이면 Authorization 제거(토큰이 있어도 붙이지 않음)
-    if (isAuthFreePath(path)) {
+    // 2) /auth/** 요청이면 Authorization 제거
+    // 단, /auth/deleteAccount 는 예외로 유지
+    const isAuthPath = isAuthFreePath(path);
+    const isException = AUTH_FORCE_INCLUDE.includes(path);
+
+    if (isAuthPath && !isException) {
       if (config.headers) {
         delete (config.headers as any).Authorization;
       }
@@ -89,12 +95,13 @@ api.interceptors.request.use(
       return config;
     }
 
-    // 3) 나머지 요청: Authorization 헤더가 비어있으면 AsyncStorage에서 복구하여 부착
+    // 3) Authorization 헤더가 없으면 AsyncStorage에서 복구해 자동 부착
     const hasAuth = !!config.headers?.Authorization;
     if (!hasAuth) {
       const token =
         (await AsyncStorage.getItem('accessToken')) ||
-        (await AsyncStorage.getItem('access_token'));
+        (await AsyncStorage.getItem('access_token')) ||
+        (await AsyncStorage.getItem('auth_token')); // ✅ 다양한 키 커버
       if (token) {
         config.headers = config.headers ?? {};
         (config.headers as any).Authorization = token.startsWith('Bearer ')
@@ -103,7 +110,7 @@ api.interceptors.request.use(
       }
     }
 
-    // 4) ✅ 핵심: FormData 전송이면 Content-Type을 제거해서 RN/axios가 boundary 자동 설정하게 함
+    // 4) ✅ FormData 전송이면 Content-Type을 제거해서 RN/axios가 boundary 자동 설정하게 함
     if (isFormData(config.data)) {
       if (config.headers) {
         delete (config.headers as any)['Content-Type'];
@@ -115,7 +122,6 @@ api.interceptors.request.use(
         delete (api.defaults.headers as any).post?.['content-type'];
       } catch {}
     }
-    // else 분기에서 JSON Content-Type을 굳이 지정할 필요는 없음(axios가 자동 설정)
 
     return config;
   },
@@ -132,7 +138,10 @@ api.interceptors.response.use(
     );
     if (res.data && typeof res.data === 'object') {
       const preview = JSON.stringify(res.data);
-      console.log('[API RES DATA]', preview.length > 500 ? preview.slice(0, 500) + '…' : preview);
+      console.log(
+        '[API RES DATA]',
+        preview.length > 500 ? preview.slice(0, 500) + '…' : preview
+      );
     }
     return res;
   },
