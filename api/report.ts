@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from './client';
 
 /* ====== 공용 타입 ====== */
-export type ReportPostType = 'USED_ITEM' | 'LOST_ITEM' | 'GROUP_BUY' | 'ALL' | 'ADMIN' | 'CHAT';
+export type ReportPostType = 'USED_ITEM' | 'LOST_ITEM' | 'GROUP_BUY' | 'ALL' | 'ADMIN' | 'ALL';
 
 export type ReportReason =
   | 'OBSCENE_CONTENT'
@@ -44,6 +44,9 @@ export type AdminReportDetailRes = {
   reportedStudentNickName?: string | null;
   reason?: ReportReason | string | null;
   content?: string | null;
+  reportType?: string | null;               // ✅ 게시글 타입
+  typeId?: number | null;                   // ✅ 게시글 ID
+  postTitle?: string | null;                // ✅ 게시글 제목 추가
   images?: { imageUrl: string; sequence: number }[] | null;
 };
 
@@ -119,7 +122,7 @@ export function mapKindToPostType(kind?: string): ReportPostType {
     case 'lost':     return 'LOST_ITEM';
     case 'groupbuy': return 'GROUP_BUY';
     case 'notice':   return 'ALL';
-    case 'chat':     return 'CHAT';
+    case 'chat':     return 'ALL' as ReportPostType;  // ✅ 'CHAT' → 'Chat'으로 수정
     case 'admin':    return 'ADMIN';
     default:         return 'ALL';
   }
@@ -203,6 +206,9 @@ export async function getAdminReportDetail(reportId: number | string): Promise<A
     reportedStudentNickName: (d as any).reportedStudentNickName ?? null,
     reason: (d as any).reason ?? (d as any).reportReason ?? null,
     content: (d as any).content ?? null,
+    reportType: (d as any).reportType ?? null,                          // ✅ 게시글 타입
+    typeId: (d as any).typeId ?? null,                                  // ✅ 게시글 ID
+    postTitle: (d as any).postTitle ?? null,                            // ✅ 게시글 제목 추가
     images: Array.isArray((d as any).images) ? (d as any).images : [],
   };
 }

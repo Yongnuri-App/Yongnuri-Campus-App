@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -5,31 +6,30 @@ import {
   Image,
   KeyboardAvoidingView,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
+  Image as RNImage,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  Image as RNImage,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
 } from 'react-native';
-import styles from './ReportPage.styles';
 import type { RootStackScreenProps } from '../../types/navigation';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import styles from './ReportPage.styles';
 
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import { useImagePicker } from '../../hooks/useImagePicker';
 
 // 서버 API/매퍼
 import {
-  createReport,
-  mapKindToPostType,
-  mapReportReason,
-  mapReasonEnumToKor,
-  getAdminReportDetail,
   adminProcessReport,
+  createReport,
+  getAdminReportDetail,
+  mapKindToPostType,
+  mapReasonEnumToKor,
+  mapReportReason,
   type ReportPostType,
   type ReportReason,
 } from '../../api/report';
@@ -133,7 +133,7 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
           : undefined;
       const reportedIdNum = toNum(targetUserIdParam);
 
-      if (postType === 'CHAT') {
+      if (postType === 'ALL') {
         if (reportedIdNum === undefined) {
           Alert.alert('안내', '대상 사용자 ID를 찾을 수 없어요. (reportedId)');
           return;
@@ -236,6 +236,17 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
             </View>
           </View>
 
+          {/* ✅ 게시글 제목 섹션 (CHAT 타입이 아닐 때만 표시) */}
+          {isReview && loaded?.postTitle && loaded?.reportType !== 'ALL' && (
+            <View style={styles.section}>
+              <Text style={styles.label}>신고된 게시글</Text>
+              <View style={styles.readonlyBox}>
+                <Text style={styles.readonlyText} numberOfLines={2}>
+                  {loaded.postTitle}
+                </Text>
+              </View>
+            </View>
+          )}
           {/* 신고 유형 */}
           <View style={styles.section}>
             <Text style={styles.label}>신고 유형</Text>

@@ -107,11 +107,31 @@ export default function ChatRoomPage() {
   // 상대(=구매자) ID를 서버 roomInfo에서 받아 보관할 상태
   const [buyerIdFromRoom, setBuyerIdFromRoom] = useState<number | null>(null);
 
+  // ✅ 서버에서 받은 상대방 정보 저장
+  const [opponentFromServer, setOpponentFromServer] = useState<{
+    id: number | null;
+    nickname: string | null;
+    email?: string | null;
+  } | null>(null);
+
   const { serverSellerInfo, serverLostAuthorInfo } = useAuthorVerification({
     serverRoomId,
     roomId,
     raw,
     onRoomDetailFetched: async (data) => {
+      // ✅ 상대방 정보 저장 (신고/차단에 사용)
+      if (data?.roomInfo) {
+        setOpponentFromServer({
+          id: data.roomInfo.opponentId ?? null,
+          nickname: data.roomInfo.opponentNickname ?? null,
+          email: null, // 서버가 opponentEmail을 제공하면 추가 가능
+        });
+        console.log('[ChatRoom] ✅ 상대방 정보 저장:', {
+          id: data.roomInfo.opponentId,
+          nickname: data.roomInfo.opponentNickname,
+        });
+      }
+
       // 헤더 보강 로직
       if (data?.roomInfo?.opponentNickname) {
         setHeaderNickname(data.roomInfo.opponentNickname);
@@ -198,7 +218,8 @@ export default function ChatRoomPage() {
   }, [raw, headerPost?.source]);
 
   const generalizedPostId = useMemo(() => {
-    return String(raw?.postId ?? raw?.id ?? raw?.post_id ?? headerPost?.postId ?? '') || null;
+    const pid = raw?.postId ?? raw?.id ?? raw?.post_id ?? headerPost?.postId;
+    return pid != null ? String(pid) : null;
   }, [raw, headerPost?.postId]);
 
   const isAuthorStrict = useMemo(() => {
@@ -329,16 +350,30 @@ export default function ChatRoomPage() {
 
   // ✅ 차단 관리
   const opponent = useMemo<BlockedUser | null>(() => {
-    const idLike = raw?.opponentId ?? raw?.sellerId ?? raw?.authorId ?? raw?.opponentEmail;
-    const nameLike = titleFinal || raw?.opponentNickname;
-    if (!idLike || !nameLike) return null;
+    // ✅ 우선순위: 서버 정보 → raw 파라미터
+    const idLike = 
+      opponentFromServer?.id ?? 
+      raw?.opponentId ?? 
+      raw?.sellerId ?? 
+      raw?.authorId ?? 
+      raw?.opponentEmail;
+    
+    const nameLike =
+    (opponentFromServer?.nickname ?? (titleFinal || raw?.opponentNickname)) ?? null;
+    
+    if (!idLike || !nameLike) {
+      console.log('[ChatRoom] ⚠️ opponent 생성 실패:', { idLike, nameLike });
+      return null;
+    }
+    
+    console.log('[ChatRoom] ✅ opponent 생성 성공:', { id: idLike, name: nameLike });
     return {
       id: String(idLike),
       name: String(nameLike),
       dept: raw?.opponentDept ?? raw?.department,
       avatarUri: raw?.opponentAvatarUri ?? raw?.avatarUri,
     };
-  }, [raw, titleFinal]);
+  }, [opponentFromServer, raw, titleFinal]);
 
   const [isBlocked, setIsBlocked] = useState(false);
   useEffect(() => {
@@ -405,9 +440,31 @@ export default function ChatRoomPage() {
   // ✅ 메뉴 액션
   const handleReport = () => {
     setMenuVisible(false);
-    Alert.alert('신고하기', '해당 사용자를 신고하시겠어요?', [
+
+    if (!opponent?.id) {
+      Alert.alert('오류', '신고할 사용자 정보를 확인할 수 없어요.');
+      return;
+    }
+
+    Alert.alert('신고하기', `${opponent.name} 님을 신고하시겠어요?`, [
       { text: '취소', style: 'cancel' },
-      { text: '신고', style: 'destructive', onPress: () => {} },
+      {
+        text: '신고',
+        style: 'destructive',
+        onPress: () => {
+          const params = {
+            mode: 'compose' as const,
+            targetNickname: opponent.name,
+            targetDept: opponent.dept,
+            targetEmail: opponentFromServer?.email ?? raw?.opponentEmail ?? undefined,
+            targetUserId: opponent.id,
+            targetKind: 'chat' as const,
+          };
+          
+          console.log('[ChatRoom] 신고 화면으로 이동:', params);
+          navigation.navigate('Report', params);
+        },
+      },
     ]);
   };
 
