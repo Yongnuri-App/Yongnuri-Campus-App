@@ -31,7 +31,7 @@ import { enrichWithBuyer, pickOtherNickname, toSaleStatusLabel } from '@/utils/c
 import { getLocalIdentity } from '@/utils/localIdentity';
 
 import { sendMessage } from '@/api/chat';
-import { updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
+import { updateRoomOnSendSmart, upsertRoomOnOpen, getDeletionCutoff } from '@/storage/chatStore'; // ✅ 추가 임포트
 
 import type { RootStackParamList } from '@/types/navigation';
 import styles from './ChatRoomPage.styles';
@@ -173,12 +173,22 @@ export default function ChatRoomPage() {
         }
       }
 
-      // 메시지 병합
+      // ✅ 메시지 병합 (삭제 컷오프 이후만 반영)
       if (Array.isArray(data?.messages)) {
         const { userId, userEmail } = await getLocalIdentity();
         const myIdStr = userId != null ? String(userId) : null;
         const myEmailNorm = (userEmail ?? '').trim().toLowerCase();
-        setMessages(prev => mergeServerMessages(prev, data.messages, myIdStr, myEmailNorm));
+
+        // 🔸 삭제 컷오프 조회 (roomId + originParams 기준)
+        const cutoff = await getDeletionCutoff({ originParams: enriched, roomId: roomId ?? undefined });
+
+        // 🔸 컷오프 이후 서버 메시지만 사용
+        const filtered = data.messages.filter((m: any) => {
+          const ts = m?.createdAt ? new Date(m.createdAt).getTime() : 0;
+          return !cutoff || (ts && ts > cutoff);
+        });
+
+        setMessages(prev => mergeServerMessages(prev, filtered, myIdStr, myEmailNorm));
       }
     },
   });
