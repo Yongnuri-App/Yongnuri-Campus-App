@@ -1,13 +1,6 @@
 // pages/Settings/BlockedUsersPage.tsx
-// -------------------------------------------------------------
-// 차단한 사용자 목록을 조회/해제하는 화면
-// - 저장/조회 로직은 utils/blocked.ts 유틸을 사용하도록 정리
-// - iOS: ActionSheet, Android: Alert로 "해제" 동작 확인
-// - 스타일은 BlockedUsersPage.styles.ts로 분리 (기존 파일 그대로 사용)
-// -------------------------------------------------------------
-
 import { useNavigation } from '@react-navigation/native';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionSheetIOS,
   Alert,
@@ -20,82 +13,118 @@ import {
   View,
 } from 'react-native';
 
-// ✅ 스타일 분리 (기존 파일 유지)
 import styles from './BlockedUsersPage.styles';
 
-// ✅ 차단 유틸 (공용)
-// - BlockedUser 타입과 목록 로드/해제 함수를 가져옵니다.
-import { getBlockedUsers, unblockUser, type BlockedUser } from '@/utils/blocked';
+// ✅ 로컬 차단 유틸 (폴백/동기화용)
+import {
+  getBlockedUsers as getBlockedUsersLocal,
+  unblockUser as unblockUserLocal,
+  type BlockedUser as LocalBlockedUser,
+} from '@/utils/blocked';
+
+// ✅ 서버 API (누락되었던 import 보강)
+import {
+  getBlockedList,
+  deleteBlockById,
+  type BlockedRow,
+} from '@/api/blocks';
+
+type RowVM = {
+  blockRecordId: string; // 서버 레코드 id (DELETE 경로에 사용)
+  userId: string;        // 상대 사용자 id
+  name: string;          // 표시용 닉네임
+  avatarUri?: string;
+  dept?: string;
+};
 
 export default function BlockedUsersPage() {
   const navigation = useNavigation<any>();
 
-  // 차단한 사용자 목록 상태
-  const [users, setUsers] = useState<BlockedUser[]>([]);
+  const [rows, setRows] = useState<RowVM[]>([]);
   const [loading, setLoading] = useState(true);
 
-  /** 목록 새로고침 (초기 로드 및 해제 후 갱신) */
+  /** 서버 목록을 우선 로드, 실패 시 로컬 폴백 */
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const list = await getBlockedUsers();
-      setUsers(list);
+      // 1) 서버에서 조회
+      const serverList = await getBlockedList();
+      const vm = serverList.map<RowVM>((r: BlockedRow) => ({
+        blockRecordId: String(r.id),   // ✅ 해제 시 필요
+        userId: String(r.userId),
+        name: r.nickName || '알 수 없음',
+      }));
+      setRows(vm);
     } catch (e) {
-      console.log('blocked load error', e);
-      setUsers([]);
+      console.log('getBlockedList error, fallback to local', e);
+      // 2) 서버 실패 → 로컬에 저장된 목록으로 대체
+      const local = await getBlockedUsersLocal();
+      const vm = (local as LocalBlockedUser[]).map<RowVM>((u) => ({
+        blockRecordId: '',            // 로컬에는 레코드 ID 개념이 없음
+        userId: u.id,
+        name: u.name,
+        avatarUri: u.avatarUri,
+        dept: u.dept,
+      }));
+      setRows(vm);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // 화면 진입 시 1회 로드
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh]);
 
-  /** 뒤로가기 */
-  const onPressBack = () => navigation.goBack();
+  const onPressBack = useCallback(() => navigation.goBack(), [navigation]);
 
-  /** "관리" 버튼 → 차단 해제 확인 → 해제 수행 */
-  const askUnblock = (user: BlockedUser) => {
-    const doUnblock = async () => {
-      await unblockUser(user.id);
-      // 저장 성공 시 리스트에서도 제거
-      setUsers(prev => prev.filter(u => u.id !== user.id));
-      // 필요 시 사용자 피드백
-      // Alert.alert('해제됨', `${user.name} 차단을 해제했습니다.`);
-    };
+  /** 서버 해제 → 로컬 동기화 → UI 제거 */
+  const doUnblock = useCallback(async (row: RowVM) => {
+    try {
+      if (row.blockRecordId) {
+        // 서버 레코드 id가 있으면 서버 우선 해제
+        await deleteBlockById(row.blockRecordId);
+      }
+      // 서버 id가 없으면(로컬만 있는 경우) 서버 호출 생략
+    } catch (e: any) {
+      const status = e?.response?.status;
+      if (status !== 404) {
+        Alert.alert('오류', '차단 해제 중 문제가 발생했어요. 잠시 후 다시 시도해주세요.');
+        return;
+      }
+      // 404는 "이미 서버 기록 없음"으로 보고 계속 진행
+    }
+
+    // 로컬 저장소에서도 제거(양쪽 동기화)
+    await unblockUserLocal(row.userId);
+    setRows(prev => prev.filter(r => !(r.userId === row.userId)));
+  }, []);
+
+  const askUnblock = useCallback((row: RowVM) => {
+    const run = () => void doUnblock(row);
 
     if (Platform.OS === 'ios') {
-      // iOS: ActionSheet
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          title: `${user.name} 관리`,
+          title: `${row.name} 관리`,
           options: ['취소', '차단 해제'],
           destructiveButtonIndex: 1,
           cancelButtonIndex: 0,
           userInterfaceStyle: 'light',
         },
-        (buttonIndex) => {
-          if (buttonIndex === 1) doUnblock();
-        }
+        (idx) => { if (idx === 1) run(); }
       );
     } else {
-      // Android: Alert
-      Alert.alert('관리', `${user.name} 차단을 해제할까요?`, [
+      Alert.alert('관리', `${row.name} 차단을 해제할까요?`, [
         { text: '취소', style: 'cancel' },
-        { text: '차단 해제', style: 'destructive', onPress: doUnblock },
+        { text: '차단 해제', style: 'destructive', onPress: run },
       ]);
     }
-  };
+  }, [doUnblock]);
 
-  /** 각 사용자 행 렌더링 */
-  const renderRow = (u: BlockedUser) => {
-    const avatar = u.avatarUri ? { uri: u.avatarUri } : null;
+  const renderRow = useCallback((row: RowVM) => {
+    const avatar = row.avatarUri ? { uri: row.avatarUri } : null;
 
     return (
-      <View key={u.id} style={styles.row}>
-        {/* 아바타 */}
+      <View key={`${row.blockRecordId}_${row.userId}`} style={styles.row}>
         {avatar ? (
           <Image source={avatar} style={styles.avatar} />
         ) : (
@@ -108,32 +137,45 @@ export default function BlockedUsersPage() {
           </View>
         )}
 
-        {/* 이름 / 학부(옵션) */}
         <View style={styles.infoCol}>
-          <Text style={styles.name} numberOfLines={1}>{u.name}</Text>
-          {!!u.dept && <Text style={styles.dept} numberOfLines={1}>{u.dept}</Text>}
+          <Text style={styles.name} numberOfLines={1}>{row.name}</Text>
+          {!!row.dept && <Text style={styles.dept} numberOfLines={1}>{row.dept}</Text>}
         </View>
 
-        {/* 관리 버튼 (차단 해제) */}
         <TouchableOpacity
           style={styles.manageBtn}
-          onPress={() => askUnblock(u)}
+          onPress={() => askUnblock(row)}
           activeOpacity={0.85}
           accessibilityRole="button"
-          accessibilityLabel={`${u.name} 관리`}
+          accessibilityLabel={`${row.name} 관리`}
         >
           <Text style={styles.manageText}>관리</Text>
         </TouchableOpacity>
       </View>
     );
-  };
+  }, [askUnblock]);
+
+  const content = useMemo(() => {
+    if (loading) return <Text style={styles.muted}>불러오는 중…</Text>;
+    if (rows.length === 0) {
+      return (
+        <View style={styles.emptyWrap}>
+          <Text style={styles.emptyText}>차단한 사용자가 없어요.</Text>
+          <Text style={styles.emptySub}>
+            채팅/게시글 화면에서 사용자 메뉴로 차단을 설정할 수 있어요.
+          </Text>
+        </View>
+      );
+    }
+    return rows.map(renderRow);
+  }, [loading, rows, renderRow]);
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* 상단 상태바 높이 보정(디자인 맞춤용) */}
+      {/* 상태바 여백 */}
       <View style={styles.statusBar} />
 
-      {/* 커스텀 헤더 */}
+      {/* 헤더 */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={onPressBack}
@@ -143,7 +185,6 @@ export default function BlockedUsersPage() {
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           activeOpacity={0.9}
         >
-          {/* 프로젝트 공통 아이콘 경로에 맞게 조정하세요 */}
           <Image
             source={require('../../../assets/images/back_white.png')}
             style={styles.backIcon}
@@ -152,25 +193,13 @@ export default function BlockedUsersPage() {
         <Text style={styles.headerTitle}>차단한 사용자</Text>
       </View>
 
-      {/* 리스트 영역 */}
+      {/* 리스트 */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
       >
-        {loading ? (
-          <Text style={styles.muted}>불러오는 중…</Text>
-        ) : users.length === 0 ? (
-          <View style={styles.emptyWrap}>
-            <Text style={styles.emptyText}>차단한 사용자가 없어요.</Text>
-            <Text style={styles.emptySub}>
-              채팅/게시글 화면에서 사용자 메뉴로 차단을 설정할 수 있어요.
-            </Text>
-          </View>
-        ) : (
-          users.map(renderRow)
-        )}
-
+        {content}
         <View style={{ height: 24 }} />
       </ScrollView>
     </SafeAreaView>

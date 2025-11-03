@@ -17,7 +17,7 @@ import CategoryChips, { CategoryItem } from '../../components/CategoryChips/Cate
 import HeaderIcons from '../../components/Header/HeaderIcons';
 import styles from './ChatListPage.styles';
 
-import { getRooms, type ChatListItem, type ChatListType } from '@/api/chat';
+import { getRooms, type ChatListItem, type ChatListType, getRoomDetail } from '@/api/chat'; // ✅ detail import 추가
 import {
   computeUnreadCount,
   deleteChatRoom as deleteLocalRoom,
@@ -25,10 +25,11 @@ import {
   refreshAllUnread,
 } from '@/storage/chatStore';
 
-import type { ChatCategory, ChatRoomSummary } from '@/types/chat';
+import type { ChatCategory, ChatRoomSummary, ChatMessage } from '@/types/chat';
 import { getLocalIdentity } from '@/utils/localIdentity';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getBlockedAt } from '@/utils/blocked'; // ✅ 차단 시각 조회
 
 // ---------------- 계정별 숨김 컷오프 맵 ----------------
 type HiddenMap = Record<string, number>; // serverRoomId -> cutoff(ms)
@@ -100,6 +101,35 @@ function formatListTimeLabel(ts: number): string {
   return `${y}.${m}.${day}`;
 }
 
+/** ===== 로컬 메시지 읽기(프리뷰 보정용) ===== */
+const STORAGE_PREFIX = 'chat_messages_';
+async function messageKey(roomId: string) {
+  const { userEmail, userId } = await getLocalIdentity();
+  const me = (userEmail ?? userId) ? (userEmail ?? userId)!.toString().toLowerCase() : 'anon';
+  return `${me}::${STORAGE_PREFIX}${roomId}`;
+}
+async function readLocalMessages(roomId: string): Promise<ChatMessage[]> {
+  try {
+    const key = await messageKey(roomId);
+    const raw = await AsyncStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as ChatMessage[]) : [];
+  } catch {
+    return [];
+  }
+}
+function msgTs(m: any): number {
+  const iso = (m?.time || m?.createdAt) as string | undefined;
+  if (!iso) return 0;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+function previewFromMessage(m: ChatMessage): string {
+  if (m.type === 'text') return (m as any).text || '';
+  if (m.type === 'image') return '사진';
+  if (m.type === 'system') return (m as any).text || '';
+  return '';
+}
+
 /** 서버 아이템 → 화면 요약모델 */
 type ListRow = ChatRoomSummary & {
   apiUpdateIso?: string;
@@ -119,7 +149,7 @@ function mapApiToSummary(it: ChatListItem, fallbackOrder: number): ListRow {
     category,
     nickname: it.toUserNickName,
     lastMessage: it.lastMessage || '',
-    lastTs,
+    lastTs, // ⬅ 정렬키: 기존 로직 유지
     unreadCount: 0,
     origin: undefined,
     apiUpdateIso: ts ? new Date(ts).toISOString() : undefined,
@@ -208,10 +238,57 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
   const hiddenRef = useRef<HiddenMap>({});
   const identityRef = useRef<string>('');
 
+  /** ✅ 차단 이후 상대 메시지 숨김: 프리뷰만 보정(정렬 lastTs는 그대로) */
+  const applyBlockAwarePreview = useCallback(async (rows: ListRow[]): Promise<ListRow[]> => {
+    const patched = await Promise.all(rows.map(async (r) => {
+      try {
+        // 1) 상세에서 상대 ID 확보
+        const detail = await getRoomDetail(r.serverRoomId);
+        const oppId = detail?.roomInfo?.opponentId;
+        if (oppId == null) return r;
+
+        // 2) 차단 시각
+        const blockedSince = await getBlockedAt(String(oppId));
+        if (!blockedSince) return r;
+
+        // 3) 로컬에서 차단 이후 '상대' 메시지 제외
+        const local = await readLocalMessages(r.roomId);
+        if (!Array.isArray(local) || local.length === 0) return r;
+
+        const oppIdStr = String(oppId);
+        const visible = local.filter((m) => {
+          const ts = msgTs(m);
+          const sid = (m as any)?.senderId != null ? String((m as any).senderId) : null;
+          const isOpponent = !!sid && sid === oppIdStr;
+          if (isOpponent && ts >= blockedSince) return false;
+          return true;
+        });
+
+        if (visible.length === 0) {
+          // 프리뷰만 비움(정렬키는 그대로)
+          return { ...r, lastMessage: '' };
+        }
+
+        const last = visible.reduce((a, b) => (msgTs(a) > msgTs(b) ? a : b));
+        const displayTs = msgTs(last) || r.lastTs;
+
+        return {
+          ...r,
+          lastMessage: previewFromMessage(last),
+          timeLabel: formatListTimeLabel(displayTs), // 표시 라벨만 보정
+          // r.lastTs(정렬)는 그대로 유지
+        };
+      } catch {
+        return r;
+      }
+    }));
+    return patched;
+  }, []);
+
   const load = useCallback(async (chipVal: string) => {
     setLoading(true);
     try {
-      // 계정 식별자 (email 또는 id)
+      // 계정 식별자
       const { userEmail, userId } = await getLocalIdentity();
       const me = (userEmail ?? userId) ? (userEmail ?? userId)!.toString().toLowerCase() : 'anon';
       identityRef.current = me;
@@ -224,32 +301,35 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
       const list = await getRooms(serverType);
 
       // 변환
-      const mapped = list.map((it, idx) => mapApiToSummary(it, idx));
+      let mapped = list.map((it, idx) => mapApiToSummary(it, idx));
 
-      // 숨김 필터: "내가(이 계정으로) 숨긴 뒤" 새 메시지가 와서 updateTime이 컷오프를 넘은 것만 통과
-      const filteredByHidden = mapped.filter((r) => {
+      // 숨김 필터: 내가 숨긴 뒤에 온 업데이트만 통과
+      mapped = mapped.filter((r) => {
         const cut = getHiddenCutoffSync(hiddenRef.current, r.serverRoomId);
         if (!cut) return true;
         const ts = r.lastTs ?? 0;
         return ts > cut;
       });
 
-      // unread 병합(계정별)
+      // ✅ 차단 프리뷰 보정(정렬키 불변)
+      mapped = await applyBlockAwarePreview(mapped);
+
+      // unread 병합
       try {
         if (me) {
           const unreadList = await Promise.all(
-            filteredByHidden.map(r => computeUnreadCount(r.roomId, me).catch(() => 0))
+            mapped.map(r => computeUnreadCount(r.roomId, me).catch(() => 0))
           );
           unreadList.forEach((cnt, i) => {
-            filteredByHidden[i] = { ...filteredByHidden[i], unreadCount: cnt };
+            mapped[i] = { ...mapped[i], unreadCount: cnt };
           });
         }
       } catch (e) {
         console.log('[ChatList] unread calculation error', e);
       }
 
-      // 정렬
-      filteredByHidden.sort((a, b) => {
+      // 정렬: 기존 로직 그대로(lastTs desc)
+      mapped.sort((a, b) => {
         const at = a.lastTs ?? 0;
         const bt = b.lastTs ?? 0;
         if (bt !== at) return bt - at;
@@ -259,14 +339,14 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
         return (b.serverRoomId ?? 0) - (a.serverRoomId ?? 0);
       });
 
-      setRooms(filteredByHidden);
+      setRooms(mapped);
     } catch (e) {
       console.log('[ChatList] getRooms error', e);
       setRooms([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyBlockAwarePreview]);
 
   useFocusEffect(
     useCallback(() => {
@@ -328,7 +408,7 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
       chip === 'all'
         ? rooms
         : rooms.filter((r) => r.category === (chip as ChatCategory));
-    return [...list].sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
+    return [...list].sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0)); // 기존 정렬 그대로
   }, [chip, rooms]);
 
   return (

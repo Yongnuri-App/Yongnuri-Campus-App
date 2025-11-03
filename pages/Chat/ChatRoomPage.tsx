@@ -1,4 +1,4 @@
-// ChatRoomPage.tsx
+// pages/Chat/ChatRoomPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -23,7 +23,14 @@ import useLostClose from '@/hooks/useLostClose';
 import usePermissions from '@/hooks/usePermissions';
 import useSaleStatusManager from '@/hooks/useSaleStatusManager';
 
-import { blockUser, isBlockedUser, type BlockedUser } from '@/utils/blocked';
+import {
+  blockUser,
+  isBlockedUser,
+  unblockUser,
+  getBlockedAt,            // ✅ 차단 시각 조회
+  type BlockedUser
+} from '@/utils/blocked';
+
 import { deriveRoomIdFromParams } from '@/utils/chatId';
 import { mergeServerMessages } from '@/utils/chatMap';
 import { initHeaderPost, serverToLabel } from '@/utils/chatRoomHelpers';
@@ -31,7 +38,8 @@ import { enrichWithBuyer, pickOtherNickname, toSaleStatusLabel } from '@/utils/c
 import { getLocalIdentity } from '@/utils/localIdentity';
 
 import { sendMessage } from '@/api/chat';
-import { updateRoomOnSendSmart, upsertRoomOnOpen, getDeletionCutoff } from '@/storage/chatStore'; // ✅ 추가 임포트
+import { updateRoomOnSendSmart, upsertRoomOnOpen, getDeletionCutoff } from '@/storage/chatStore';
+import { postBlockUser, deleteBlockUser } from '@/api/blocks'; // ✅ 서버 차단/해제 API
 
 import type { RootStackParamList } from '@/types/navigation';
 import styles from './ChatRoomPage.styles';
@@ -124,7 +132,7 @@ export default function ChatRoomPage() {
         setOpponentFromServer({
           id: data.roomInfo.opponentId ?? null,
           nickname: data.roomInfo.opponentNickname ?? null,
-          email: null, // 서버가 opponentEmail을 제공하면 추가 가능
+          email: null,
         });
         console.log('[ChatRoom] ✅ 상대방 정보 저장:', {
           id: data.roomInfo.opponentId,
@@ -137,7 +145,7 @@ export default function ChatRoomPage() {
         setHeaderNickname(data.roomInfo.opponentNickname);
         await upsertRoomOnOpen({
           roomId: roomId!,
-          category: data.roomInfo.chatType === 'USED_ITEM' ? 'market' : 'lost',
+          category: data.roomInfo.chatType === 'USED_ITEM' ? 'market' : data.roomInfo.chatType === 'LOST_ITEM' ? 'lost' : 'group',
           nickname: data.roomInfo.opponentNickname,
           productTitle: raw?.productTitle,
           productPrice: raw?.productPrice,
@@ -147,17 +155,13 @@ export default function ChatRoomPage() {
         });
       }
 
-      // ✅ 판매 상태 동기화 (서버 최신 상태 반영)
+      // ✅ 판매 상태 동기화
       if (data?.roomInfo?.chatType === 'USED_ITEM' && data?.roomInfo?.tradeStatus) {
         const serverStatus = data.roomInfo.tradeStatus;
         const uiLabel = serverToLabel(serverStatus);
         setSaleStatusLabel(uiLabel);
         console.log('[ChatRoom] ✅ 판매 상태 동기화:', serverStatus, '→', uiLabel);
-        
-        // 약속 여부도 함께 체크
-        if (uiLabel === '예약중') {
-          setHasAppointment(true);
-        }
+        if (uiLabel === '예약중') setHasAppointment(true);
       }
 
       // 게시글 카드 보강
@@ -199,7 +203,7 @@ export default function ChatRoomPage() {
         const myIdStr = userId != null ? String(userId) : null;
         const myEmailNorm = (userEmail ?? '').trim().toLowerCase();
 
-        // 🔸 삭제 컷오프 조회 (roomId + originParams 기준)
+        // 🔸 삭제 컷오프 조회
         const cutoff = await getDeletionCutoff({ originParams: enriched, roomId: roomId ?? undefined });
 
         // 🔸 컷오프 이후 서버 메시지만 사용
@@ -243,7 +247,7 @@ export default function ChatRoomPage() {
     const n = (v?: string | null) => (v ?? '').trim().toLowerCase();
     const sId = serverSellerInfo?.authorId ?? raw?.sellerId ?? raw?.authorId;
     const sEmail = serverSellerInfo?.authorEmail ?? raw?.sellerEmail ?? raw?.authorEmail;
-    
+
     const meEmail = n(myEmail);
     const sellEmail = n(sEmail as any);
     const meId = myId ? String(myId) : '';
@@ -261,14 +265,12 @@ export default function ChatRoomPage() {
   useEffect(() => {
     (async () => {
       if (!serverRoomId || !roomId) return;
-
       try {
         const { getRoomDetail } = await import('@/api/chat');
         const data = await getRoomDetail(serverRoomId);
 
         if (iAmSeller) {
           const oppId = data?.roomInfo?.opponentId ?? null;
-
           if (oppId != null) {
             const oppIdNum = Number(oppId);
             const myIdNum = myId != null ? Number(myId) : NaN;
@@ -361,21 +363,21 @@ export default function ChatRoomPage() {
   // ✅ 차단 관리
   const opponent = useMemo<BlockedUser | null>(() => {
     // ✅ 우선순위: 서버 정보 → raw 파라미터
-    const idLike = 
-      opponentFromServer?.id ?? 
-      raw?.opponentId ?? 
-      raw?.sellerId ?? 
-      raw?.authorId ?? 
+    const idLike =
+      opponentFromServer?.id ??
+      raw?.opponentId ??
+      raw?.sellerId ??
+      raw?.authorId ??
       raw?.opponentEmail;
-    
+
     const nameLike =
-    (opponentFromServer?.nickname ?? (titleFinal || raw?.opponentNickname)) ?? null;
-    
+      (opponentFromServer?.nickname ?? (titleFinal || raw?.opponentNickname)) ?? null;
+
     if (!idLike || !nameLike) {
       console.log('[ChatRoom] ⚠️ opponent 생성 실패:', { idLike, nameLike });
       return null;
     }
-    
+
     console.log('[ChatRoom] ✅ opponent 생성 성공:', { id: idLike, name: nameLike });
     return {
       id: String(idLike),
@@ -386,14 +388,20 @@ export default function ChatRoomPage() {
   }, [opponentFromServer, raw, titleFinal]);
 
   const [isBlocked, setIsBlocked] = useState(false);
+  const [blockedSince, setBlockedSince] = useState<number | null>(null); // ✅ 추가
+
+  // 차단 여부 + 차단 시각 로드
   useEffect(() => {
     (async () => {
       if (!opponent?.id) {
         setIsBlocked(false);
+        setBlockedSince(null);
         return;
       }
       const blocked = await isBlockedUser(opponent.id);
       setIsBlocked(blocked);
+      const at = await getBlockedAt(opponent.id);
+      setBlockedSince(at);
     })();
   }, [opponent?.id]);
 
@@ -447,15 +455,13 @@ export default function ChatRoomPage() {
     }
   };
 
-  // ✅ 메뉴 액션
+  // ✅ 메뉴 액션: 신고
   const handleReport = () => {
     setMenuVisible(false);
-
     if (!opponent?.id) {
       Alert.alert('오류', '신고할 사용자 정보를 확인할 수 없어요.');
       return;
     }
-
     Alert.alert('신고하기', `${opponent.name} 님을 신고하시겠어요?`, [
       { text: '취소', style: 'cancel' },
       {
@@ -470,7 +476,6 @@ export default function ChatRoomPage() {
             targetUserId: opponent.id,
             targetKind: 'chat' as const,
           };
-          
           console.log('[ChatRoom] 신고 화면으로 이동:', params);
           navigation.navigate('Report', params);
         },
@@ -478,27 +483,49 @@ export default function ChatRoomPage() {
     ]);
   };
 
+  // ✅ 메뉴 액션: 차단/해제
   const handleBlock = () => {
     setMenuVisible(false);
     if (!opponent?.id) {
       Alert.alert('오류', '상대 사용자 정보를 확인할 수 없어요.');
       return;
     }
+    const isCurrentlyBlocked = isBlocked;
+
     Alert.alert(
-      '차단하기',
-      `${opponent.name} 님을 차단할까요?\n채팅/게시글에서 표시/상호작용이 제한될 수 있어요.`,
+      isCurrentlyBlocked ? '차단 해제' : '차단하기',
+      isCurrentlyBlocked
+        ? `${opponent.name} 님의 차단을 해제할까요?`
+        : `${opponent.name} 님을 차단할까요?\n채팅/게시글에서 표시/상호작용이 제한될 수 있어요.`,
       [
         { text: '취소', style: 'cancel' },
         {
-          text: '차단',
+          text: isCurrentlyBlocked ? '차단 해제' : '차단',
           style: 'destructive',
           onPress: async () => {
             try {
-              await blockUser(opponent);
-              navigation.navigate('MyBlockedUsers');
+              if (isCurrentlyBlocked) {
+                // 서버 해제 → 로컬 해제 → UI 반영
+                await deleteBlockUser(opponent.id).catch(() => {});
+                await unblockUser(opponent.id);
+                setIsBlocked(false);
+                setBlockedSince(null);                 // ✅ 즉시 반영
+              } else {
+                // 서버 차단 → 로컬 기록(blockedAt) → UI 반영
+                await postBlockUser({ blockedUserId: opponent.id });
+                await blockUser({ ...opponent });
+                setIsBlocked(true);
+                setBlockedSince(Date.now());           // ✅ 즉시 반영
+                // navigation.navigate('MyBlockedUsers'); // 필요 시 유지
+              }
             } catch (e) {
-              console.log('blockUser error', e);
-              Alert.alert('오류', '차단 중 문제가 발생했어요. 다시 시도해주세요.');
+              console.log('block/unblock error', e);
+              Alert.alert(
+                '오류',
+                isCurrentlyBlocked
+                  ? '차단 해제 중 문제가 발생했어요. 다시 시도해주세요.'
+                  : '차단 중 문제가 발생했어요. 다시 시도해주세요.'
+              );
             }
           },
         },
@@ -506,7 +533,7 @@ export default function ChatRoomPage() {
     );
   };
 
-  // ✅ 게시글 존재 확인
+  // ✅ 게시글 존재 확인 (외부 리스트와 동기)
   const checkPostExistsExternally = useCallback(
     async (meta: { source: 'market' | 'lost' | 'group'; postId: string }) => {
       const keyBySource: Record<typeof meta.source, string> = {
@@ -558,6 +585,28 @@ export default function ChatRoomPage() {
     updateRoomOnSendSmart({ roomId, originParams: enriched, nickname: titleFinal }).catch(() => {});
   }, [roomId, myEmail, titleFinal, enriched]);
 
+  // ✅ 차단 이후 메시지 숨김 필터
+  const opponentIdStr = useMemo(
+    () => (opponent?.id ? String(opponent.id) : null),
+    [opponent?.id]
+  );
+
+  const visibleMessages = useMemo(() => {
+    if (!opponentIdStr || !blockedSince) return messages;
+    return messages.filter((m: any) => {
+      // 상대가 보낸 메시지?
+      const sid = m?.senderId != null ? String(m.senderId) : null;
+      const isOpponent = !!sid && sid === opponentIdStr;
+      if (!isOpponent) return true; // 내가 보낸/시스템 메시지는 통과
+
+      // 시간 판별
+      const iso = m?.time || m?.createdAt;
+      const ts = iso ? new Date(iso).getTime() : 0;
+      if (!ts) return false; // 시간 없으면 보수적으로 숨김
+      return ts < blockedSince; // 차단 시각 이전까지는 보이고 이후는 숨김
+    });
+  }, [messages, opponentIdStr, blockedSince]);
+
   // ✅ 로딩 상태
   if (!roomId) {
     return (
@@ -607,7 +656,7 @@ export default function ChatRoomPage() {
 
       <View style={{ flex: 1 }}>
         <MessageList
-          data={messages}
+          data={visibleMessages}                                      // ✅ 필터된 메시지 사용
           bottomInset={hasEnoughMessages ? listBottomInset : 0}
         />
       </View>
