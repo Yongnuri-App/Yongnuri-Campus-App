@@ -26,10 +26,13 @@ function buildReportParamsFromRouteParams(raw: any) {
     raw?.origin?.params?.source;
 
   // 우리 프로젝트에서 쓰는 kind 키로 통일
-  const kind: 'market' | 'lost' | 'groupbuy' =
-    srcRaw === 'market' ? 'market' : srcRaw === 'lost' ? 'lost' : 'groupbuy';
+  const kind: 'market' | 'lost' | 'groupbuy' | 'chat' =
+    srcRaw === 'market' ? 'market'
+    : srcRaw === 'lost' ? 'lost'
+    : srcRaw === 'chat' ? 'chat'
+    : 'groupbuy';
 
-  // 2) 게시글 id/title/storageKey
+  // 2) 게시글 id/title/storageKey (chat은 불필요하지만 일관성 유지)
   const postId =
     (raw?.postId && String(raw.postId)) ||
     (raw?.id && String(raw.id)) ||
@@ -39,16 +42,18 @@ function buildReportParamsFromRouteParams(raw: any) {
     undefined;
 
   const postTitle =
-    kind === 'market' ? s(raw?.productTitle) : s(raw?.postTitle) || s(raw?.title);
+    kind === 'market' ? s(raw?.productTitle)
+    : kind === 'chat' ? undefined  // ✅ 채팅은 게시글 제목 없음
+    : s(raw?.postTitle) || s(raw?.title);
 
   const storageKeyByKind: Record<typeof kind, string> = {
     market: 'market_posts_v1',
     lost: 'lost_found_posts_v1',
     groupbuy: 'groupbuy_posts_v1',
+    chat: '',  // ✅ 채팅은 storageKey 불필요
   };
 
   // 3) 대상 사용자 정보(닉네임/학과/이메일 등)
-  //    - 채팅방 라우트에서 흔히 쓰는 키들을 폭넓게 커버
   const targetNickname =
     s(raw?.opponentNickname) ||
     s(raw?.nickname) ||
@@ -68,18 +73,25 @@ function buildReportParamsFromRouteParams(raw: any) {
     s(raw?.authorEmail) ||
     undefined;
 
-  // 4) Report 페이지에 넘길 최종 파라미터(ReportPage.tsx의 route.params와 호환)
+  // ✅ 4) targetUserId 추출 (채팅 신고에 필수)
+  const targetUserId =
+    raw?.opponentId ??
+    raw?.buyerId ??
+    raw?.sellerId ??
+    raw?.authorId ??
+    undefined;
+
+  // 5) Report 페이지에 넘길 최종 파라미터
   const params = {
     mode: 'compose' as const,
-    // 표시 라벨(닉네임/학과 조합은 ReportPage에서 한 번 더 정리되므로 여기선 raw만 전달)
     targetNickname,
     targetDept,
-    targetEmail: targetEmail || null,
-    // 승인 처리 시 삭제/문구에 사용
+    targetEmail: targetEmail || undefined,  // ✅ null 대신 undefined
     targetPostId: postId,
     targetStorageKey: storageKeyByKind[kind],
     targetPostTitle: postTitle,
     targetKind: kind,
+    targetUserId,  // ✅ 추가
   };
 
   return params;
@@ -93,17 +105,9 @@ export default function MoreMenu({ visible, onClose, onReport, onBlock }: Props)
 
   /** 신고 버튼 눌렀을 때: 모달 닫고 → Report 페이지로 이동 */
   const handlePressReport = useCallback(() => {
-    const reportParams = buildReportParamsFromRouteParams(raw);
-
-    // 모달 먼저 닫기
     onClose?.();
-
-    // 필요한 경우 기존 onReport를 호출하고 싶다면 주석 해제
-    // onReport?.();
-
-    // 'Report' 스크린으로 이동 (프로젝트 라우트 이름이 다르면 여기만 변경)
-    navigation.navigate('Report', reportParams);
-  }, [navigation, onClose, raw /* onReport */]);
+    onReport?.();  // ✅ 부모 컴포넌트의 핸들러 호출
+  }, [onClose, onReport]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
