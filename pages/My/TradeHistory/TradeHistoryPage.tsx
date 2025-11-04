@@ -368,12 +368,13 @@ export default function TradeHistoryPage() {
     const subtitle = item.locationLabel
       ? `거래완료 · ${item.locationLabel} · ${timeAgo(item.createdAt)}`
       : `거래완료 · ${timeAgo(item.createdAt)}`;
+
     return (
       <MarketItem
-        id={item.postId} // 상세는 원글 id로 진입
+        id={item.postId}
         title={item.title}
         subtitle={subtitle}
-        price={item.price != null ? toKPrice(item.price) : '가격없음'}
+        price={item.mode === 'donate' ? '나눔' : (item.price != null ? toKPrice(item.price) : '가격없음')}
         likeCount={0}
         image={item.image}
         saleStatus={'거래완료'}

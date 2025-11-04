@@ -100,6 +100,7 @@ export type MarketTradeRecord = {
   image?: string;
   price?: number | null;
   createdAt: string;
+  mode?: 'sell' | 'donate'; 
 
   /** ✅ 거래완료 카드에서도 동일하게 위치 사용 */
   locationLabel?: string;
@@ -145,7 +146,7 @@ export function mapUsedItemToMarketPost(rows: UsedItemHistoryDto[]): MarketPost[
       images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
       createdAt: r.createdAt,
       status,
-      mode: 'sell',
+      mode: (r.price === 0 || r.price === null) ? 'donate' : 'sell',
       locationLabel: r.location ?? undefined,                // ✅ 핵심: 단일 키만 사용
     };
   });
@@ -161,6 +162,7 @@ export function mapUsedItemToTradeRecords(rows: UsedItemHistoryDto[]): MarketTra
       title: r.title,
       image: r.thumbnailUrl ?? undefined,
       price: r.price ?? null,
+      mode: (r.price === 0 || r.price === null) ? 'donate' : 'sell',
       createdAt: r.createdAt,
       locationLabel: r.location ?? undefined,                // ✅ 동일
     };
