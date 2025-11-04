@@ -18,8 +18,8 @@ async function getAccessTokenStripped() {
 /** 백엔드 알림 응답 스키마 (최신) */
 export type ServerNotification = {
   id?: string | number;
-  title?: string;          // 예: "새 공지사항: ..."
-  message?: string;        // 본문(이전 content -> message)
+  title?: string;          // 예: "신고 누적 경고 안내", "새 공지사항: ..."
+  message?: string;        // 본문
   createdAt?: string;      // ISO
   chatType?: string | null;
   typeId?: number | null;

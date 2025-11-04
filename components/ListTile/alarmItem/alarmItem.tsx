@@ -10,15 +10,21 @@ export type AlarmItemProps = {
   highlight?: boolean;
   /** ✅ 신고 알림일 때만 아이콘 노출 */
   reportIcon?: boolean;
+  /** (선택) 테스트/자동화용 */
+  testID?: string;
 };
 
+/** 안전한 날짜 포맷터 (유효하지 않으면 빈 문자열) */
 function fmtKR(datetime?: string | Date) {
   if (!datetime) return '';
   const d = typeof datetime === 'string' ? new Date(datetime) : datetime;
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  const month = d.getMonth() + 1;
-  const day = d.getDate();
+  const t = d instanceof Date && !isNaN(d.getTime()) ? d : null;
+  if (!t) return '';
+
+  const hh = String(t.getHours()).padStart(2, '0');
+  const mm = String(t.getMinutes()).padStart(2, '0');
+  const month = t.getMonth() + 1;
+  const day = t.getDate();
   return `${hh}:${mm}, ${month}월 ${day}일`;
 }
 
@@ -29,12 +35,19 @@ function AlarmItem({
   onPress,
   highlight,
   reportIcon,
+  testID,
 }: AlarmItemProps) {
+  const timeText = fmtKR(createdAt);
+
   return (
     <TouchableOpacity
       style={[styles.container, highlight && styles.containerHighlight]}
       activeOpacity={onPress ? 0.9 : 1}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`알림: ${title}${timeText ? `, ${timeText}` : ''}`}
+      disabled={!onPress}
+      testID={testID}
     >
       {/* 제목 행: (신고 알림이면 아이콘) + 제목 */}
       <View style={styles.titleRow}>
@@ -45,15 +58,30 @@ function AlarmItem({
             resizeMode="contain"
           />
         )}
-        <Text style={[styles.title, highlight && styles.titleHighlight]}>{title}</Text>
+        <Text
+          style={[styles.title, highlight && styles.titleHighlight]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {title}
+        </Text>
       </View>
 
       {!!description && (
-        <Text style={[styles.desc, highlight && styles.descHighlight]}>{description}</Text>
+        <Text
+          style={[styles.desc, highlight && styles.descHighlight]}
+          numberOfLines={2}
+          ellipsizeMode="tail"
+        >
+          {description}
+        </Text>
       )}
 
+
       <View style={styles.timeRow}>
-        <Text style={[styles.time, highlight && styles.timeHighlight]}>{fmtKR(createdAt)}</Text>
+        {!!timeText && (
+          <Text style={[styles.time, highlight && styles.timeHighlight]}>{timeText}</Text>
+        )}
       </View>
 
       {/* 양쪽 끝까지 가는 상/하 경계선 */}

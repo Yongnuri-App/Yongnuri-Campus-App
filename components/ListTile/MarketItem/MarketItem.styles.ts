@@ -28,6 +28,7 @@ export default StyleSheet.create({
     marginLeft: 16,
     justifyContent: 'center',
     marginBottom: 40, // (유지)
+    marginTop: 15,
   },
   title: {
     width: 216,        // Figma 기준

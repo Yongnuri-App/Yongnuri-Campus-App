@@ -33,6 +33,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: GAP,
     justifyContent: 'center',
+    marginTop: 15,
     marginBottom: 40, // 하단 겹침(배지/하트) 방지 여백
   },
 

@@ -29,6 +29,7 @@ const styles = StyleSheet.create({
     marginLeft: GAP,
     justifyContent: 'center',
     marginBottom: 60,
+    marginTop: 15,
   },
   title: {
     fontFamily: 'Inter',

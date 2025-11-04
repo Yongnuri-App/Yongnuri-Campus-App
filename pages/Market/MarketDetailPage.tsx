@@ -421,10 +421,7 @@ export default function MarketDetailPage({
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={(e) => {
-                const x = e.nativeEvent.contentOffset.x;
-                setIndex(Math.round(x / SCREEN_WIDTH));
-              }}
+              onMomentumScrollEnd={onMomentumEnd}
               contentOffset={{ x: 0, y: 0 }}
             >
               {images.map((uri, i) => (
