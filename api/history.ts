@@ -48,6 +48,8 @@ export interface GroupBuyHistoryDto {
   thumbnailUrl?: string | null;
   createdAt: string;
   status?: 'RECRUITING' | 'COMPLETED' | 'DELETED' | string;
+  limit?: number | null;
+  currentCount?: number | null;
 }
 
 /* -------------------------------------------------------------------
@@ -188,13 +190,19 @@ export function mapLostHistory(rows: LostItemHistoryDto[]): LostPost[] {
 
 /** 공동구매: 등록/신청 카드 모델 */
 export function mapGroupHistory(rows: GroupBuyHistoryDto[]): GroupPost[] {
-  return (rows ?? []).map((r) => ({
-    id: String(r.id),
-    title: r.title,
-    images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
-    createdAt: r.createdAt,
-    likeCount: 0,
-    // 히스토리 응답에는 모집 정보가 없으니 기본값
-    recruit: { mode: 'unlimited', count: null },
-  }));
+  return (rows ?? []).map((r) => {
+    const limit = r.limit ?? null;
+    const mode: 'limited' | 'unlimited' =
+      limit != null && Number(limit) > 0 ? 'limited' : 'unlimited';
+
+    return {
+      id: String(r.id),
+      title: r.title,
+      images: r.thumbnailUrl ? [r.thumbnailUrl] : [],
+      createdAt: r.createdAt,
+      likeCount: 0,
+      /** ✅ 모집 제한 반영 */
+      recruit: { mode, count: limit },
+    };
+  });
 }

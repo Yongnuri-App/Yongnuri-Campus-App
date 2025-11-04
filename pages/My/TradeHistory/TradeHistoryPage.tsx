@@ -136,6 +136,7 @@ export default function TradeHistoryPage() {
   const [lostRecovered, setLostRecovered] = useState<RecoveredLostItem[]>([]);    // ✅ 분실물/회수(로컬, 오너 기준)
 
   const [groupMine, setGroupMine]         = useState<GroupPost[]>([]);
+  const [groupApplied, setGroupApplied]     = useState<GroupPost[]>([]);
 
   const filtersForTab = useMemo(() => FILTERS_BY_TAB[activeTab] ?? [], [activeTab]);
 
@@ -251,6 +252,21 @@ export default function TradeHistoryPage() {
     } finally { setLoading(false); }
   }, [isGroupRegister]);
 
+  // ✅ 신규: 내가 신청한 글 목록 로더
+  const loadGroupApplied = useCallback(async () => {
+    if (!isGroupApply) return;
+    setLoading(true);
+    try {
+      const rows = await fetchGroupBuyHistory('applied');
+      const applied = mapGroupHistory(rows);
+      applied.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setGroupApplied(applied);
+    } catch (e) {
+      console.warn('TradeHistory group applied load error:', e);
+      setGroupApplied([]);
+    } finally { setLoading(false); }
+  }, [isGroupApply]);
+
   /** 최초 로드: 내 계정 식별자 저장 */
   useEffect(() => {
     loadIdentity();
@@ -283,20 +299,29 @@ export default function TradeHistoryPage() {
     }
 
     if (isGroup) {
-      if (isGroupRegister) loadGroupMine(); else setGroupMine([]);
+      if (isGroupRegister) {
+        loadGroupMine();
+        setGroupApplied([]);
+      } else if (isGroupApply) {
+        loadGroupApplied();
+        setGroupMine([]);
+      }
       setMarketMine([]); setMarketBought([]); setLostMine([]); setLostRecovered([]);
       return;
     }
 
-    // 방어적 초기화
-    setMarketMine([]); setMarketBought([]); setLostMine([]); setLostRecovered([]); setGroupMine([]);
+    // 방어
+    setMarketMine([]); setMarketBought([]); setLostMine([]); setLostRecovered([]);
+    setGroupMine([]); setGroupApplied([]);
   }, [
     activeTab, filter,
-    isMarketSell, isMarketBuy, isLost, isLostRetrieved, isGroup, isGroupRegister,
-    loadMarketMine, loadMarketBought, loadLostMine, loadLostRecovered, loadGroupMine,
+    isMarketSell, isMarketBuy, isLost, isLostRetrieved,
+    isGroup, isGroupRegister, isGroupApply,
+    loadMarketMine, loadMarketBought, loadLostMine, loadLostRecovered,
+    loadGroupMine, loadGroupApplied,
   ]);
 
-  /** 화면 복귀 시 갱신 (탭/필터 유지한 채 최신화) */
+  // 화면 복귀 시 갱신
   useFocusEffect(
     useCallback(() => {
       if (isMarketSell) loadMarketMine();
@@ -304,14 +329,24 @@ export default function TradeHistoryPage() {
       if (isLostRetrieved) loadLostRecovered();
       else if (isLost)  loadLostMine();
       if (isGroupRegister) loadGroupMine();
-    }, [isMarketSell, isMarketBuy, isLost, isLostRetrieved, isGroupRegister, loadMarketMine, loadMarketBought, loadLostMine, loadLostRecovered, loadGroupMine])
+      if (isGroupApply)    loadGroupApplied();
+    }, [
+      isMarketSell, isMarketBuy, isLost, isLostRetrieved,
+      isGroupRegister, isGroupApply,
+      loadMarketMine, loadMarketBought, loadLostMine, loadLostRecovered,
+      loadGroupMine, loadGroupApplied
+    ])
   );
 
   /** ✅ 회수 처리 직후, ChatRoom에서 쏘는 이벤트로 실시간 갱신 */
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(EVT_TRADE_HISTORY_UPDATED, async (payload) => {
-      // payload.scope === 'lost-recovered' 로 구분 가능하지만
-      // 현재 화면의 탭/필터에 맞춰 필요한 목록만 리로드
+    const sub = DeviceEventEmitter.addListener(EVT_TRADE_HISTORY_UPDATED, async (evt) => {
+      // ✅ 공동구매 신청 이벤트 수신 시 신청 탭만 새로고침
+      if (evt?.domain === 'groupbuy' && evt?.action === 'applied') {
+        if (isGroupApply) await loadGroupApplied();
+      }
+
+      // 기존 분실물/중고거래 처리 유지
       if (isLostRetrieved) await loadLostRecovered();
       if (isLost && !isLostRetrieved) await loadLostMine();
       if (isMarketBuy) await loadMarketBought();
@@ -319,7 +354,12 @@ export default function TradeHistoryPage() {
       if (isGroupRegister) await loadGroupMine();
     });
     return () => sub.remove();
-  }, [isLost, isLostRetrieved, isMarketBuy, isMarketSell, isGroupRegister, loadLostRecovered, loadLostMine, loadMarketBought, loadMarketMine, loadGroupMine]);
+  }, [
+    isLost, isLostRetrieved, isMarketBuy, isMarketSell,
+    isGroupRegister, isGroupApply,
+    loadLostRecovered, loadLostMine, loadMarketBought, loadMarketMine,
+    loadGroupMine, loadGroupApplied
+  ]);
 
   /* ---------- UI ---------- */
   const EmptyState = () => (
@@ -491,7 +531,18 @@ export default function TradeHistoryPage() {
 
     // 공동구매
     if (isGroup) {
-      if (isGroupApply) return <EmptyState />; // 신청: 추후 구매자 내역 연결
+      if (isGroupApply) {
+        return groupApplied.length === 0 ? <EmptyState /> : (
+          <FlatList
+            data={groupApplied}
+            keyExtractor={(it) => it.id}
+            renderItem={renderGroupItem}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+          />
+        );
+      }
+      // register
       return groupMine.length === 0 ? <EmptyState /> : (
         <FlatList
           data={groupMine}
@@ -502,7 +553,6 @@ export default function TradeHistoryPage() {
         />
       );
     }
-
     return <EmptyState />;
   };
 
