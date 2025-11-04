@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 
+import { DeviceEventEmitter } from 'react-native';
 import {
   applyGroupBuy,
   getGroupBuyDetail,
@@ -37,6 +38,7 @@ const POSTS_KEY = 'groupbuy_posts_v1';
 const LIKED_MAP_KEY = 'groupbuy_liked_map_v1';
 const COUNT_MAP_KEY = 'groupbuy_current_count_map_v1'; // 현재 인원 캐시
 const SCREEN_WIDTH = Dimensions.get('window').width;
+const EVT_TRADE_HISTORY_UPDATED = 'EVT_TRADE_HISTORY_UPDATED';
 
 const COUNT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24시간
 const PATCH_PROTECT_MS = 4000;
@@ -369,8 +371,17 @@ export default function GroupBuyDetailPage({
       const res = await applyGroupBuy(id);
       Alert.alert('신청 완료', res?.message ?? '공동구매 신청이 완료되었습니다.');
 
+      // ✅ (핵심) "거래내역 > 공동구매 > 신청" 탭 갱신 이벤트 브로드캐스트
+      DeviceEventEmitter.emit(EVT_TRADE_HISTORY_UPDATED, {
+        domain: 'groupbuy',
+        action: 'applied',
+        postId: String(item.serverPostId ?? item.id),
+      });
+
+      // 상세(현재인원 등) 재로딩
       await loadDetail();
 
+      // 링크 열기(옵션)
       if (item.applyLink) {
         const url = /^https?:\/\//i.test(item.applyLink)
           ? item.applyLink
