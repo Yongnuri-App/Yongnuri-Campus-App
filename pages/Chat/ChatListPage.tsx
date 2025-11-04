@@ -17,7 +17,9 @@ import CategoryChips, { CategoryItem } from '../../components/CategoryChips/Cate
 import HeaderIcons from '../../components/Header/HeaderIcons';
 import styles from './ChatListPage.styles';
 
-import { getRoomDetail, getRooms, type ChatListItem, type ChatListType } from '@/api/chat'; // ✅ detail import 추가
+import { getRoomDetail, getRooms, type ChatListItem, type ChatListType } from '@/api/chat';
+import { getGroupBuyDetail } from '@/api/groupBuy';
+import { getLostFoundDetail } from '@/api/lost';
 import {
   computeUnreadCount,
   deleteChatRoom as deleteLocalRoom,
@@ -372,16 +374,88 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
     return () => sub.remove();
   }, [chip, load]);
 
+  // ✅ enterRoom 함수 추가
   const enterRoom = useCallback(async (room: ListRow) => {
+    // 읽음 처리
     setRooms(prev => prev.map(r => (r.roomId === room.roomId ? { ...r, unreadCount: 0 } : r)));
+    
     try {
       const { userEmail, userId } = await getLocalIdentity();
       const me = (userEmail ?? userId) ? (userEmail ?? userId)!.toString() : '';
       const ts = Date.now();
-      try { await markRoomRead(room.roomId, me, ts); } catch {}
+      try { 
+        await markRoomRead(room.roomId, me, ts); 
+      } catch {}
     } catch {}
+
+    // ✅ 분실물인 경우 서버에서 상세 정보 가져오기
+    let extraParams: any = {};
+    if (room.category === 'lost') {
+      try {
+        const detail = await getRoomDetail(room.serverRoomId);
+        const postId = detail?.roomInfo?.chatTypeId;
+        
+        if (postId) {
+          // ✅ 전체 분실물 상세 API 호출
+          const lostDetail = await getLostFoundDetail(String(postId));
+          
+          // ✅ purpose는 API의 purpose 필드 직접 사용 (소문자로 변환)
+          const purposeLower = lostDetail.purpose.toLowerCase() as 'lost' | 'found';
+          
+          // ✅ 썸네일은 images 배열의 첫 번째 이미지
+          const thumbnail = Array.isArray(lostDetail.images) && lostDetail.images.length > 0
+            ? lostDetail.images[0].imageUrl
+            : '';
+          
+          extraParams = {
+            purpose: purposeLower,              // 'lost' 또는 'found'
+            place: lostDetail.location || '',   // 장소
+            postId: String(postId),
+            postTitle: lostDetail.title || '',
+            postImageUri: thumbnail,
+          };
+          console.log('[ChatList] ✅ 분실물 정보 로드:', extraParams);
+        }
+      } catch (e) {
+        console.log('[ChatList] 분실물 정보 로드 실패:', e);
+      }
+    }
+
+    // ✅ 공동구매 로직 (추가)
+  if (room.category === 'group') {
+    try {
+      const detail = await getRoomDetail(room.serverRoomId);
+      const postId = detail?.roomInfo?.chatTypeId;
+      
+      if (postId) {
+        const groupDetail = await getGroupBuyDetail(String(postId)); // API 함수명 확인 필요
+        
+        const current =
+          (typeof groupDetail.currentCount === 'number'
+            ? groupDetail.currentCount
+            : typeof groupDetail.current_count === 'number'
+            ? groupDetail.current_count
+            : 0);
+
+        const max = typeof groupDetail.limit === 'number' ? groupDetail.limit : 0;
+
+        extraParams = {
+          postId: String(postId),
+          postTitle: groupDetail.title || '',
+          postImageUri: groupDetail.images?.[0]?.imageUrl || '',
+          recruitLabel: `현재 모집 인원 ${current}명 (${max}명)`,
+        };
+        console.log('[ChatList] ✅ 공동구매 정보 로드:', extraParams);
+      }
+    } catch (e) {
+      console.log('[ChatList] 공동구매 정보 로드 실패:', e);
+    }
+  }
+
+    // 채팅방으로 이동
     navigation.navigate('ChatRoom', {
       ...(room.origin?.params || {}),
+      ...extraParams,
       roomId: room.roomId,
       serverRoomId: room.serverRoomId,
       source: room.category === 'group' ? 'groupbuy' : room.category,
