@@ -94,3 +94,14 @@ export async function sendMessage(req: SendMessageReq): Promise<SendMessageRes> 
 export async function deleteRoom(roomId: number): Promise<void> {
   await api.delete(`/chat/rooms/${roomId}`);
 }
+
+/** ====== 읽음 처리 (명세: POST /chat/rooms/{roomId}/read -> { unreadCount: number }) ====== */
+/** ⚠️ storage의 markRoomRead(로컬)와 이름 충돌 피하려면 이 이름을 사용하세요. */
+export async function markRoomRead(roomId: number, lastMessageId?: number): Promise<number> {
+  // 명세상 body 미정이면 빈 객체로. (서버가 lastMessageId 받도록 했으면 아래 주석 교체)
+  // const { data } = await api.post(`/chat/rooms/${roomId}/read`, lastMessageId ? { lastMessageId } : {});
+  const { data } = await api.post(`/chat/rooms/${roomId}/read`, {});
+  // 서버가 숫자만 주거나 { unreadCount } 둘 다 허용
+  const n = typeof data === 'number' ? data : (data?.unreadCount ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}

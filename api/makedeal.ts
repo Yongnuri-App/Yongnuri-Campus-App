@@ -15,6 +15,8 @@ export interface MakeDealCreateReq {
   date: string;               // "yyyy-MM-dd"
   time: string;               // "HH:mm"
   location: string;
+  /** ✅ 약속 알림: n시간 전 푸시/알림 (백엔드 지원) */
+  notifyBeforeHours?: number; // e.g. 3
 }
 
 export interface MakeDealCreateRes {

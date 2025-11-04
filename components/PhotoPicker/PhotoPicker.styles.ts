@@ -1,71 +1,88 @@
 // components/PhotoPicker.styles.ts
-import { StyleSheet } from 'react-native';
+import { Dimensions, PixelRatio, StyleSheet } from 'react-native';
+
+/**
+ * ✅ 반응형 스케일 유틸
+ * 기준: iPhone 12 (390x844)
+ */
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const BASE_W = 390;
+const BASE_H = 844;
+
+const s = (size: number) => (SCREEN_W / BASE_W) * size;
+const vs = (size: number) => (SCREEN_H / BASE_H) * size;
+const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(n, max));
+const ms = (size: number, factor = 0.5) => {
+  const scaled = size + (s(size) - size) * factor;
+  return clamp(scaled, size * 0.85, size * 1.3);
+};
 
 export default StyleSheet.create({
+  /** ✅ 전체 컨테이너 */
   container: {
-    marginBottom: 18,
-  },
-  // 가로 스크롤 한 줄 레이아웃
-  row: {
-    alignItems: 'center',
-    // 타일 간격 (addTile 포함)
-    paddingRight: 4,
+    marginBottom: vs(18),
   },
 
-  /* ➕ 추가 타일 (기존 photoBox 스타일 기반) */
+  /** ✅ 가로 스크롤 한 줄 레이아웃 */
+  row: {
+    alignItems: 'center',
+    paddingRight: s(4),
+  },
+
+  /** ✅ ➕ 추가 타일 */
   addTile: {
-    width: 65,
-    height: 65,
-    borderWidth: 1,
+    width: clamp(s(65), 58, 80),
+    height: clamp(s(65), 58, 80),
+    borderWidth: 1 / PixelRatio.get(),
     borderColor: '#979797',
-    borderRadius: 4,
+    borderRadius: ms(4),
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 6,
-    marginRight: 8, // 다음 썸네일과 간격
+    paddingVertical: ms(6),
+    marginRight: s(8),
     backgroundColor: '#FFFFFF',
   },
   cameraIcon: {
-    width: 25,
-    height: 25,
+    width: ms(25),
+    height: ms(25),
     resizeMode: 'contain',
     opacity: 0.7,
-    marginBottom: 3,
+    marginBottom: vs(3),
   },
   countText: {
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: ms(10, 0.4),
+    lineHeight: ms(12, 0.4),
     color: '#979797',
   },
 
-  /* 썸네일 */
+  /** ✅ 썸네일 */
   thumbWrap: {
-    marginRight: 8,
+    marginRight: s(8),
   },
   thumb: {
-    width: 65,
-    height: 65,
-    borderRadius: 6,
-    borderWidth: 1,
+    width: clamp(s(65), 58, 80),
+    height: clamp(s(65), 58, 80),
+    borderRadius: ms(6),
+    borderWidth: 1 / PixelRatio.get(),
     borderColor: '#E5E5E5',
     backgroundColor: '#FFF',
   },
 
-  /* ✅ X 버튼을 썸네일 안쪽으로 완전히 배치 */
+  /** ✅ X 버튼 (썸네일 내부 고정) */
   removeBtn: {
     position: 'absolute',
-    top: 4,     // <- 기존 -6 에서 안쪽으로 이동
-    right: 4,   // <- 기존 -6 에서 안쪽으로 이동
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    top: s(4),
+    right: s(4),
+    width: ms(20),
+    height: ms(20),
+    borderRadius: ms(10),
     backgroundColor: '#393A40',
     alignItems: 'center',
     justifyContent: 'center',
   },
   removeX: {
     color: '#FFFFFF',
-    fontSize: 14,
-    lineHeight: 14,
+    fontSize: ms(14),
+    lineHeight: ms(14),
   },
 });

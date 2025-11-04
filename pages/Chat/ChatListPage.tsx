@@ -1,4 +1,4 @@
-// ChatListPage.tsx
+// pages/Chat/ChatListPage.tsx
 import { useFocusEffect } from '@react-navigation/native';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -25,12 +25,14 @@ import {
   deleteChatRoom as deleteLocalRoom,
   markRoomRead,
   refreshAllUnread,
+  findExistingRoomIdByContext,          // ✅ NEW
+  resolveRoomIdForOpen,                  // ✅ NEW (백업용)
 } from '@/storage/chatStore';
 
 import type { ChatCategory, ChatMessage, ChatRoomSummary } from '@/types/chat';
 import { getLocalIdentity } from '@/utils/localIdentity';
 
-import { getBlockedAt } from '@/utils/blocked'; // ✅ 차단 시각 조회
+import { getBlockedAt } from '@/utils/blocked';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ---------------- 계정별 숨김 컷오프 맵 ----------------
@@ -47,9 +49,7 @@ async function loadHiddenMap(identity: string): Promise<HiddenMap> {
   }
 }
 async function saveHiddenMap(identity: string, map: HiddenMap) {
-  try {
-    await AsyncStorage.setItem(hiddenKeyFor(identity), JSON.stringify(map));
-  } catch {}
+  try { await AsyncStorage.setItem(hiddenKeyFor(identity), JSON.stringify(map)); } catch {}
 }
 async function recordHiddenCutoff(identity: string, serverRoomId: number, atMs: number = Date.now()) {
   const map = await loadHiddenMap(identity);
@@ -139,6 +139,7 @@ type ListRow = ChatRoomSummary & {
   serverRoomId: number;
   timeLabel: string;
   fallbackOrder: number;
+  localRoomId: string;            // ✅ NEW: 로컬 메시지/읽음 키로 쓰는 roomId
 };
 function mapApiToSummary(it: ChatListItem, fallbackOrder: number): ListRow {
   const category = mapServerTypeToCategory(it.type);
@@ -147,11 +148,12 @@ function mapApiToSummary(it: ChatListItem, fallbackOrder: number): ListRow {
   const timeLabel = ts ? formatListTimeLabel(ts) : (it.updateTime || '');
 
   return {
-    roomId: String(it.id), // 로컬 키(문자열화)
+    roomId: String(it.id),         // 서버 id (이 값은 화면 키/백업용)
+    localRoomId: String(it.id),    // 초기값은 서버 id, 이후 실제 로컬 id로 교체
     category,
     nickname: it.toUserNickName,
     lastMessage: it.lastMessage || '',
-    lastTs, // ⬅ 정렬키: 기존 로직 유지
+    lastTs,
     unreadCount: 0,
     origin: undefined,
     apiUpdateIso: ts ? new Date(ts).toISOString() : undefined,
@@ -162,11 +164,51 @@ function mapApiToSummary(it: ChatListItem, fallbackOrder: number): ListRow {
   };
 }
 
+/** 서버 상세 → originParams 생성 (스레드 키 복원용) — ✅ NEW */
+function buildOriginParamsFromDetail(detail: any) {
+  const t = (detail?.roomInfo?.chatType ?? '').toUpperCase();
+  const typeId = detail?.roomInfo?.chatTypeId;
+  const sellerId = detail?.roomInfo?.sellerId ?? detail?.roomInfo?.authorId;
+  const buyerId  = detail?.roomInfo?.opponentId;
+
+  const source =
+    t === 'USED_ITEM' ? 'market' :
+    t === 'LOST_ITEM' ? 'lost'   :
+    t === 'GROUP_BUY' ? 'group'  : '';
+
+  if (!source || !typeId) return null;
+
+  return {
+    source,
+    postId: String(typeId),
+    sellerId: sellerId != null ? String(sellerId) : undefined,
+    buyerId:  buyerId  != null ? String(buyerId)  : undefined,
+  };
+}
+
+/** 서버 방 → 기존 로컬 roomId 매핑 (없으면 서버id로) — ✅ NEW */
+async function resolveLocalIdForServerRoom(serverRoomId: number, fallback: string): Promise<string> {
+  try {
+    const detail = await getRoomDetail(serverRoomId);
+    const origin = buildOriginParamsFromDetail(detail);
+    if (!origin) return fallback;
+
+    const existed = await findExistingRoomIdByContext(origin);
+    if (existed) return existed;
+
+    // 기존이 없으면, 앞으로는 서버 id를 로컬 id로 사용 (일관성 유지)
+    const resolved = await resolveRoomIdForOpen(origin, String(serverRoomId));
+    return resolved || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /** 리스트 한 줄 */
 type RowProps = {
   item: ListRow;
   onPress: (room: ListRow) => void;
-  onDeleted: (roomId: string, serverRoomId: number) => void;
+  onDeleted: (room: ListRow) => void;   // ✅ localRoomId 사용
 };
 const ChatRowItem = memo(function ChatRowItem({ item, onPress, onDeleted }: RowProps) {
   const swipeRef = useRef<Swipeable | null>(null);
@@ -183,7 +225,7 @@ const ChatRowItem = memo(function ChatRowItem({ item, onPress, onDeleted }: RowP
           text: '숨기기',
           style: 'destructive',
           onPress: async () => {
-            try { onDeleted(item.roomId, item.serverRoomId); }
+            try { onDeleted(item); }
             catch { Alert.alert('오류', '삭제 중 문제가 발생했어요. 다시 시도해주세요.'); }
           },
         },
@@ -239,23 +281,20 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
 
   const hiddenRef = useRef<HiddenMap>({});
   const identityRef = useRef<string>('');
-  const userInitiatedRef = useRef<boolean>(false);
 
   /** ✅ 차단 이후 상대 메시지 숨김: 프리뷰만 보정(정렬 lastTs는 그대로) */
   const applyBlockAwarePreview = useCallback(async (rows: ListRow[]): Promise<ListRow[]> => {
     const patched = await Promise.all(rows.map(async (r) => {
       try {
-        // 1) 상세에서 상대 ID 확보
         const detail = await getRoomDetail(r.serverRoomId);
         const oppId = detail?.roomInfo?.opponentId;
         if (oppId == null) return r;
 
-        // 2) 차단 시각
         const blockedSince = await getBlockedAt(String(oppId));
         if (!blockedSince) return r;
 
-        // 3) 로컬에서 차단 이후 '상대' 메시지 제외
-        const local = await readLocalMessages(r.roomId);
+        // ✅ 로컬 미리보기는 반드시 localRoomId로 읽어야 함
+        const local = await readLocalMessages(r.localRoomId);
         if (!Array.isArray(local) || local.length === 0) return r;
 
         const oppIdStr = String(oppId);
@@ -267,10 +306,7 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
           return true;
         });
 
-        if (visible.length === 0) {
-          // 프리뷰만 비움(정렬키는 그대로)
-          return { ...r, lastMessage: '' };
-        }
+        if (visible.length === 0) return { ...r, lastMessage: '' };
 
         const last = visible.reduce((a, b) => (msgTs(a) > msgTs(b) ? a : b));
         const displayTs = msgTs(last) || r.lastTs;
@@ -278,8 +314,7 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
         return {
           ...r,
           lastMessage: previewFromMessage(last),
-          timeLabel: formatListTimeLabel(displayTs), // 표시 라벨만 보정
-          // r.lastTs(정렬)는 그대로 유지
+          timeLabel: formatListTimeLabel(displayTs),
         };
       } catch {
         return r;
@@ -306,6 +341,14 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
       // 변환
       let mapped = list.map((it, idx) => mapApiToSummary(it, idx));
 
+      // ✅ 각 행에 대해 "올바른 로컬 roomId"를 복원 (existing thread 매칭)
+      mapped = await Promise.all(
+        mapped.map(async (r) => ({
+          ...r,
+          localRoomId: await resolveLocalIdForServerRoom(r.serverRoomId, r.localRoomId),
+        }))
+      );
+
       // 숨김 필터: 내가 숨긴 뒤에 온 업데이트만 통과
       mapped = mapped.filter((r) => {
         const cut = getHiddenCutoffSync(hiddenRef.current, r.serverRoomId);
@@ -317,11 +360,11 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
       // ✅ 차단 프리뷰 보정(정렬키 불변)
       mapped = await applyBlockAwarePreview(mapped);
 
-      // unread 병합
+      // ✅ unread 병합: 반드시 localRoomId로 계산
       try {
         if (me) {
           const unreadList = await Promise.all(
-            mapped.map(r => computeUnreadCount(r.roomId, me).catch(() => 0))
+            mapped.map(r => computeUnreadCount(r.localRoomId, me).catch(() => 0))
           );
           unreadList.forEach((cnt, i) => {
             mapped[i] = { ...mapped[i], unreadCount: cnt };
@@ -331,7 +374,7 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
         console.log('[ChatList] unread calculation error', e);
       }
 
-      // 정렬: 기존 로직 그대로(lastTs desc)
+      // 정렬: lastTs desc (변경 없음)
       mapped.sort((a, b) => {
         const at = a.lastTs ?? 0;
         const bt = b.lastTs ?? 0;
@@ -374,107 +417,90 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
     return () => sub.remove();
   }, [chip, load]);
 
-  // ✅ enterRoom 함수 추가
+  // ✅ enterRoom: 읽음/네비 모두 localRoomId 기준으로
   const enterRoom = useCallback(async (room: ListRow) => {
-    // 읽음 처리
     setRooms(prev => prev.map(r => (r.roomId === room.roomId ? { ...r, unreadCount: 0 } : r)));
-    
+
     try {
       const { userEmail, userId } = await getLocalIdentity();
       const me = (userEmail ?? userId) ? (userEmail ?? userId)!.toString() : '';
       const ts = Date.now();
-      try { 
-        await markRoomRead(room.roomId, me, ts); 
-      } catch {}
+      try { await markRoomRead(room.localRoomId, me, ts); } catch {}
     } catch {}
 
-    // ✅ 분실물인 경우 서버에서 상세 정보 가져오기
+    // 분실물/공구 부가 파라미터
     let extraParams: any = {};
+
     if (room.category === 'lost') {
       try {
         const detail = await getRoomDetail(room.serverRoomId);
         const postId = detail?.roomInfo?.chatTypeId;
-        
         if (postId) {
-          // ✅ 전체 분실물 상세 API 호출
           const lostDetail = await getLostFoundDetail(String(postId));
-          
-          // ✅ purpose는 API의 purpose 필드 직접 사용 (소문자로 변환)
-          const purposeLower = lostDetail.purpose.toLowerCase() as 'lost' | 'found';
-          
-          // ✅ 썸네일은 images 배열의 첫 번째 이미지
+          const purposeLower = (lostDetail.purpose || '').toLowerCase() as 'lost' | 'found';
           const thumbnail = Array.isArray(lostDetail.images) && lostDetail.images.length > 0
             ? lostDetail.images[0].imageUrl
             : '';
-          
           extraParams = {
-            purpose: purposeLower,              // 'lost' 또는 'found'
-            place: lostDetail.location || '',   // 장소
+            purpose: purposeLower,
+            place: lostDetail.location || '',
             postId: String(postId),
             postTitle: lostDetail.title || '',
             postImageUri: thumbnail,
           };
-          console.log('[ChatList] ✅ 분실물 정보 로드:', extraParams);
         }
       } catch (e) {
         console.log('[ChatList] 분실물 정보 로드 실패:', e);
       }
     }
 
-    // ✅ 공동구매 로직 (추가)
-  if (room.category === 'group') {
-    try {
-      const detail = await getRoomDetail(room.serverRoomId);
-      const postId = detail?.roomInfo?.chatTypeId;
-      
-      if (postId) {
-        const groupDetail = await getGroupBuyDetail(String(postId)); // API 함수명 확인 필요
-        
-        const current =
-          (typeof groupDetail.currentCount === 'number'
-            ? groupDetail.currentCount
-            : typeof groupDetail.current_count === 'number'
-            ? groupDetail.current_count
-            : 0);
+    if (room.category === 'group') {
+      try {
+        const detail = await getRoomDetail(room.serverRoomId);
+        const postId = detail?.roomInfo?.chatTypeId;
+        if (postId) {
+          const groupDetail = await getGroupBuyDetail(String(postId));
+          const current =
+            (typeof groupDetail.currentCount === 'number'
+              ? groupDetail.currentCount
+              : typeof groupDetail.current_count === 'number'
+              ? groupDetail.current_count
+              : 0);
+          const max = typeof groupDetail.limit === 'number' ? groupDetail.limit : 0;
 
-        const max = typeof groupDetail.limit === 'number' ? groupDetail.limit : 0;
-
-        extraParams = {
-          postId: String(postId),
-          postTitle: groupDetail.title || '',
-          postImageUri: groupDetail.images?.[0]?.imageUrl || '',
-          recruitLabel: `현재 모집 인원 ${current}명 (${max}명)`,
-        };
-        console.log('[ChatList] ✅ 공동구매 정보 로드:', extraParams);
+          extraParams = {
+            postId: String(postId),
+            postTitle: groupDetail.title || '',
+            postImageUri: groupDetail.images?.[0]?.imageUrl || '',
+            recruitLabel: `현재 모집 인원 ${current}명 (${max}명)`,
+          };
+        }
+      } catch (e) {
+        console.log('[ChatList] 공동구매 정보 로드 실패:', e);
       }
-    } catch (e) {
-      console.log('[ChatList] 공동구매 정보 로드 실패:', e);
     }
-  }
 
-    // 채팅방으로 이동
     navigation.navigate('ChatRoom', {
       ...(room.origin?.params || {}),
       ...extraParams,
-      roomId: room.roomId,
+      roomId: room.localRoomId,          // ✅ 로컬 roomId로 진입
       serverRoomId: room.serverRoomId,
       source: room.category === 'group' ? 'groupbuy' : room.category,
     });
   }, [navigation]);
 
-  const handleDeleted = useCallback(async (roomId: string, serverRoomId: number) => {
-    // 1) 계정별 컷오프 기록 (내 쪽만 적용)
+  // ✅ 삭제도 localRoomId 기준으로 로컬 정리
+  const handleDeleted = useCallback(async (row: ListRow) => {
     try {
       const { userEmail, userId } = await getLocalIdentity();
       const me = (userEmail ?? userId) ? (userEmail ?? userId)!.toString().toLowerCase() : 'anon';
-      await recordHiddenCutoff(me, serverRoomId);
+      await recordHiddenCutoff(me, row.serverRoomId);
     } catch {}
 
-    // 2) 로컬 정리
     try {
-      await deleteLocalRoom(roomId);
+      await deleteLocalRoom(row.localRoomId);   // ✅ 로컬 roomId
     } finally {
-      setRooms(prev => prev.filter(r => r.roomId !== roomId));
+      setRooms(prev => prev.filter(r => r.roomId !== row.roomId));
     }
   }, []);
 
@@ -483,7 +509,7 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
       chip === 'all'
         ? rooms
         : rooms.filter((r) => r.category === (chip as ChatCategory));
-    return [...list].sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0)); // 기존 정렬 그대로
+    return [...list].sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
   }, [chip, rooms]);
 
   return (

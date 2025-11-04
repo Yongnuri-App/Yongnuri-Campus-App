@@ -1,4 +1,4 @@
-// /src/storage/chatStore.ts
+// src/storage/chatStore.ts
 // -------------------------------------------------------------
 // 채팅방 목록/미리보기/쓰레드 인덱스/읽음/삭제 컷오프 관리 (AsyncStorage 기반)
 // ★ 모든 키를 "계정별" 네임스페이스로 분리 ★
@@ -259,11 +259,11 @@ async function loadRoomMessages(roomId: string): Promise<ChatMessage[]> {
   try { return JSON.parse(raw) as ChatMessage[]; } catch { return []; }
 }
 
-export async function computeUnreadCount(roomId: string, myIdentity: string): Promise<number> {
+export async function computeUnreadCount(roomId: string, myIdentityStr: string): Promise<number> {
   const messages = await loadRoomMessages(roomId);
   const key = await READ_STATE_KEY();
   const state = await loadJson<Record<string, Record<string, number>>>(key, {});
-  const lastSeen = state[roomId]?.[myIdentity] ?? 0;
+  const lastSeen = state[roomId]?.[myIdentityStr] ?? 0;
 
   let cnt = 0;
   for (const m of messages) {
@@ -271,29 +271,31 @@ export async function computeUnreadCount(roomId: string, myIdentity: string): Pr
     if (!ts || ts <= lastSeen) continue;
     const senderEmail = normIdentity((m as any).senderEmail ?? null);
     const senderId    = normIdentity((m as any).senderId ?? null);
-    const isMine = senderEmail === myIdentity || senderId === myIdentity;
+    const isMine = senderEmail === myIdentityStr || senderId === myIdentityStr;
     if (!isMine && (m as any).type !== 'system') cnt++;
   }
   return cnt;
 }
 
-export async function refreshUnreadForRoom(roomId: string, myIdentity: string) {
+export async function refreshUnreadForRoom(roomId: string, myIdentityStr: string) {
   const rooms = await loadChatRooms();
   const idx = rooms.findIndex((r) => r.roomId === roomId);
   if (idx === -1) return;
-  const unread = await computeUnreadCount(roomId, myIdentity);
+  const unread = await computeUnreadCount(roomId, myIdentityStr);
   rooms[idx] = { ...rooms[idx], unreadCount: unread };
   await persist(rooms);
 }
-export async function refreshAllUnread(myIdentity: string) {
+
+export async function refreshAllUnread(myIdentityStr: string) {
   const rooms = await loadChatRooms();
   for (let i = 0; i < rooms.length; i++) {
-    const unread = await computeUnreadCount(rooms[i].roomId, myIdentity);
+    const unread = await computeUnreadCount(rooms[i].roomId, myIdentityStr);
     rooms[i] = { ...rooms[i], unreadCount: unread };
   }
   await persist(rooms);
 }
 
+/** 로컬 읽음 마킹(타임스탬프 기반) — 서버 API와는 별개 */
 export async function markRoomRead(roomId: string, myIdentityRaw: string, seenAt?: number) {
   const myId = normIdentity(myIdentityRaw);
   if (!myId) return;
@@ -302,7 +304,7 @@ export async function markRoomRead(roomId: string, myIdentityRaw: string, seenAt
   const now = Number.isFinite(seenAt as number) ? (seenAt as number) : Date.now();
   state[roomId] = state[roomId] ?? {};
   state[roomId][myId] = Math.max(state[roomId][myId] ?? 0, now);
-  await saveJson(key, state);
+  await saveReadState(state);
 
   const rooms = await loadChatRooms();
   const idx = rooms.findIndex((r) => r.roomId === roomId);
@@ -310,6 +312,15 @@ export async function markRoomRead(roomId: string, myIdentityRaw: string, seenAt
     rooms[idx] = { ...rooms[idx], unreadCount: 0 };
     await persist(rooms);
   }
+}
+
+/** ✅ 서버 unreadCount를 목록 배지에 반영 (API 응답 싱크용) */
+export async function applyServerUnreadCount(roomId: string | number, count: number) {
+  const rooms = await loadChatRooms();
+  const idx = rooms.findIndex((r) => r.roomId === String(roomId));
+  if (idx === -1) return;
+  rooms[idx] = { ...rooms[idx], unreadCount: Math.max(0, count | 0) };
+  await persist(rooms);
 }
 
 // ---------------- 삭제(내 목록만) ----------------
@@ -425,9 +436,10 @@ const chatStore = {
   updateRoomOnSend,
   updateRoomOnSendSmart,
   updateRoomPreview,
-  markRoomRead,
+  markRoomRead,               // 로컬 읽음
   refreshUnreadForRoom,
   refreshAllUnread,
+  applyServerUnreadCount,     // ✅ 서버 응답 반영
   deleteChatRoom,
   deleteChatRooms,
   deleteByContext,

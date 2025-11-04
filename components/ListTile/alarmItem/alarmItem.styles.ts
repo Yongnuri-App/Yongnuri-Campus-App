@@ -1,14 +1,25 @@
-import { StyleSheet } from 'react-native';
+// components/NotificationItem/NotificationItem.styles.ts
+import { StyleSheet, Dimensions, PixelRatio } from 'react-native';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const BASE_WIDTH = 390;   // 피그마(iPhone 13) 기준
+const BASE_HEIGHT = 844;
+
+// 반응형 스케일 함수
+const scale = (size: number) => (SCREEN_WIDTH / BASE_WIDTH) * size;
+const verticalScale = (size: number) => (SCREEN_HEIGHT / BASE_HEIGHT) * size;
+const fontScale = (size: number) =>
+  Math.round(PixelRatio.roundToNearestPixel(scale(size)));
 
 /** 리스트 좌우 패딩과 동일하게 맞추세요. (중복 라인 두꺼워짐 방지용) */
-const EDGE = 16;
+const EDGE = scale(16);
 
 export default StyleSheet.create({
   container: {
     // 세로 스택: (제목행) -> 본문 -> 시간
     alignItems: 'stretch',
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingTop: verticalScale(12),
+    paddingBottom: verticalScale(8),
     paddingHorizontal: EDGE,
     backgroundColor: '#FFFFFF',
   },
@@ -22,17 +33,17 @@ export default StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
-    marginHorizontal: 8,
+    marginBottom: verticalScale(4),
+    marginHorizontal: scale(8),
   },
   adminIcon: {
-    width: 23,
-    height: 23,
-    marginRight: 6,
+    width: scale(23),
+    height: scale(23),
+    marginRight: scale(6),
   },
   title: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: fontScale(15),
+    lineHeight: verticalScale(22),
     fontWeight: '500',
     color: '#1E1E1E',
     flexShrink: 1,
@@ -43,10 +54,10 @@ export default StyleSheet.create({
 
   // ===== 본문 =====
   desc: {
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: fontScale(13),
+    lineHeight: verticalScale(22),
     color: '#757575',
-    marginHorizontal: 8,
+    marginHorizontal: scale(8),
   },
   descHighlight: {
     color: '#365E9D',
@@ -54,13 +65,13 @@ export default StyleSheet.create({
 
   // ===== 시간 =====
   timeRow: {
-    marginTop: 2,
+    marginTop: verticalScale(2),
     width: '100%',
     alignItems: 'flex-end',
   },
   time: {
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: fontScale(13),
+    lineHeight: verticalScale(22),
     color: '#979797',
     textAlign: 'right',
   },
@@ -74,7 +85,7 @@ export default StyleSheet.create({
     left: 0,
     right: 0,
     top: 0,
-    height: 0.5,
+    height: StyleSheet.hairlineWidth,
     backgroundColor: '#D9D9D9',
   },
   bottomLine: {
@@ -82,7 +93,7 @@ export default StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 0.5,
+    height: StyleSheet.hairlineWidth,
     backgroundColor: '#D9D9D9',
   },
 });

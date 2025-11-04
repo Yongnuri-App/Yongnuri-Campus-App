@@ -281,11 +281,11 @@ const DetailBottomBar: React.FC<Props> = ({
           serverRoomId,
         } as any);
       }
-    } if (onPressSend) {
-        onPressSend(msg);
-      } else {
-        Alert.alert('알림', '전송 핸들러가 연결되지 않았습니다.');
-      }
+    } else {
+      onPressSend
+        ? onPressSend(msg)
+        : Alert.alert('알림', '전송 핸들러가 연결되지 않았습니다.');
+    }
 
     setText('');
   };

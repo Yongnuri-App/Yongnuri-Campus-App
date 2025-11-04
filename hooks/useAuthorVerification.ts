@@ -1,7 +1,7 @@
 // hooks/useAuthorVerification.ts
 import { getLocalIdentity } from '@/utils/localIdentity';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type AuthorInfo = {
   authorId?: string | number;
@@ -24,96 +24,97 @@ export default function useAuthorVerification({
   const [serverSellerInfo, setServerSellerInfo] = useState<AuthorInfo | null>(null);
   const [serverLostAuthorInfo, setServerLostAuthorInfo] = useState<AuthorInfo | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      if (!serverRoomId || !roomId) return;
+  // ✅ 초기값 필수! null로 시작하고 union 타입으로 지정
+  const onFetchedRef = useRef<VerificationParams['onRoomDetailFetched'] | null>(null);
 
+  useEffect(() => {
+    onFetchedRef.current = onRoomDetailFetched ?? null;
+  }, [onRoomDetailFetched]);
+
+  useEffect(() => {
+    if (!serverRoomId || !roomId) return;
+
+    let cancelled = false;
+
+    (async () => {
       try {
         const { getRoomDetail } = await import('@/api/chat');
         const data = await getRoomDetail(serverRoomId);
+        if (cancelled) return;
 
-        // 콜백으로 헤더 보강 등 다른 로직 처리
-        onRoomDetailFetched?.(data);
+        // 최신 콜백 실행 (null-safe)
+        onFetchedRef.current?.(data);
 
         // 🛒 중고거래 판매자 확인
         if (data?.roomInfo?.chatType === 'USED_ITEM') {
           const postId = data.roomInfo.chatTypeId;
-          if (typeof postId === 'number') {  // ✅ 타입 가드
+          if (typeof postId === 'number') {
             const result = await verifyMarketAuthor(postId, raw);
-            if (result) setServerSellerInfo(result);
+            if (!cancelled && result) setServerSellerInfo(result);
           }
         }
 
         // 📦 분실물 작성자 확인
         if (data?.roomInfo?.chatType === 'LOST_ITEM') {
           const postId = data.roomInfo.chatTypeId;
-          if (typeof postId === 'number') {  // ✅ 타입 가드
+          if (typeof postId === 'number') {
             const result = await verifyLostAuthor(postId, raw);
-            if (result) setServerLostAuthorInfo(result);
+            if (!cancelled && result) setServerLostAuthorInfo(result);
           }
         }
-      } catch (e: any) {
-        console.log('[useAuthorVerification] error', e);
+      } catch (e) {
+        if (!cancelled) console.log('[useAuthorVerification] error', e);
       }
     })();
-  }, [serverRoomId, roomId, raw]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [serverRoomId, roomId, raw]); // onRoomDetailFetched는 ref로 처리
 
   return { serverSellerInfo, serverLostAuthorInfo };
 }
 
-// ========== 내부 헬퍼 함수들 ==========
-
+// ===== 내부 헬퍼들 (그대로) =====
 async function verifyMarketAuthor(postId: number, raw: any): Promise<AuthorInfo | null> {
   const { userEmail: meEmail, userId: meId } = await getLocalIdentity();
   const meIdStr = meId ? String(meId) : '';
-
   if (!postId || !meIdStr) return null;
 
   try {
-    // 1️⃣ raw 파라미터에서 빠른 확인
     const quickCheck = checkRawParams(raw, meIdStr, meEmail);
     if (quickCheck) return quickCheck;
 
-    // 2️⃣ AsyncStorage 캐시 확인
     const cacheCheck = await checkMarketCache(postId, meIdStr, meEmail);
     if (cacheCheck) return cacheCheck;
 
-    // 3️⃣ 서버 API 호출
     const serverCheck = await checkMarketServer(postId, meIdStr, meEmail);
     if (serverCheck) return serverCheck;
   } catch (e) {
     console.log('[verifyMarketAuthor] error', e);
   }
-
   return null;
 }
 
 async function verifyLostAuthor(postId: number, raw: any): Promise<AuthorInfo | null> {
   const { userEmail: meEmail, userId: meId } = await getLocalIdentity();
   const meIdStr = meId ? String(meId) : '';
-
   if (!postId || !meIdStr) return null;
 
   try {
-    // 1️⃣ raw 파라미터에서 빠른 확인
     const quickCheck = checkLostRawParams(raw, meIdStr, meEmail);
     if (quickCheck) return quickCheck;
 
-    // 2️⃣ AsyncStorage 캐시 확인
     const cacheCheck = await checkLostCache(postId, meIdStr, meEmail);
     if (cacheCheck) return cacheCheck;
 
-    // 3️⃣ 서버 API 호출
     const serverCheck = await checkLostServer(postId, meIdStr, meEmail);
     if (serverCheck) return serverCheck;
   } catch (e) {
     console.log('[verifyLostAuthor] error', e);
   }
-
   return null;
 }
-
-// ========== 중고거래 확인 함수들 ==========
 
 function checkRawParams(raw: any, meIdStr: string, meEmail: string | null): AuthorInfo | null {
   const authorIdFromRaw = raw?.authorId ?? raw?.sellerId ?? raw?.postOwnerId;
@@ -161,7 +162,6 @@ async function checkMarketCache(
     console.log('[Market] ✅ 판매자 확인됨 (cache)');
     return { authorId: meIdStr, authorEmail: meEmail ?? undefined };
   }
-
   return null;
 }
 
@@ -198,11 +198,8 @@ async function checkMarketServer(
   } catch (e) {
     console.log('[Market] server check failed', e);
   }
-
   return null;
 }
-
-// ========== 분실물 확인 함수들 ==========
 
 function checkLostRawParams(raw: any, meIdStr: string, meEmail: string | null): AuthorInfo | null {
   const authorIdFromRaw =
@@ -223,7 +220,6 @@ function checkLostRawParams(raw: any, meIdStr: string, meEmail: string | null): 
     console.log('[Lost] ✅ 작성자 확인됨 (raw)');
     return { authorId: meIdStr, authorEmail: meEmail ?? undefined };
   }
-
   return null;
 }
 
@@ -261,7 +257,6 @@ async function checkLostCache(
     console.log('[Lost] ✅ 작성자 확인됨 (cache)');
     return { authorId: meIdStr, authorEmail: meEmail ?? undefined };
   }
-
   return null;
 }
 
@@ -296,6 +291,5 @@ async function checkLostServer(
   } catch (e) {
     console.log('[Lost] server check failed', e);
   }
-
   return null;
 }

@@ -22,6 +22,7 @@ import useChatRoomSetup from '@/hooks/useChatRoomSetup';
 import useLostClose from '@/hooks/useLostClose';
 import usePermissions from '@/hooks/usePermissions';
 import useSaleStatusManager from '@/hooks/useSaleStatusManager';
+import useChatReadSync from '@/hooks/useChatReadSync';
 
 import {
   blockUser,
@@ -618,6 +619,21 @@ export default function ChatRoomPage() {
     () => (opponent?.id ? String(opponent.id) : null),
     [opponent?.id]
   );
+
+  // 마지막 메시지의 서버 ID(숫자) 추출 (id|messageId|serverId 지원)
+  const lastMessageId = useMemo<number | null>(() => {
+    if (!Array.isArray(messages) || messages.length === 0) return null;
+    const last: any = messages[messages.length - 1];
+    const mid = last?.id ?? last?.messageId ?? last?.serverId ?? null;
+    const n = Number(mid);
+    return Number.isFinite(n) ? n : null;
+  }, [messages]);
+  
+  useChatReadSync({
+    roomId: serverRoomId ?? null,
+    lastMessageId,
+    enabled: !!serverRoomId,
+  });
 
   const visibleMessages = useMemo(() => {
     if (!opponentIdStr || !blockedSince) return messages;

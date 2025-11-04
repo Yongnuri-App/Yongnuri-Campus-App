@@ -1,15 +1,22 @@
 // components/Appointment/AppointmentModal.styles.ts
-import { Dimensions, StyleSheet } from 'react-native';
+import { Dimensions, PixelRatio, StyleSheet } from 'react-native';
 
 /**
- * 피그마 치수(344 x 539)를 기준으로 중앙 카드 크기/라운드/색상 매칭
- * - 작성완료 버튼: #395884, radius 50px
- * - 텍스트 톤: 제목 #000000, 라벨 #1E1E1E, 값/플레이스홀더 #979797
+ * 반응형 스케일 유틸
+ * - 기준 폭 375pt / 기준 높이 812pt
+ * - 너무 작거나 큰 값은 살짝 완충(min/max)으로 디자인 붕괴 방지
  */
-const { width, height } = Dimensions.get('window');
-const CARD_W = 344;
-const CARD_H = 539;
-const PRIMARY = '#395884';
+const { width: W, height: H } = Dimensions.get('window');
+const BW = 375;   // base width
+const BH = 812;   // base height
+const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
+const s  = (px: number) => clamp((W / BW) * px, px * 0.9, px * 1.15);   // width scale
+const vs = (px: number) => clamp((H / BH) * px, px * 0.9, px * 1.15);   // height scale
+const font = (px: number) => px * PixelRatio.getFontScale();            // 폰트는 시스템 스케일 존중
+
+// 피그마 카드 기준(344 x 539)을 스케일 적용
+const CARD_W  = clamp((W - s(32)), s(320), s(360)); // 좌우 16 여백 보장, 과도확대 방지
+const CARD_MIN_H = vs(539);
 
 export default StyleSheet.create({
   /** 반투명 배경 */
@@ -24,44 +31,44 @@ export default StyleSheet.create({
     top: 0, left: 0, right: 0, bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: s(16),
   },
 
   /** 카드 본체 */
   card: {
     width: CARD_W,
-    minHeight: CARD_H,
+    minHeight: CARD_MIN_H,
     backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    paddingTop: 20,
-    paddingBottom: 16,
-    paddingHorizontal: 20,
+    borderRadius: s(10),
+    paddingTop: vs(20),
+    paddingBottom: vs(16),
+    paddingHorizontal: s(20),
   },
 
   /** 닫기 버튼 (우상단) */
   closeBtn: {
     position: 'absolute',
-    right: 12,
-    top: 12,
-    padding: 6,
+    right: s(12),
+    top: vs(12),
+    padding: s(6),
   },
   closeIcon: {
-    width: 24,
-    height: 24,
+    width: s(24),
+    height: s(24),
   },
 
   /** "닉네임님과의 약속" */
   titleText: {
-    marginTop: 45,
-    fontSize: 20,
-    lineHeight: 22,
+    marginTop: vs(45),
+    fontSize: font(20),
+    lineHeight: vs(22),
     color: '#000000',
     fontWeight: '700',
   },
 
   /** 폼 영역 컨테이너 */
   formGroup: {
-    marginTop: 24,
+    marginTop: vs(24),
   },
 
   /** 행: 좌측 라벨, 우측 값/셀렉터 */
@@ -72,9 +79,9 @@ export default StyleSheet.create({
 
   /** 라벨 (날짜/시간/장소) */
   label: {
-    width: 48, // 피그마 기준 라벨 좌측 정렬 폭 확보
-    fontSize: 16,
-    lineHeight: 20,
+    width: s(48), // 피그마 기준 라벨 좌측 정렬 폭 확보
+    fontSize: font(16),
+    lineHeight: vs(20),
     fontWeight: '600',
     color: '#1E1E1E',
   },
@@ -82,7 +89,7 @@ export default StyleSheet.create({
   /** 우측 값 영역(누르면 드롭다운 열림) */
   valueRowRight: {
     flex: 1,
-    minHeight: 24,
+    minHeight: vs(24),
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
@@ -90,11 +97,11 @@ export default StyleSheet.create({
 
   /** 값 텍스트 */
   valueText: {
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: font(15),
+    lineHeight: vs(20),
     fontWeight: '500',
     color: '#393A40',
-    marginRight: 6,
+    marginRight: s(6),
     textAlign: 'right',
   },
   /** 플레이스홀더 색상 */
@@ -104,55 +111,55 @@ export default StyleSheet.create({
 
   /** 드롭다운 아이콘(chevron) */
   chevron: {
-    width: 24,
-    height: 24,
+    width: s(24),
+    height: s(24),
   },
 
   /** 임시 드롭다운 박스 */
   dropdown: {
-    marginTop: 8,
-    marginLeft: 48, // 라벨 폭만큼 들여쓰기
+    marginTop: vs(8),
+    marginLeft: s(48), // 라벨 폭만큼 들여쓰기
     backgroundColor: '#FFFFFF',
-    borderRadius: 8,
+    borderRadius: s(8),
     borderWidth: 1,
     borderColor: '#E5E5E5',
     overflow: 'hidden',
     elevation: 2,
     shadowColor: '#000',
     shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: s(8),
+    shadowOffset: { width: 0, height: vs(2) },
   },
   dropdownItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: vs(10),
+    paddingHorizontal: s(12),
   },
   dropdownItemPressed: {
     backgroundColor: '#F5F7FA',
   },
   dropdownItemText: {
-    fontSize: 13,
+    fontSize: font(13),
     color: '#1E1E1E',
   },
 
   /** 작성완료 버튼 */
   submitBtn: {
-  position: 'absolute',
-  bottom: 20,           // 카드 하단에서 20px 위
-  left: 20,
-  right: 20,
-  height: 50,
-  borderRadius: 50,
-  backgroundColor: '#395884',
-  alignItems: 'center',
-  justifyContent: 'center',
+    position: 'absolute',
+    bottom: vs(20),          // 카드 하단에서 여백
+    left: s(20),
+    right: s(20),
+    height: vs(50),
+    borderRadius: s(50),
+    backgroundColor: '#395884',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   submitBtnDisabled: {
     opacity: 0.5,
   },
   submitText: {
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: font(16),
+    lineHeight: vs(22),
     fontWeight: '600',
     color: '#FFFFFF',
   },

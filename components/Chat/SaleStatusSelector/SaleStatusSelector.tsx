@@ -70,7 +70,7 @@ export default function SaleStatusSelector({
       try {
         setBusy(true);
         await onCompleteTrade(); // 부모에서 upsert/API 호출 수행
-      } catch (e) {
+      } catch {
         // 부모 로직 실패 시 사용자에게 알림(선택 사항)
         Alert.alert('거래완료 처리 실패', '네트워크 상태를 확인하고 다시 시도해주세요.');
       } finally {

@@ -49,7 +49,7 @@ export default function useSaleStatusManager({
     async (nextLabel: SaleStatusLabel, skipAppointmentCheck = false) => {
       // 약속 없이 예약중 변경 시도 → 모달 유도
       if (nextLabel === '예약중' && !hasAppointment && !skipAppointmentCheck) {
-        return 'need-appointment'; // 특수 값 반환
+        return 'need-appointment';
       }
 
       const prev = saleStatusLabel;
@@ -223,7 +223,7 @@ export default function useSaleStatusManager({
         return false;
       }
 
-      // 5) 서버 호출
+      // 5) 서버 호출 (✅ 3시간 전 알림 요청)
       try {
         await createMakeDeal({
           chatRoomId: Number(serverRoomId),
@@ -233,6 +233,7 @@ export default function useSaleStatusManager({
           date: yyyyMmDd,
           time: hhmm,
           location: place,
+          notifyBeforeHours: 3, // ✅ 여기 추가
         });
 
         // 성공 처리

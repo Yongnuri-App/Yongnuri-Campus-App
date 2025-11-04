@@ -1,6 +1,16 @@
 // /components/Chat/ChatHeader/ChatHeader.styles.ts
+import { StyleSheet, Dimensions, PixelRatio } from 'react-native';
 
-import { StyleSheet } from 'react-native';
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+// 피그마 기준 (iPhone 13: 390x844)
+const BASE_WIDTH = 390;
+const BASE_HEIGHT = 844;
+
+// 스케일 함수
+const scale = (size: number) => (SCREEN_WIDTH / BASE_WIDTH) * size;
+const verticalScale = (size: number) => (SCREEN_HEIGHT / BASE_HEIGHT) * size;
+const fontScale = (size: number) =>
+  Math.round(PixelRatio.roundToNearestPixel(scale(size)));
 
 const COLORS = {
   bg: '#FFFFFF',
@@ -17,55 +27,61 @@ export default StyleSheet.create({
 
   // ===== 기존 헤더 영역 =====
   header: {
-    height: 74 + 25, // top: 74px 위치 보정 + 아이콘 높이
-    paddingTop: 74,
+    height: verticalScale(74 + 25),
+    paddingTop: verticalScale(74),
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: COLORS.bg,
   },
   backBtn: {
     position: 'absolute',
-    left: 16,
-    top: 74,
-    width: 25,
-    height: 25,
+    left: scale(16),
+    top: verticalScale(74),
+    width: scale(25),
+    height: verticalScale(25),
     justifyContent: 'center',
     alignItems: 'center',
   },
   moreBtn: {
     position: 'absolute',
-    right: 16,
-    top: 74,
-    width: 25,
-    height: 25,
+    right: scale(16),
+    top: verticalScale(74),
+    width: scale(25),
+    height: verticalScale(25),
     justifyContent: 'center',
     alignItems: 'center',
   },
-  icon: { width: 20, height: 20, resizeMode: 'contain' },
-  icon_more: { width: 25, height: 25, resizeMode: 'contain' },
+  icon: {
+    width: scale(20),
+    height: scale(20),
+    resizeMode: 'contain',
+  },
+  icon_more: {
+    width: scale(25),
+    height: scale(25),
+    resizeMode: 'contain',
+  },
   headerTitle: {
-    marginTop: 2,
-    fontSize: 20,
+    marginTop: verticalScale(2),
+    fontSize: fontScale(20),
     fontWeight: '700',
     color: COLORS.text,
-    maxWidth: 200,
+    maxWidth: scale(200),
   },
 
   // ===== 헤더 하단: 게시글 요약 카드 =====
   postCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 27,   // ChatRoomPage 카드와 좌우 정렬 맞춤
-    paddingVertical: 14,     // ChatRoomPage 카드와 동일
+    paddingHorizontal: scale(27),
+    paddingVertical: verticalScale(14),
     backgroundColor: COLORS.bg,
-    // borderBottomWidth: StyleSheet.hairlineWidth,
-    // borderBottomColor: COLORS.border,
   },
-  thumbWrap: { marginRight: 8 },
+  thumbWrap: { marginRight: scale(8) },
   thumb: {
-    width: 50,               // ChatRoomPage 카드와 동일
-    height: 50,
-    borderRadius: 4,
+    width: scale(50),
+    height: scale(50),
+    borderRadius: scale(4),
   },
   thumbPlaceholder: {
     backgroundColor: COLORS.border,
@@ -75,28 +91,28 @@ export default StyleSheet.create({
     justifyContent: 'center',
   },
   postTitle: {
-    fontSize: 16,
+    fontSize: fontScale(16),
     fontWeight: '500',
     color: COLORS.text,
-    paddingBottom: 5,
+    paddingBottom: verticalScale(5),
   },
 
   // ===== 부가 정보 (가격 / 배지 / 위치 / 모집인원) =====
   price: {
-    fontSize: 16,
+    fontSize: fontScale(16),
     fontWeight: '600',
     color: COLORS.text,
   },
   groupBuyLabel: {
-    fontSize: 15,
+    fontSize: fontScale(15),
     fontWeight: '700',
     color: COLORS.text,
   },
   badgeBase: {
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginRight: 6,
+    paddingHorizontal: scale(7),
+    paddingVertical: verticalScale(4),
+    borderRadius: scale(4),
+    marginRight: scale(6),
   },
   badgeLost: {
     backgroundColor: '#F070C8',
@@ -105,12 +121,12 @@ export default StyleSheet.create({
     backgroundColor: '#419EBD',
   },
   badgeText: {
-    fontSize: 11,
+    fontSize: fontScale(11),
     fontWeight: '600',
     color: '#FFFFFF',
   },
   placeText: {
-    fontSize: 15,
+    fontSize: fontScale(15),
     fontWeight: '700',
     color: '#393A40',
   },

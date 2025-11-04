@@ -9,13 +9,12 @@ type Props = {
   onChange: (next: TabKey) => void;   // 탭 변경 콜백
 };
 
-const TABS: Array<{
+const TABS: {
   key: TabKey;
   label: string;
-  // 아이콘
   iconInactive: any;
   iconActive: any;
-}> = [
+}[] = [
   {
     key: 'market',
     label: '중고거래',

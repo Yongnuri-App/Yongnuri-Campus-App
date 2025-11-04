@@ -1,4 +1,14 @@
-import { StyleSheet } from 'react-native';
+// components/Chat/DevBox/DevBox.styles.ts
+import { StyleSheet, Dimensions, PixelRatio } from 'react-native';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const BASE_WIDTH = 390;   // iPhone 13 기준
+const BASE_HEIGHT = 844;
+
+const scale = (size: number) => (SCREEN_WIDTH / BASE_WIDTH) * size;
+const verticalScale = (size: number) => (SCREEN_HEIGHT / BASE_HEIGHT) * size;
+const fontScale = (size: number) =>
+  Math.round(PixelRatio.roundToNearestPixel(scale(size)));
 
 const COLORS = {
   border: '#E5E7EB',
@@ -11,27 +21,27 @@ const COLORS = {
 
 export default StyleSheet.create({
   devBox: {
-    marginTop: 12,
-    padding: 12,
+    marginTop: verticalScale(12),
+    padding: scale(12),
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 10,
+    borderRadius: scale(10),
     backgroundColor: COLORS.bg,
   },
   devTitle: {
-    fontSize: 13,
+    fontSize: fontScale(13),
     fontWeight: '700',
     color: COLORS.text,
-    marginBottom: 8,
+    marginBottom: verticalScale(8),
   },
   row: {
     flexDirection: 'row',
-    gap: 8,
+    gap: scale(8),
   },
   btn: {
     flex: 1,
-    height: 36,
-    borderRadius: 8,
+    height: verticalScale(36),
+    borderRadius: scale(8),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -43,12 +53,12 @@ export default StyleSheet.create({
   },
   btnText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: fontScale(13),
     fontWeight: '600',
   },
   hint: {
-    marginTop: 8,
-    fontSize: 12,
+    marginTop: verticalScale(8),
+    fontSize: fontScale(12),
     color: COLORS.sub,
   },
 });

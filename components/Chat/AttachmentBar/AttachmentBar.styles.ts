@@ -1,4 +1,14 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Dimensions, PixelRatio } from 'react-native';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+// 피그마 기준 (iPhone 13: 390 x 844)
+const BASE_WIDTH = 390;
+const BASE_HEIGHT = 844;
+
+const scale = (size: number) => (SCREEN_WIDTH / BASE_WIDTH) * size;          // 가로 기준
+const verticalScale = (size: number) => (SCREEN_HEIGHT / BASE_HEIGHT) * size; // 세로 기준
+const fontScale = (size: number) =>
+  Math.round(PixelRatio.roundToNearestPixel(scale(size)));                    // 폰트 보정
 
 /**
  * 기존 ChatRoomPage.styles.ts의 attachBar 관련 값 유지
@@ -20,38 +30,43 @@ export default StyleSheet.create({
     // borderTopColor: '#EEE',
     // backgroundColor: '#FFF',
   },
+
   attachScroll: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: verticalScale(8),
+    paddingHorizontal: scale(12),
   },
+
   thumbWrapAttach: {
-    width: 64,
-    height: 64,
-    borderRadius: 8,
+    width: scale(64),
+    height: verticalScale(64),
+    borderRadius: scale(8),
     overflow: 'hidden',
-    marginRight: 8,
+    marginRight: scale(8),
     position: 'relative',
     backgroundColor: '#EDEDED',
   },
+
   thumbAttach: {
     width: '100%',
     height: '100%',
   },
+
   removeBtn: {
     position: 'absolute',
-    right: 4,
-    top: 4,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    right: scale(4),
+    top: verticalScale(4),
+    width: scale(20),
+    height: verticalScale(20),
+    borderRadius: scale(10),
     backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   removeX: {
     color: '#FFF',
-    fontSize: 14,
-    lineHeight: 14,
+    fontSize: fontScale(14),
+    lineHeight: fontScale(14),
     fontWeight: '700',
   },
 });

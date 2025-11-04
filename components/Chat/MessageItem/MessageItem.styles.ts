@@ -1,5 +1,16 @@
 // /src/components/Chat/MessageItem/MessageItem.styles.ts
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Dimensions, PixelRatio } from 'react-native';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+// 피그마 기준 (iPhone 13: 390x844)
+const BASE_WIDTH = 390;
+const BASE_HEIGHT = 844;
+
+// 반응형 유틸
+const scale = (size: number) => (SCREEN_WIDTH / BASE_WIDTH) * size;
+const verticalScale = (size: number) => (SCREEN_HEIGHT / BASE_HEIGHT) * size;
+const fontScale = (size: number) =>
+  Math.round(PixelRatio.roundToNearestPixel(scale(size)));
 
 const COLORS = {
   bg: '#FFFFFF',
@@ -17,38 +28,38 @@ export default StyleSheet.create({
   rowLeft: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    marginBottom: 12,
-    paddingHorizontal: 16, // 기존 listContent의 좌우 패딩을 아이템에서도 동일하게
+    marginBottom: verticalScale(12),
+    paddingHorizontal: scale(16),
   },
   avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: scale(30),
+    height: scale(30),
+    borderRadius: scale(15),
     backgroundColor: COLORS.border,
-    marginRight: 10,
-    alignItems: 'center', // ✅ 아이콘 중앙 정렬
-    justifyContent: 'center', // ✅ 아이콘 중앙 정렬
+    marginRight: scale(10),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarIcon: {
-    width: 20, // ✅ 아이콘 크기 (아바타 크기에 맞게 조절)
-    height: 20,
-    marginBottom: 3,
+    width: scale(20),
+    height: scale(20),
+    marginBottom: verticalScale(3),
   },
   bubbleOthers: {
     maxWidth: '70%',
     backgroundColor: COLORS.bar,
-    borderRadius: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderRadius: scale(5),
+    paddingHorizontal: scale(10),
+    paddingVertical: verticalScale(8),
   },
   bubbleTextOthers: {
-    fontSize: 14,
+    fontSize: fontScale(14),
     fontWeight: '500',
     color: COLORS.text,
   },
   timeLeft: {
-    marginLeft: 6,
-    fontSize: 10,
+    marginLeft: scale(6),
+    fontSize: fontScale(10),
     color: COLORS.subText,
   },
 
@@ -57,73 +68,73 @@ export default StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'flex-end',
-    marginBottom: 12,
-    paddingHorizontal: 16,
+    marginBottom: verticalScale(12),
+    paddingHorizontal: scale(16),
   },
   bubbleMine: {
     maxWidth: '70%',
     backgroundColor: COLORS.primary,
-    borderRadius: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderRadius: scale(5),
+    paddingHorizontal: scale(10),
+    paddingVertical: verticalScale(8),
   },
   bubbleTextMine: {
-    fontSize: 14,
+    fontSize: fontScale(14),
     fontWeight: '500',
     color: '#FFFFFF',
   },
   timeRight: {
-    marginRight: 6,
-    fontSize: 10,
+    marginRight: scale(6),
+    fontSize: fontScale(10),
     color: COLORS.subText,
   },
 
   // 이미지 메시지
   msgImageMine: {
-    width: 180,
-    height: 180,
-    borderRadius: 8,
+    width: scale(180),
+    height: scale(180),
+    borderRadius: scale(8),
     backgroundColor: '#F0F0F0',
   },
   msgImageOthers: {
-    width: 180,
-    height: 180,
-    borderRadius: 8,
+    width: scale(180),
+    height: scale(180),
+    borderRadius: scale(8),
     backgroundColor: '#F2F3F6',
-    marginLeft: 10, // 아바타와 간격
+    marginLeft: scale(10),
   },
   imageBubbleMine: {
     maxWidth: '70%',
-    borderRadius: 8,
-    padding: 2,
+    borderRadius: scale(8),
+    padding: scale(2),
   },
   imageBubbleOthers: {
     maxWidth: '70%',
-    borderRadius: 8,
-    padding: 2,
+    borderRadius: scale(8),
+    padding: scale(2),
   },
 
   /** ✅ 시스템 메시지(문의사항과 동일한 필 배지) */
   systemWrap: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: verticalScale(8),
   },
   systemPill: {
     maxWidth: '85%',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: '#F1F3F5', // 라이트 그레이
+    paddingHorizontal: scale(12),
+    paddingVertical: verticalScale(6),
+    borderRadius: scale(12),
+    backgroundColor: '#F1F3F5',
   },
   systemText: {
-    fontSize: 12,
-    color: '#6B7280', // 중간 그레이
+    fontSize: fontScale(12),
+    color: '#6B7280',
     textAlign: 'center',
   },
   systemTime: {
-    marginTop: 4,
-    fontSize: 11,
+    marginTop: verticalScale(4),
+    fontSize: fontScale(11),
     color: '#A1A1AA',
   },
 });

@@ -1,4 +1,15 @@
-import { StyleSheet } from 'react-native';
+// components/Chat/SaleStatusSelector/SaleStatusSelector.styles.ts
+import { StyleSheet, Dimensions, PixelRatio } from 'react-native';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const BASE_WIDTH = 390;
+const BASE_HEIGHT = 844;
+
+// 📏 비율 기반 스케일 함수
+const scale = (size: number) => (SCREEN_WIDTH / BASE_WIDTH) * size;
+const verticalScale = (size: number) => (SCREEN_HEIGHT / BASE_HEIGHT) * size;
+const fontScale = (size: number) =>
+  Math.round(PixelRatio.roundToNearestPixel(scale(size)));
 
 const COLORS = {
   text: '#1E1E1E',
@@ -10,26 +21,26 @@ const COLORS = {
 export default StyleSheet.create({
   /* ===== 셀렉터 버튼 ===== */
   selector: {
-    width: 80,
-    height: 30,
+    width: scale(80),
+    height: verticalScale(30),
     borderWidth: 1,
     borderColor: COLORS.divider,
-    borderRadius: 2,
+    borderRadius: scale(2),
     backgroundColor: COLORS.bg,
-    flexDirection: 'row',       // 텍스트 + 아이콘 가로 정렬
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 11,
+    paddingHorizontal: scale(11),
   },
   selectorText: {
-    fontSize: 13,
+    fontSize: fontScale(13),
     fontWeight: '600',
     color: COLORS.text,
   },
   chevronIcon: {
-    width: 13,
-    height: 13,
-    marginLeft: 4,
+    width: scale(13),
+    height: scale(13),
+    marginLeft: scale(4),
   },
 
   /* ===== 모달 ===== */
@@ -42,19 +53,19 @@ export default StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 8,
-    paddingTop: 8,
+    paddingHorizontal: scale(8),
+    paddingTop: verticalScale(8),
   },
 
   /* ===== 옵션 카드 ===== */
   optionCard: {
-    borderRadius: 12,
+    borderRadius: scale(12),
     backgroundColor: COLORS.bg,
     overflow: 'hidden',
-    marginBottom: 8,
+    marginBottom: verticalScale(8),
   },
   optionBtn: {
-    height: 56,
+    height: verticalScale(56),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -63,13 +74,13 @@ export default StyleSheet.create({
     borderBottomColor: COLORS.divider,
   },
   optionText: {
-    fontSize: 16,
+    fontSize: fontScale(16),
     color: COLORS.text,
   },
 
   /* ===== 닫기 카드 ===== */
   closeCard: {
-    borderRadius: 12,
+    borderRadius: scale(12),
     backgroundColor: COLORS.bg,
     overflow: 'hidden',
   },

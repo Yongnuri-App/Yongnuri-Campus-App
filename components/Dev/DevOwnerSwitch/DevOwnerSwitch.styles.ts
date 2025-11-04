@@ -1,40 +1,47 @@
-import { StyleSheet } from 'react-native';
+// components/Chat/StatusPill/StatusPill.styles.ts
+import { StyleSheet, Dimensions, PixelRatio } from 'react-native';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const BASE_WIDTH = 390;   // iPhone 13 기준
+const BASE_HEIGHT = 844;
+
+const scale = (size: number) => (SCREEN_WIDTH / BASE_WIDTH) * size;
+const verticalScale = (size: number) => (SCREEN_HEIGHT / BASE_HEIGHT) * size;
+const fontScale = (size: number) =>
+  Math.round(PixelRatio.roundToNearestPixel(scale(size)));
 
 export default StyleSheet.create({
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: scale(10),
+    paddingVertical: verticalScale(6),
     backgroundColor: '#FFFFFF',
-    borderRadius: 999,
+    borderRadius: scale(999),
     borderWidth: 1,
     borderColor: '#D9D9D9',
-    // 살짝 그림자
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: verticalScale(2) },
     shadowOpacity: 0.08,
-    shadowRadius: 4,
+    shadowRadius: scale(4),
     elevation: 2,
-    gap: 6,
+    gap: scale(6),
   },
   owner: {
-    // OWNER 모드일 때 엣지 강조
-    borderColor: '#4CAF50',
+    borderColor: '#4CAF50', // OWNER 강조
   },
   guest: {
-    // GUEST 모드일 때 엣지 강조
-    borderColor: '#FF7043',
+    borderColor: '#FF7043', // GUEST 강조
   },
   text: {
-    fontSize: 11,
+    fontSize: fontScale(11),
     fontWeight: '700',
     color: '#666666',
   },
   dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: scale(6),
+    height: scale(6),
+    borderRadius: scale(3),
     backgroundColor: '#A6A6A6',
   },
 });
