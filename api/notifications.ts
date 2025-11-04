@@ -15,18 +15,17 @@ async function getAccessTokenStripped() {
   return stripBearer(raw);
 }
 
-/** 백엔드 알림 응답 스키마 (최신) */
+/** 백엔드 알림 응답 스키마 (참고용) */
 export type ServerNotification = {
   id?: string | number;
-  title?: string;          // 예: "신고 누적 경고 안내", "새 공지사항: ..."
-  message?: string;        // 본문
-  createdAt?: string;      // ISO
+  title?: string;
+  message?: string;
+  createdAt?: string;
   chatType?: string | null;
   typeId?: number | null;
-  read?: boolean;          // 읽음 여부
+  read?: boolean;
 };
 
-/** 개인 알림 조회: GET /notifications?accessToken=... */
 export async function fetchNotifications(): Promise<ServerNotification[]> {
   const accessToken = await getAccessTokenStripped();
   try {
@@ -36,5 +35,21 @@ export async function fetchNotifications(): Promise<ServerNotification[]> {
   } catch (e: any) {
     console.log('[notifications] GET failed:', e?.response?.status, e?.message);
     return [];
+  }
+}
+
+/** ✅ 안 읽은 알림 개수: GET /notifications/unread/count?accessToken=... */
+export async function fetchUnreadCount(): Promise<number | null> {
+  const accessToken = await getAccessTokenStripped();
+  try {
+    const res = await api.get('/notifications/unread/count', { params: { accessToken } });
+    const n = res?.data;
+    if (typeof n === 'number') return n;
+    // 서버가 {count: number} 형태라면 아래처럼 처리
+    if (n && typeof n.count === 'number') return n.count;
+    return 0;
+  } catch (e: any) {
+    console.log('[notifications] unread count GET failed:', e?.response?.status, e?.message);
+    return null; // 폴백 유도
   }
 }
