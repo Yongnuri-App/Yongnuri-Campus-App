@@ -1,3 +1,4 @@
+// src/pages/Inquiry/InquiryPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -9,19 +10,16 @@ import DetailBottomBar from '../../../components/Bottom/DetailBottomBar';
 
 import useBusinessHours from '@/hooks/useBusinessHours';
 import styles from './InquiryPage.styles';
+import { getPublicInquiryNotice } from '@/api/notice';
 
-/** 관리자 공지 저장 키(관리자 페이지에서 설정 예정) */
-const ADMIN_INQUIRY_NOTICE_KEY = 'admin_inquiry_notice_v1';
-
-// (선택) 관리자 설정으로 운영시간을 덮어쓰고 싶다면 이런 키를 약속해서 저장/로드하세요.
-// 예: {"start":"09:00","end":"18:00","closedWeekdays":[0,6],"holidays":["2025-10-03"]}
+const ADMIN_INQUIRY_NOTICE_KEY = 'admin_inquiry_notice_v1'; // 캐시 키
 const ADMIN_INQUIRY_HOURS_KEY = 'admin_inquiry_hours_v1';
 
 type Msg = {
   id: string;
   text: string;
   who: 'me' | 'admin';
-  ts: string; // "오전 10:30"
+  ts: string;
 };
 
 function nowTime() {
@@ -32,18 +30,14 @@ function nowTime() {
   return `${ampm} ${h12.toString().padStart(2, '0')}:${mm}`;
 }
 
+const DEFAULT_NOTICE =
+  '채팅 가능 시간은 09:00 ~ 18:00 시입니다.\n이 공지 영역은 관리자 페이지에서 설정 가능합니다.';
+
 export default function InquiryPage() {
   const navigation = useNavigation<any>();
 
-  // ⓐ 공지문 (관리자 페이지에서 AsyncStorage로 세팅된 값을 읽음)
-  const [notice, setNotice] = useState<string>(
-    '채팅 가능 시간은 09:00 ~ 18:00 시입니다.\n이 공지 영역은 관리자 페이지에서 설정 가능합니다.'
-  );
-
-  // ⓑ 문의 메시지 상태
+  const [notice, setNotice] = useState<string>(DEFAULT_NOTICE);
   const [messages, setMessages] = useState<Msg[]>([]);
-
-  // ⓒ (선택) 관리자 운영시간 설정 로드
   const [hoursCfg, setHoursCfg] = useState<{
     start?: string;
     end?: string;
@@ -51,39 +45,44 @@ export default function InquiryPage() {
     holidays?: string[];
   } | null>(null);
 
+  // 유저 화면: 공개용 GET /notice → 실패 시 캐시/기본
   useEffect(() => {
     (async () => {
-      try {
-        const v = await AsyncStorage.getItem(ADMIN_INQUIRY_NOTICE_KEY);
-        if (v && v.trim()) setNotice(v);
-      } catch {/* 기본값 유지 */}
-
-      try {
-        const h = await AsyncStorage.getItem(ADMIN_INQUIRY_HOURS_KEY);
-        if (h) {
-          const parsed = JSON.parse(h);
-          setHoursCfg(parsed);
-        }
-      } catch {/* 기본값 유지 */}
+      const serverOrCached = await getPublicInquiryNotice(DEFAULT_NOTICE);
+      if (serverOrCached && serverOrCached.trim()) {
+        setNotice(serverOrCached);
+      } else {
+        try {
+          const cached = await AsyncStorage.getItem(ADMIN_INQUIRY_NOTICE_KEY);
+          if (cached && cached.trim()) setNotice(cached);
+        } catch {/* ignore */}
+      }
     })();
   }, []);
 
-  // ✅ 운영시간 판단(기본 09:00~18:00, 주말 휴무 예시)
+  // 운영시간(선택) 로드
+  useEffect(() => {
+    (async () => {
+      try {
+        const h = await AsyncStorage.getItem(ADMIN_INQUIRY_HOURS_KEY);
+        if (h) setHoursCfg(JSON.parse(h));
+      } catch {/* ignore */}
+    })();
+  }, []);
+
   const { isOpen, nextOpenAtLabel } = useBusinessHours({
     startHHmm: hoursCfg?.start ?? '09:00',
     endHHmm: hoursCfg?.end ?? '18:00',
-    closedWeekdays: hoursCfg?.closedWeekdays ?? [0, 6], // 일/토 휴무
-    holidays: hoursCfg?.holidays ?? [],                  // 공휴일은 필요 시 추가
+    closedWeekdays: hoursCfg?.closedWeekdays ?? [0, 6],
+    holidays: hoursCfg?.holidays ?? [],
     tzLabel: 'KST',
   });
 
-  /** 전송: 운영시간 밖이면 막기 */
   const handleSend = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
 
     if (!isOpen) {
-      // 운영시간 밖 → 전송 차단 + 안내
       Alert.alert(
         '운영시간이 아닙니다',
         nextOpenAtLabel
@@ -96,10 +95,9 @@ export default function InquiryPage() {
     const msg: Msg = { id: `${Date.now()}`, text: trimmed, who: 'me', ts: nowTime() };
     setMessages(prev => [...prev, msg]);
 
-    // TODO: 서버 전송 로직 연결 시 이곳에 API 호출 추가
+    // TODO: 실제 문의 메시지 전송 API 연결
   };
 
-  /** Inquiry 메시지 → 공용 ChatMessage로 변환 */
   const adaptedMessages: ChatMessage[] = useMemo(() => {
     return messages.map((m): ChatMessage => ({
       id: m.id,
@@ -112,7 +110,6 @@ export default function InquiryPage() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* iOS 상태바 공간 */}
       <View style={styles.statusBar} />
 
       {/* 헤더 */}
@@ -139,13 +136,10 @@ export default function InquiryPage() {
           style={styles.noticeIcon}
           resizeMode="contain"
         />
-        <Text style={styles.noticeText}>
-          {/* 운영시간을 공지에 자동 반영하고 싶다면 아래 한 줄을 커스텀 */}
-          {notice}
-        </Text>
+        <Text style={styles.noticeText}>{notice}</Text>
       </View>
 
-      {/* ✅ 운영시간 밖이면 상단 안내 배너(선택) */}
+      {/* 운영시간 배너(선택) */}
       {!isOpen && (
         <View style={{ marginHorizontal: 20, marginTop: 8, padding: 12, borderRadius: 6, backgroundColor: '#FFF7E6' }}>
           <Text style={{ color: '#A86A00', fontSize: 12, lineHeight: 18 }}>
@@ -158,13 +152,12 @@ export default function InquiryPage() {
       {/* 메시지 리스트 */}
       <MessageList data={adaptedMessages} bottomInset={100} />
 
-      {/* 하단 입력 바: 운영시간 밖이면 비활성 UX */}
+      {/* 하단 입력 바 */}
       <DetailBottomBar
         variant="chat"
         placeholder={isOpen ? '메세지를 입력해주세요.' : '운영시간에만 상담이 가능합니다.'}
         onPressSend={handleSend}
         onAddImages={() => {}}
-        // 컴포넌트에 disabled prop이 없으면, onPressSend에서 가드(위)로 차단하는 방식으로 충분
       />
     </SafeAreaView>
   );
