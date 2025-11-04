@@ -1,5 +1,4 @@
 // hooks/useLostClose.ts
-// ---------------------------------------------------------
 import { useCallback, useRef, useState } from 'react';
 import { Alert, DeviceEventEmitter } from 'react-native';
 
@@ -8,6 +7,7 @@ import { updateRoomOnSend } from '@/storage/chatStore';
 import type { ChatMessage } from '@/types/chat';
 import { formatKoreanTime } from '@/utils/chatTime';
 
+import { updateLostItemStatus } from '@/api/lost'; // ✅ 이 줄 추가
 import {
   upsertRecoveredLostItemsForRecipients
 } from '@/storage/tradeHistoryStore';
@@ -88,6 +88,22 @@ export default function useLostClose({
     setStatus('RESOLVED');
 
     try {
+      // ✅ 0) 서버에 상태 업데이트 (가장 먼저 실행) - 이 부분이 새로 추가됨
+      if (hasValidPostId) {
+        try {
+          await updateLostItemStatus(postId!, 'RETURNED');
+          console.log(`[useLostClose] ✅ 서버 상태 업데이트 성공: ${postId}`);
+        } catch (err) {
+          console.error('[useLostClose] ❌ 서버 상태 업데이트 실패:', err);
+          // 서버 업데이트 실패 시 롤백
+          if (rollbackOnError) setStatus('OPEN');
+          Alert.alert('오류', '서버 연결에 문제가 있어요. 다시 시도해주세요.');
+          lockingRef.current = false;
+          return; // 실패 시 이후 로직 중단
+        }
+      }
+      // ✅ 여기까지 추가
+
       // 1) 채팅 시스템 메시지
       pushMessage({
         id: `sys_close_${Date.now()}`,

@@ -86,6 +86,36 @@ export async function updateLostFoundPost(
   return data as { postId: number; message: string };
 }
 
+/** ====== 상태만 업데이트 (완료 처리 전용) ====== */
+export async function updateLostItemStatus(
+  postId: string | number,
+  status: 'RETURNED' | 'PROCEEDING'
+): Promise<void> {
+  const pid = Number(postId);
+  
+  // ✅ 기존 updateLostFoundPost 재활용
+  await updateLostFoundPost(pid, { status });
+  
+  console.log(`[updateLostItemStatus] ✅ postId=${pid} → status=${status}`);
+}
+
+/** ====== 분실물 상세 조회 (상태 확인용 - 간소화 버전) ====== */
+export async function getLostItemDetail(postId: string | number): Promise<{
+  id: number;
+  status: 'PROCEEDING' | 'RETURNED' | 'DELETED' | 'REPORTED';
+  purpose: 'LOST' | 'FOUND';
+  title: string;
+}> {
+  const detail = await getLostFoundDetail(postId);
+  
+  return {
+    id: detail.post_id,
+    status: detail.status === 'RETURNED' ? 'RETURNED' : 'PROCEEDING',
+    purpose: detail.purpose,
+    title: detail.title,
+  };
+}
+
 /** ====== 목록 ====== */
 export type GetLostListItemRes = {
   post_id: number;

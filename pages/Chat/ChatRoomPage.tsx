@@ -25,9 +25,9 @@ import useSaleStatusManager from '@/hooks/useSaleStatusManager';
 
 import {
   blockUser,
+  getBlockedAt,
   isBlockedUser,
-  unblockUser,
-  getBlockedAt,            // ✅ 차단 시각 조회
+  unblockUser, // ✅ 차단 시각 조회
   type BlockedUser
 } from '@/utils/blocked';
 
@@ -37,9 +37,10 @@ import { initHeaderPost, serverToLabel } from '@/utils/chatRoomHelpers';
 import { enrichWithBuyer, pickOtherNickname, toSaleStatusLabel } from '@/utils/chatRoomUtils';
 import { getLocalIdentity } from '@/utils/localIdentity';
 
+import { deleteBlockUser, postBlockUser } from '@/api/blocks'; // ✅ 서버 차단/해제 API
 import { sendMessage } from '@/api/chat';
-import { updateRoomOnSendSmart, upsertRoomOnOpen, getDeletionCutoff } from '@/storage/chatStore';
-import { postBlockUser, deleteBlockUser } from '@/api/blocks'; // ✅ 서버 차단/해제 API
+import { getLostItemDetail } from '@/api/lost';
+import { getDeletionCutoff, updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
 
 import type { RootStackParamList } from '@/types/navigation';
 import styles from './ChatRoomPage.styles';
@@ -75,6 +76,9 @@ export default function ChatRoomPage() {
       }
     })();
   }, []);
+
+  // ✅ 서버에서 분실물 상태 확인하는 state 추가 (이 부분이 새로 추가됨)
+  const [serverLostStatus, setServerLostStatus] = useState<'OPEN' | 'RESOLVED'>('OPEN');
 
   const enriched = useMemo(() => enrichWithBuyer(raw, myEmail, myId), [raw, myEmail, myId]);
 
@@ -236,6 +240,21 @@ export default function ChatRoomPage() {
     return pid != null ? String(pid) : null;
   }, [raw, headerPost?.postId]);
 
+  // ✅ 채팅방 진입 시 서버에서 상태 가져오기 (이 부분이 새로 추가됨)
+  useEffect(() => {
+    (async () => {
+      if (!generalizedPostId || !isLostContext) return;
+      try {
+        const detail = await getLostItemDetail(generalizedPostId);
+        const resolved = detail.status === 'RETURNED' ? 'RESOLVED' : 'OPEN';
+        setServerLostStatus(resolved);
+        console.log('[ChatRoom] ✅ 서버 분실물 상태:', detail.status, '→', resolved);
+      } catch (e) {
+        console.log('[ChatRoom] 서버 상태 조회 실패, 기본값 사용:', e);
+      }
+    })();
+  }, [generalizedPostId, isLostContext]);
+
   const isAuthorStrict = useMemo(() => {
     const me = (myEmail ?? '').trim().toLowerCase();
     const author = (raw?.authorEmail ?? '').trim().toLowerCase();
@@ -351,7 +370,7 @@ export default function ChatRoomPage() {
   // ✅ 분실물 완료 처리
   const { lostStatus, handleCloseLost } = useLostClose({
     roomId: roomId ?? '',
-    initial: (raw?.initialLostStatus as 'OPEN' | 'RESOLVED') ?? 'OPEN',
+    initial: serverLostStatus,  // ✅ 이 줄만 변경 (raw?.initialLostStatus 대신 serverLostStatus 사용)
     pushMessage: (msg) => setMessages(prev => [...prev, msg]),
     postId: generalizedPostId ?? undefined,
     postTitle: raw?.postTitle ?? '게시글 제목',
