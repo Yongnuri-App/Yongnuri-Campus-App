@@ -40,6 +40,7 @@ import { getLocalIdentity } from '@/utils/localIdentity';
 import { deleteBlockUser, postBlockUser } from '@/api/blocks'; // ✅ 서버 차단/해제 API
 import { sendMessage } from '@/api/chat';
 import { getLostItemDetail } from '@/api/lost';
+import { appendSystemMessage } from '@/storage/chatMessagesStore';
 import { getDeletionCutoff, updateRoomOnSendSmart, upsertRoomOnOpen } from '@/storage/chatStore';
 
 import type { RootStackParamList } from '@/types/navigation';
@@ -368,10 +369,18 @@ export default function ChatRoomPage() {
   });
 
   // ✅ 분실물 완료 처리
-  const { lostStatus, handleCloseLost } = useLostClose({
+  // ✅ 분실물 완료 처리
+  const { /* lostStatus 제거, */ handleCloseLost } = useLostClose({
     roomId: roomId ?? '',
-    initial: serverLostStatus,  // ✅ 이 줄만 변경 (raw?.initialLostStatus 대신 serverLostStatus 사용)
-    pushMessage: (msg) => setMessages(prev => [...prev, msg]),
+    initial: serverLostStatus,  // 서버에서 가져온 최신 상태를 기준으로
+    // ✅ 시스템 메시지를 화면+스토리지에 모두 반영
+    pushMessage: async (msg) => {
+      setMessages(prev => [...prev, msg]);               // 즉시 화면 반영
+      if ((msg as any).type === 'system' && roomId) {    // 영구 저장
+        try { await appendSystemMessage(String(roomId), (msg as any).text ?? '처리가 완료되었습니다.'); }
+        catch (e) { console.log('[ChatRoom] appendSystemMessage error', e); }
+      }
+    },
     postId: generalizedPostId ?? undefined,
     postTitle: raw?.postTitle ?? '게시글 제목',
     postImageUri: raw?.postImageUri,
@@ -668,7 +677,18 @@ export default function ChatRoomPage() {
             />
           )}
           {showLostClose && (
-            <LostCloseButton value={lostStatus} onClose={handleCloseLost} readOnly={false} />
+            <LostCloseButton
+              // ✅ 버튼 표시는 항상 서버/로컬에서 동기화된 값으로
+              value={serverLostStatus}
+              readOnly={false}
+              onClose={async () => {
+                // 1) 실제 완료 처리 로직 (서버 PATCH 포함) — hook 내부 수행
+                await handleCloseLost();
+                // 2) 버튼 상태를 즉시 동기화 (재입장해도 유지되도록 서버에도 이미 저장됨)
+                setServerLostStatus('RESOLVED');
+              }}
+              // (선택) hook이 onClosed 콜백을 호출하지 않는다면 이 자리에서 시스템 메시지는 이미 저장됨
+            />
           )}
         </View>
       </View>

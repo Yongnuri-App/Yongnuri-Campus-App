@@ -74,7 +74,6 @@ export async function appendOutboxImage(roomId: string, uri: string): Promise<Ch
   const msg: ChatMessage = {
     id: genMsgId('img'),
     type: 'image',
-    // ✅ 프리뷰 생성기와 호환되도록 imageUris/count로 저장
     imageUris: [uri],
     count: 1,
     uri,
@@ -85,3 +84,18 @@ export async function appendOutboxImage(roomId: string, uri: string): Promise<Ch
   await persist(roomId, next);
   return next;
 }
+
+/** ✅ 시스템 메시지도 영구 저장 */
+export async function appendSystemMessage(roomId: string, text: string): Promise<ChatMessage[]> {
+  const list = await loadMessages(roomId);
+  const msg: ChatMessage = {
+    id: genMsgId('sys'),
+    type: 'system',
+    text,
+    time: new Date().toISOString(), // 정렬 안전
+    mine: false,
+  } as any;
+  const next = [...list, msg];
+  await persist(roomId, next);
+  return next;
+} 

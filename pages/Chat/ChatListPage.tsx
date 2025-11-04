@@ -17,7 +17,7 @@ import CategoryChips, { CategoryItem } from '../../components/CategoryChips/Cate
 import HeaderIcons from '../../components/Header/HeaderIcons';
 import styles from './ChatListPage.styles';
 
-import { getRooms, type ChatListItem, type ChatListType, getRoomDetail } from '@/api/chat'; // ✅ detail import 추가
+import { getRoomDetail, getRooms, type ChatListItem, type ChatListType } from '@/api/chat'; // ✅ detail import 추가
 import {
   computeUnreadCount,
   deleteChatRoom as deleteLocalRoom,
@@ -25,11 +25,11 @@ import {
   refreshAllUnread,
 } from '@/storage/chatStore';
 
-import type { ChatCategory, ChatRoomSummary, ChatMessage } from '@/types/chat';
+import type { ChatCategory, ChatMessage, ChatRoomSummary } from '@/types/chat';
 import { getLocalIdentity } from '@/utils/localIdentity';
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getBlockedAt } from '@/utils/blocked'; // ✅ 차단 시각 조회
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ---------------- 계정별 숨김 컷오프 맵 ----------------
 type HiddenMap = Record<string, number>; // serverRoomId -> cutoff(ms)
@@ -237,6 +237,7 @@ export default function ChatListPage({ navigation }: { navigation: any }) {
 
   const hiddenRef = useRef<HiddenMap>({});
   const identityRef = useRef<string>('');
+  const userInitiatedRef = useRef<boolean>(false);
 
   /** ✅ 차단 이후 상대 메시지 숨김: 프리뷰만 보정(정렬 lastTs는 그대로) */
   const applyBlockAwarePreview = useCallback(async (rows: ListRow[]): Promise<ListRow[]> => {

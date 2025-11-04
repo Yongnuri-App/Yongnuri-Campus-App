@@ -16,12 +16,32 @@ type Props = {
 
 const normEmail = (s?: string | null) => (s ?? '').trim().toLowerCase();
 
+// ✅ 1) toMs: “유효한 시간 보장” + 똑똑한 폴백
 const toMs = (m: any): number => {
-  const t = m?.time ?? m?.ts ?? m?.createdAt ?? m?.created_at ?? m?.timestamp ?? 0;
-  if (typeof t === 'number') return t;
-  if (typeof t === 'string') return Number(new Date(t));
-  if (t instanceof Date) return +t;
-  return 0;
+  const raw = m?.time ?? m?.ts ?? m?.createdAt ?? m?.created_at ?? m?.timestamp;
+
+  let ms = 0;
+  if (typeof raw === 'number') {
+    ms = raw;
+  } else if (typeof raw === 'string') {
+    const parsed = Date.parse(raw);
+    ms = Number.isNaN(parsed) ? 0 : parsed;
+  } else if (raw instanceof Date) {
+    ms = raw.getTime();
+  }
+
+  // ❗ 시간값이 없거나 잘못된 경우(0/NaN/Infinity) → 폴백
+  if (!ms || !Number.isFinite(ms)) {
+    // (옵션) id 안에 타임스탬프가 들어있는 경우 추출
+    const idStr = typeof m?.id === 'string' ? m.id : '';
+    const match = idStr.match(/\d{10,13}/); // 10~13자리 숫자 (초/밀리초 후보)
+    const idTs = match ? Number(match[0].length === 13 ? match[0] : `${match[0]}000`) : 0;
+
+    // id에서 못 찾으면 “지금 시각”으로 간주(= 최신으로 분류)
+    ms = idTs || Date.now();
+  }
+
+  return ms;
 };
 
 const getKey = (msg: any, idx: number) => String(msg?.id ?? `${toMs(msg)}_${idx}`);
@@ -53,6 +73,7 @@ export default function MessageList({
     })();
   }, []);
 
+  // ✅ 2) 정렬 로직은 유지(최신→과거, desc). 폴백 덕분에 system도 정상 위치.
   const sorted = useMemo(() => {
     const arr = Array.isArray(data) ? [...data] : [];
     arr.sort((a, b) => toMs(b) - toMs(a));
