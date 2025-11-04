@@ -443,25 +443,34 @@ export default function ChatRoomPage() {
 
   // ✅ 메시지 전송
   const sendWithServer = useCallback(async (text: string) => {
-    await send(text);
     try {
       const trimmed = text.trim();
-      if (!trimmed) return;
-
+      
+      // ✅ 1) serverRoomId 확보
       let rid = serverRoomId;
       if (!rid) {
         rid = await ensureServerRoomId();
-        if (!rid) return;
+        if (!rid) {
+          // 서버 ID 없으면 로컬만 저장
+          await send(trimmed);
+          return;
+        }
       }
 
-      const { userId } = await getLocalIdentity();
-      if (userId != null) {
-        await sendMessage({
-          roomId: rid,
-          sender: Number(userId),
-          message: trimmed,
-          type: 'text',
-        });
+      // ✅ 2) 이미지가 있으면 serverRoomId와 함께 전송
+      await send(trimmed, rid);
+
+      // ✅ 3) 텍스트 메시지는 별도 API 호출 (기존 로직)
+      if (trimmed.length > 0) {
+        const { userId } = await getLocalIdentity();
+        if (userId != null) {
+          await sendMessage({
+            roomId: rid,
+            sender: Number(userId),
+            message: trimmed,
+            type: 'text',
+          });
+        }
       }
     } catch (e) {
       console.log('[ChatRoom] sendWithServer error', e);

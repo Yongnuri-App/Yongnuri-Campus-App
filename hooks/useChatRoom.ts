@@ -92,7 +92,7 @@ export default function useChatRoom(
   );
 
   const send = useCallback(
-    async (textOrEmpty?: string) => {
+    async (textOrEmpty?: string, serverRoomId?: number) => {  // ✅ serverRoomId 파라미터 추가
       if (!validRoomId) return;
       try {
         const { userEmail, userId } = await getLocalIdentity();
@@ -100,8 +100,10 @@ export default function useChatRoom(
         const nowIso = new Date().toISOString();
         const created: ChatMessage[] = [];
 
+        // ✅ 이미지 업로드 처리 추가
         if (attachments.length > 0) {
           for (const uri of attachments) {
+            // 1) 로컬 메시지 즉시 추가 (로딩 표시용)
             created.push({
               id: makeMsgId('img-'),
               type: 'image',
@@ -111,6 +113,30 @@ export default function useChatRoom(
               senderId: myIdStr,
               mine: true,
             });
+
+            // 2) 서버 업로드 시도
+            if (serverRoomId) {
+              try {
+                const { uploadImageMessage } = await import('@/api/chat');
+                
+                // 파일명과 MIME type 추출
+                const fileName = uri.split('/').pop() ?? `image_${Date.now()}.jpg`;
+                const fileType = fileName.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+
+                await uploadImageMessage({
+                  roomId: serverRoomId,
+                  file: {
+                    uri,
+                    name: fileName,
+                    type: fileType,
+                  },
+                });
+                console.log('[useChatRoom] ✅ 이미지 업로드 성공:', uri);
+              } catch (uploadError) {
+                console.log('[useChatRoom] ⚠️ 이미지 업로드 실패:', uploadError);
+                // 업로드 실패해도 로컬 메시지는 유지 (오프라인 대응)
+              }
+            }
           }
         }
         const text = (textOrEmpty ?? '').trim();
@@ -271,7 +297,7 @@ export default function useChatRoom(
     loadAndSeed,
     addAttachments,
     removeAttachmentAt,
-    send,
+    send,  // (textOrEmpty?: string, serverRoomId?: number) => Promise<void>
     pushSystemAppointment,
   };
 }

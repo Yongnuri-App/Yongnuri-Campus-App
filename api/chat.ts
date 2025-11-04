@@ -94,3 +94,37 @@ export async function sendMessage(req: SendMessageReq): Promise<SendMessageRes> 
 export async function deleteRoom(roomId: number): Promise<void> {
   await api.delete(`/chat/rooms/${roomId}`);
 }
+
+/** ====== 이미지 메시지 업로드 ====== */
+export type UploadImageMessageReq = {
+  roomId: number;      // 서버 채팅방 ID
+  file: {
+    uri: string;       // 파일 URI
+    name: string;      // 파일명
+    type: string;      // MIME type (예: image/jpeg)
+  };
+};
+
+export type UploadImageMessageRes = {
+  chatType: 'img';
+  message: string;     // 업로드된 이미지 URL
+  senderId: number;
+  senderEmail: string;
+  createdAt: string;
+};
+
+export async function uploadImageMessage(req: UploadImageMessageReq): Promise<UploadImageMessageRes> {
+  const formData = new FormData();
+  formData.append('file', {
+    uri: req.file.uri,
+    name: req.file.name,
+    type: req.file.type,
+  } as any);
+
+  const res = await api.post(`/chat/rooms/${req.roomId}/images`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return res.data as UploadImageMessageRes;
+}
