@@ -5,9 +5,11 @@ import {
   type NavigationProp,
   type ParamListBase,
 } from '@react-navigation/native';
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Alert, Image, Text, TouchableOpacity, View } from 'react-native';
 import styles from './ChatHeader.styles';
+
+import { toAbsoluteUrl } from '@/api/url';
 
 const backIcon = require('@/assets/images/back.png');
 const moreIcon = require('@/assets/images/more.png');
@@ -56,6 +58,12 @@ export default function ChatHeader({
 }: Props) {
   const navigation = useNavigation<NavigationProp<ParamListBase>>();
 
+  // ✅ 썸네일 URL을 절대 경로로 변환
+  const thumbnailUri = useMemo(() => {
+    if (!post?.thumbnailUri) return undefined;
+    return toAbsoluteUrl(post.thumbnailUri);
+  }, [post?.thumbnailUri]);
+
   /** 카드 탭 → 상세 이동 or 삭제 안내 */
   const handlePressPost = useCallback(async () => {
     if (!post) return;
@@ -82,7 +90,7 @@ export default function ChatHeader({
       return;
     }
     navigation.navigate(conf.name, { [conf.paramKey]: post.postId });
-  }, [navigation, post, checkPostExistsExternally]); // ✅ routeBySource 제거
+  }, [navigation, post, checkPostExistsExternally]);
 
   const purposeBadgeText =
     post?.purpose === 'lost' ? '분실' : post?.purpose === 'found' ? '습득' : undefined;
@@ -104,8 +112,13 @@ export default function ChatHeader({
       {post && (
         <TouchableOpacity activeOpacity={0.9} onPress={handlePressPost} style={styles.postCard}>
           <View style={styles.thumbWrap}>
-            {post.thumbnailUri
-              ? <Image source={{ uri: post.thumbnailUri }} style={styles.thumb} resizeMode="cover" />
+            {thumbnailUri  // ✅ 변환된 URI 사용
+              ? <Image 
+                  source={{ uri: thumbnailUri }} 
+                  style={styles.thumb} 
+                  resizeMode="cover"
+                  onError={(e) => console.warn('[ChatHeader] 썸네일 로드 실패:', thumbnailUri, e.nativeEvent)}
+                />
               : <View style={[styles.thumb, styles.thumbPlaceholder]} />}
           </View>
 
