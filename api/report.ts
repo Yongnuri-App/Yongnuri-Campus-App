@@ -72,9 +72,10 @@ function toNumericOrUndef(v: any): number | undefined {
   return undefined;
 }
 
+// ✅ file:// 경로는 제외하고 http(s)만 허용
 export function pickHttpUrls(uris?: string[]): string[] {
   return (uris ?? []).filter((u) =>
-    /^(https?:|file:)/i.test(u)   // ✅ file:// 도 통과시킴
+    /^https?:/i.test(u)  // file:// 제거, http(s)만 통과
   );
 }
 
@@ -133,11 +134,13 @@ export async function createReport(payload: CreateReportReq) {
   const accessToken = await getAccessTokenFromAnywhere();
   if (!accessToken) throw new Error('로그인이 필요합니다. (accessToken 없음)');
 
+  // ✅ imageUrls는 이미 업로드된 서버 경로여야 함
+  // (ReportPage.tsx에서 uploadImages 호출 후 전달받음)
   const body: any = {
     postType: payload.postType,
     reason: payload.reason,
     content: payload.content?.trim?.() ?? '',
-    imageUrls: pickHttpUrls(payload.imageUrls),
+    imageUrls: payload.imageUrls ?? [],  // pickHttpUrls 제거
   };
 
   const rid = toNumericOrUndef(payload.reportedId);

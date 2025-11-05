@@ -34,6 +34,10 @@ import {
   type ReportReason,
 } from '../../api/report';
 
+// ✅ 이미지 업로드 & 경로 변환 유틸 추가
+import { uploadImages } from '../../api/images';
+import { toAbsoluteUrl } from '../../api/url';
+
 const REPORT_TYPES_KOR = ['부적절한 콘텐츠', '사기/스팸', '욕설/혐오', '홍보/광고', '사칭/허위정보', '기타'] as const;
 type ReportTypeKor = (typeof REPORT_TYPES_KOR)[number];
 
@@ -90,17 +94,23 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
     (async () => {
       try {
         const d = await getAdminReportDetail(reviewId);
+        console.log('[Report Detail] 서버 응답 전체:', d);
+        console.log('[Report Detail] 원본 images:', d.images);
         setLoaded(d);
         const kor = mapReasonEnumToKor(d.reason || '');
         setTypeValue((kor as ReportTypeKor) ?? null);
         setContent(d.content ?? '');
 
+        // ✅ 이미지 URL을 절대 경로로 변환
         const imgUris =
           Array.isArray(d.images) && d.images.length
             ? d.images
                 .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
                 .map((x: any) => x.imageUrl)
+                .filter(Boolean)
+                .map((url: string) => toAbsoluteUrl(url)!)
             : [];
+        console.log('[Report Detail] 변환된 이미지 배열:', imgUris);
         setImages(imgUris);
       } catch {
         try {
@@ -120,6 +130,9 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
 
   // ===== compose 제출 =====
   const onSubmitCompose = async () => {
+    console.log('[Report Submit] 시작 - typeValue:', typeValue, 'content:', content.trim());
+    console.log('[Report Submit] images 상태:', images);
+    
     if (!typeValue) return Alert.alert('안내', '신고 유형을 선택해주세요.');
     if (!content.trim()) return Alert.alert('안내', '신고 내용을 작성해주세요.');
 
@@ -127,11 +140,17 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
       const postType: ReportPostType = mapKindToPostType(targetKindParam);
       const reason: ReportReason = mapReportReason(typeValue);
 
+      console.log('[Report Submit] postType:', postType);
+      console.log('[Report Submit] reason:', reason);
+
       const postIdNum =
         typeof targetPostIdParam === 'string' && /^\d+$/.test(targetPostIdParam)
           ? Number(targetPostIdParam)
           : undefined;
       const reportedIdNum = toNum(targetUserIdParam);
+
+      console.log('[Report Submit] postIdNum:', postIdNum);
+      console.log('[Report Submit] reportedIdNum:', reportedIdNum);
 
       if (postType === 'ALL') {
         if (reportedIdNum === undefined) {
@@ -145,20 +164,71 @@ export default function ReportPage({ navigation, route }: RootStackScreenProps<'
         }
       }
 
-      await createReport({
+      // ✅ 이미지 업로드 시작
+      console.log('[Report Submit] ========== 이미지 업로드 시작 ==========');
+      console.log('[Report Submit] 원본 images 배열:', images);
+      console.log('[Report Submit] images 길이:', images?.length);
+
+      // ✅ 이미지 업로드 로직 추가
+      const localUris = (images ?? []).filter((u) => {
+        const isLocal = u.startsWith('file://');
+        console.log('[Report Submit] 이미지 체크:', u, '-> 로컬?', isLocal);
+        return isLocal;
+      });
+      
+      const remoteUris = (images ?? []).filter((u) => {
+        const isRemote = !u.startsWith('file://');
+        console.log('[Report Submit] 이미지 체크:', u, '-> 원격?', isRemote);
+        return isRemote;
+      });
+
+      console.log('[Report Submit] 로컬 이미지 배열:', localUris);
+      console.log('[Report Submit] 원격 이미지 배열:', remoteUris);
+
+      let uploadedUrls: string[] = [];
+      if (localUris.length > 0) {
+        console.log('[Report Submit] uploadImages 호출 시작, 개수:', localUris.length);
+        try {
+          uploadedUrls = await uploadImages(localUris);
+          console.log('[Report Submit] ✅ 업로드 성공:', uploadedUrls);
+        } catch (err: any) {
+          console.error('[Report Submit] ❌ 이미지 업로드 실패');
+          console.error('[Report Submit] 에러 응답:', err?.response?.data);
+          console.error('[Report Submit] 에러 메시지:', err?.message);
+          console.error('[Report Submit] 전체 에러:', err);
+          Alert.alert('오류', '이미지 업로드에 실패했습니다.');
+          return;
+        }
+      } else {
+        console.log('[Report Submit] 로컬 이미지 없음, 업로드 스킵');
+      }
+
+      const finalImageUrls = [...remoteUris, ...uploadedUrls];
+      console.log('[Report Submit] 최종 이미지 URLs:', finalImageUrls);
+      console.log('[Report Submit] ========== 이미지 처리 완료 ==========');
+
+      const reportPayload = {
         postType,
         postId: postIdNum,
         reportedId: reportedIdNum,
         reason,
         content: content.trim(),
-        imageUrls: images,
-      });
+        imageUrls: finalImageUrls,
+      };
+
+      console.log('[Report Submit] createReport 호출 전 payload:', JSON.stringify(reportPayload, null, 2));
+
+      await createReport(reportPayload);
+
+      console.log('[Report Submit] ✅ 신고 제출 완료');
 
       Alert.alert('제출 완료', '신고가 접수되었습니다.', [
-        // compose는 기존 동선 유지
         { text: '확인', onPress: () => navigation.navigate('AdminReportManage', { refreshKey: Date.now() }) },
       ]);
     } catch (e: any) {
+      console.error('[Report Submit] ❌ 최종 에러:', e);
+      console.error('[Report Submit] 에러 응답:', e?.response?.data);
+      console.error('[Report Submit] 에러 메시지:', e?.message);
       Alert.alert('오류', e?.response?.data?.message || e?.message || '제출에 실패했어요.');
     }
   };
