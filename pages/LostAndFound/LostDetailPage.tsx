@@ -27,6 +27,7 @@ import ProfileRow from '../../components/Profile/ProfileRow';
 import useDisplayProfile from '../../hooks/useDisplayProfile';
 
 // ✅ API
+import { toAbsoluteUrl } from '@/api/url';
 import { getLostFoundDetail } from '../../api/lost';
 
 // ✅ 전체화면 이미지 뷰어(외부 라이브러리)
@@ -114,6 +115,9 @@ export default function LostDetailPage({
       const res = await getLostFoundDetail(id);
       console.log('[LostDetailPage] 상세 조회 성공(정규화전)', res);
 
+      // ✅ 서버에서 받은 원본 이미지 확인
+      console.log('[LostDetailPage] 원본 이미지 배열:', res.images);
+
       const serverIdNum =
         typeof (res as any)?.id === 'number'
           ? (res as any).id
@@ -128,7 +132,13 @@ export default function LostDetailPage({
         title: res.title,
         content: res.content,
         location: res.location,
-        images: Array.isArray(res.images) ? res.images.map((it: any) => it?.imageUrl).filter(Boolean) : [],
+        // ✅ 이미지 URL을 절대 경로로 변환
+        images: Array.isArray(res.images) 
+          ? res.images
+              .map((it: any) => it?.imageUrl)
+              .filter(Boolean)
+              .map((url: string) => toAbsoluteUrl(url)!)
+          : [],
         likeCount: Number((res as any)?.bookmarkCount ?? 0),
         createdAt:
           (res as any).createdAt ??
@@ -147,6 +157,9 @@ export default function LostDetailPage({
           (res as any).user_id ??
           undefined,
       };
+
+      // ✅ 변환된 이미지 URL 확인
+      console.log('[LostDetailPage] 변환된 이미지 배열:', normalized.images);
 
       setItem(normalized);
       syncCount(Number((res as any)?.bookmarkCount ?? 0));

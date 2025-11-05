@@ -1,5 +1,6 @@
 // /pages/GroupBuy/GroupBuyRecruitPage.tsx
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import { CommonActions, useRoute } from '@react-navigation/native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -11,18 +12,23 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { CommonActions, useRoute } from '@react-navigation/native';
 
-import styles, { COLORS } from './GroupBuyRecruitPage.styles';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import { useImagePicker } from '../../hooks/useImagePicker';
+import styles, { COLORS } from './GroupBuyRecruitPage.styles';
 
 import {
   createGroupBuyPost,
   getGroupBuyDetail,
+  GetGroupBuyDetailRes,
   updateGroupBuyPost,
-  GetGroupBuyDetailRes, // ✅ 올바른 타입명
 } from '../../api/groupBuy';
+
+// ✅ 이미지 URL 절대경로 변환 유틸 추가
+import { toAbsoluteUrl } from '@/api/url';
+
+// ✅ 이미지 업로드 함수 추가
+import { uploadImages } from '../../api/images';
 
 type RecruitMode = 'unlimited' | 'limited' | null;
 
@@ -91,13 +97,35 @@ const CreateForm: React.FC<{ navigation: any }> = ({ navigation }) => {
 
     setSubmitting(true);
     try {
+      console.log('[GroupBuy Create] 원본 images:', images);
+      // ✅ 이미지 업로드 로직 추가
+      const localUris = (images ?? []).filter((u) => u.startsWith('file://'));
+      const remoteUris = (images ?? []).filter((u) => !u.startsWith('file://'));
+
+      console.log('[GroupBuy Create] 로컬 이미지:', localUris);
+      console.log('[GroupBuy Create] 원격 이미지:', remoteUris);
+
+      let uploadedUrls: string[] = [];
+      if (localUris.length > 0) {
+        try {
+          uploadedUrls = await uploadImages(localUris);
+        } catch (err: any) {
+          console.log('[IMAGE UPLOAD ERR]', err?.response?.data || err?.message || err);
+          Alert.alert('오류', '이미지 업로드에 실패했습니다.');
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      const finalImageUrls = [...remoteUris, ...uploadedUrls];
+
       const limitNum =
         (recruitMode ?? 'unlimited') === 'limited' ? Number(recruitCount) : null;
 
       await createGroupBuyPost({
         title: title.trim(),
         content: desc.trim(),
-        imageUrls: images ?? [],
+        imageUrls: finalImageUrls,  // ✅ 업로드된 URL 사용
         limit: limitNum,
         link: normalizedLink,
         status: 'RECRUITING',
@@ -299,11 +327,16 @@ const EditForm: React.FC<{ navigation: any; postId: string }> = ({ navigation, p
         setRecruitCount(String(limit));
       }
 
+      // ✅ 이미지 URL을 절대 경로로 변환
       const imgs =
         Array.isArray(d.images) && d.images.length
-          ? [...d.images].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0)).map(i => i.imageUrl)
+          ? [...d.images]
+              .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
+              .map(i => i.imageUrl)
+              .filter(Boolean)
+              .map(url => toAbsoluteUrl(url)!)
           : d.thumbnailUrl
-          ? [d.thumbnailUrl]
+          ? [toAbsoluteUrl(d.thumbnailUrl)!]
           : [];
       setImages(imgs);
     } catch (e) {
@@ -346,21 +379,39 @@ const EditForm: React.FC<{ navigation: any; postId: string }> = ({ navigation, p
   }, [applyLink]);
 
   const handleSubmitEdit = async () => {
-    if (!isValid || submitting) return;
-    setSubmitting(true);
-    try {
-      const payload: any = {
-        title: title.trim(),
-        content: desc.trim(),
-        link: normalizedLink || undefined, // 빈 값이면 보내지 않음
-        imageUrls: images ?? [],
-      };
-      if (recruitMode === 'limited') {
-        payload.limit = Number(recruitCount);
-      }
-      // status 변경 UI 없음
+  if (!isValid || submitting) return;
+  setSubmitting(true);
+  try {
+    // ✅ 이미지 업로드 로직 추가
+    const localUris = (images ?? []).filter((u) => u.startsWith('file://'));
+    const remoteUris = (images ?? []).filter((u) => !u.startsWith('file://'));
 
-      const res = await updateGroupBuyPost(postId, payload);
+    let uploadedUrls: string[] = [];
+    if (localUris.length > 0) {
+      try {
+        uploadedUrls = await uploadImages(localUris);
+      } catch (err: any) {
+        console.log('[IMAGE UPLOAD ERR]', err?.response?.data || err?.message || err);
+        Alert.alert('오류', '이미지 업로드에 실패했습니다.');
+        setSubmitting(false);
+        return;
+      }
+    }
+
+    const finalImageUrls = [...remoteUris, ...uploadedUrls];
+
+    const payload: any = {
+      title: title.trim(),
+      content: desc.trim(),
+      link: normalizedLink || undefined, // 빈 값이면 보내지 않음
+      imageUrls: finalImageUrls,  // ✅ 업로드된 URL 사용
+    };
+    if (recruitMode === 'limited') {
+      payload.limit = Number(recruitCount);
+    }
+    // status 변경 UI 없음
+
+    const res = await updateGroupBuyPost(postId, payload);
       console.log('[GroupBuy edit] patched ->', res);
 
       Alert.alert('완료', '게시글을 수정했어요.', [

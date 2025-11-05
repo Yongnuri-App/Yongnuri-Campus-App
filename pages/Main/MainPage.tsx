@@ -228,7 +228,21 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
             const createdAt = d.created_at ?? d.createdAt ?? new Date().toISOString();
             const price = Number(d.price ?? 0);
             const mode: 'sell' | 'donate' = price === 0 ? 'donate' : 'sell';
-            const thumb = d.thumbnailUrl || d.thumbnailURL || d.thumbnail || undefined;
+            // 썸네일 원본 값(서버가 키를 다르게 줄 수 있어 폭넓게 커버)
+            const thumbRaw =
+              d.thumbnailUrl ??
+              d.thumbnailURL ??
+              d.thumbnail ??
+              // 혹시 상세처럼 images 배열이 올 때 첫 장을 썸네일로 사용
+              (Array.isArray(d.images)
+                ? [...d.images]
+                    .sort((a: any, b: any) => (a?.sequence ?? 0) - (b?.sequence ?? 0))
+                    .map((x: any) => x?.imageUrl)
+                    .find(Boolean)
+                : undefined);
+
+            // 절대 URL로 보정 (공지와 동일한 방식)
+            const thumb = thumbRaw ? toAbsoluteUrl(thumbRaw) : undefined;
 
             return {
               id,
@@ -273,7 +287,19 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
               const d: any = raw ?? {};
               const id = String(d.post_id ?? d.id ?? `lost_${idx}`);
               const createdAt = d.created_at ?? d.createdAt ?? new Date().toISOString();
-              const thumb = d.thumbnailUrl || d.thumbnailURL || d.thumbnail || undefined;
+              const thumbRaw =
+                d.thumbnailUrl ??
+                d.thumbnailURL ??
+                d.thumbnail ??
+                (Array.isArray(d.images)
+                  ? [...d.images]
+                      .sort((a: any, b: any) => (a?.sequence ?? 0) - (b?.sequence ?? 0))
+                      .map((x: any) => x?.imageUrl)
+                      .find(Boolean)
+                  : undefined);
+
+              // 2) 절대 URL 보정
+              const thumb = thumbRaw ? toAbsoluteUrl(thumbRaw) : undefined;
 
               return {
                 id,
@@ -482,7 +508,8 @@ export default function MainPage({ navigation, route }: RootStackScreenProps<'Ma
                 subtitle={`${item.location} · ${timeAgo(item.createdAt)}`}
                 price={item.mode === 'donate' ? '나눔🩵' : `${item.price.toLocaleString('ko-KR')}원`}
                 likeCount={item.likeCount ?? 0}
-                image={item.images && item.images.length > 0 ? item.images[0] : undefined}
+                // image={item.images && item.images.length > 0 ? item.images[0] : undefined}
+                image={item.images?.[0]}
                 onPress={handlePressMarketItem}
                 saleStatus={item.saleStatus}
               />

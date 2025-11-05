@@ -1,4 +1,5 @@
 // pages/Market/SellItemPage.tsx
+import { CommonActions, useRoute } from '@react-navigation/native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -9,16 +10,17 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { CommonActions, useRoute } from '@react-navigation/native';
 
+import { uploadImages } from '@/api/images';
+import { toAbsoluteUrl } from '@/api/url';
+import type { UpdateMarketPostReq } from '../../api/market';
+import { createMarketPost, getMarketPost, updateMarketPost } from '../../api/market';
 import LocationPicker from '../../components/LocationPicker/LocationPicker';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
-import styles from './SellItemPage.styles';
 import { useImagePicker } from '../../hooks/useImagePicker';
-import { createMarketPost, getMarketPost, updateMarketPost } from '../../api/market';
 import type { CreateMarketPostReq } from '../../types/market';
-import type { UpdateMarketPostReq } from '../../api/market';
 import { getCurrentUserEmail } from '../../utils/currentUser';
+import styles from './SellItemPage.styles';
 
 type SaleMode = 'sell' | 'donate' | null;
 
@@ -133,8 +135,12 @@ const SellItemPage: React.FC<{ navigation?: any }> = ({ navigation }) => {
         // 서버 스펙 기준 매핑
         const d = detail || {};
         const _images: string[] = Array.isArray(d.images)
-          ? d.images.map((it: any) => it?.imageUrl).filter(Boolean)
-          : (d.thumbnailUrl ? [d.thumbnailUrl] : []);
+          ? d.images
+              .slice()
+              .sort((a: any, b: any) => (a?.sequence ?? 0) - (b?.sequence ?? 0))
+              .map((it: any) => toAbsoluteUrl(it?.imageUrl)!)
+              .filter(Boolean)
+          : (d.thumbnailUrl ? [toAbsoluteUrl(d.thumbnailUrl)!] : []);
 
         if (!mounted) return;
         setTitle(d.title ?? '');
@@ -175,11 +181,19 @@ const SellItemPage: React.FC<{ navigation?: any }> = ({ navigation }) => {
       const method = mode === 'donate' ? 'DONATE' : 'SELL';
       const priceNum = mode === 'donate' ? 0 : Number(priceRaw);
 
-      // ✅ 서버 NotBlank(status) 대응: 기본값 SELLING(판매중)
+      // 🔁 이미지 정규화: 로컬은 업로드, 원격은 절대 URL 유지
+      const localUris = images.filter(u => u.startsWith('file://') || u.startsWith('content://'));
+      const remoteUris = images.filter(u => !u.startsWith('file://') && !u.startsWith('content://'));
+      let uploaded: string[] = [];
+      if (localUris.length) {
+        uploaded = await uploadImages(localUris); // 서버가 접근 가능한 URL 배열 반환(상대/절대 상관없음)
+      }
+      const finalImageUrls = [...remoteUris.map(u => toAbsoluteUrl(u)!), ...uploaded];
+
       const payload: CreateMarketPostReq = {
         title: title.trim(),
         content: desc.trim(),
-        imageUrls: images,
+        imageUrls: finalImageUrls, // ★ 서버 URL만 전송
         method,
         location: location.trim(),
         price: priceNum,
@@ -222,11 +236,18 @@ const SellItemPage: React.FC<{ navigation?: any }> = ({ navigation }) => {
     try {
       const method = mode === 'donate' ? 'DONATE' : 'SELL';
 
+      const localUris = images.filter(u => u.startsWith('file://') || u.startsWith('content://'));
+      const remoteUris = images.filter(u => !u.startsWith('file://') && !u.startsWith('content://'));
+      let uploaded: string[] = [];
+      if (localUris.length) {
+        uploaded = await uploadImages(localUris);
+      }
+      const finalImageUrls = [...remoteUris.map(u => toAbsoluteUrl(u)!), ...uploaded];
+
       const payload: UpdateMarketPostReq = {
         title: title.trim() || undefined,
         content: desc.trim() || undefined,
-        // ✅ 0장이면 []를 보내서 서버가 '모든 이미지 제거'로 인식하게 함
-        imageUrls: Array.isArray(images) ? images : [],
+        imageUrls: finalImageUrls, // ★ 정규화된 URL만
         method,
         location: location.trim() || undefined,
         price: mode === 'donate' ? 0 : Number(priceRaw || 0),

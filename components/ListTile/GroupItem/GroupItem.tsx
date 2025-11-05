@@ -7,9 +7,10 @@
 // - bottomTag는 썸네일 유무에 따라 left 동적 보정
 // ------------------------------------------------------
 
+import { toAbsoluteUrl } from '@/api/url';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
-import styles, { THUMB, GAP } from './GroupItem.styles';
+import styles, { GAP, THUMB } from './GroupItem.styles';
 
 type Props = {
   title: string;
@@ -38,11 +39,10 @@ export default function GroupItem({
   onPress,
   bottomTag,
 }: Props) {
-  // ✅ 첫 장만 쓰기 (자동 슬라이드 제거)
+  // ✅ 첫 장만 쓰기 + 절대경로 변환
   const firstImage = useMemo(() => {
-    if (image) return image;
-    if (images && images.length > 0) return images[0];
-    return undefined;
+    const raw = image || (images && images.length > 0 ? images[0] : undefined);
+    return raw ? toAbsoluteUrl(raw) : undefined;
   }, [image, images]);
 
   // ✅ 로컬 카운트만 관리 (부모 값 변경 시 동기화)

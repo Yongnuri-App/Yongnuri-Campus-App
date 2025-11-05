@@ -1,6 +1,8 @@
 // api/market.ts
 import type { CreateMarketPostReq, MarketStatus } from '../types/market';
 import { api } from './client';
+import { uploadImages } from './images';
+import { toAbsoluteUrl } from './url';
 
 /** 게시글 작성 */
 export async function createMarketPost(payload: CreateMarketPostReq) {
@@ -12,6 +14,26 @@ export async function createMarketPost(payload: CreateMarketPostReq) {
   };
   console.log('[createMarketPost] response(norm)', norm);
   return norm as { post_id: number | string; message?: string };
+}
+
+/** ✅ 로컬/원격 섞인 images를 처리해 서버 URL로만 만들어서 생성 */
+export async function createMarketPostSmart(payload: Omit<CreateMarketPostReq, 'imageUrls'> & { imageUris: string[] }) {
+  const localUris = payload.imageUris.filter(u => u.startsWith('file://') || u.startsWith('content://'));
+  const remoteUris = payload.imageUris.filter(u => !u.startsWith('file://') && !u.startsWith('content://'));
+  let uploaded: string[] = [];
+  if (localUris.length) {
+    uploaded = await uploadImages(localUris);   // 서버가 /uploads/... 반환(상대 or 절대)
+  }
+  const finalImageUrls = [...remoteUris.map(u => toAbsoluteUrl(u)!), ...uploaded];
+  return createMarketPost({
+    title: payload.title,
+    content: payload.content,
+    method: payload.method,
+    location: payload.location,
+    price: payload.price,
+    status: payload.status,
+    imageUrls: finalImageUrls,                  // ★ 서버 접근 가능한 URL만 전송
+  });
 }
 
 /** 게시글 상세 조회 */

@@ -1,5 +1,6 @@
 // src/pages/Market/MarketDetailPage.tsx
 import { getMarketPost } from '@/api/market';
+import { toAbsoluteUrl } from '@/api/url';
 import DetailBottomBar from '@/components/Bottom/DetailBottomBar';
 import AdminActionSheet from '@/components/Modals/AdminActionSheet/AdminActionSheet';
 import ProfileRow from '@/components/Profile/ProfileRow';
@@ -131,7 +132,11 @@ export default function MarketDetailPage({
       console.log('[MarketDetailPage] 상세 조회 성공(정규화전)', data);
 
       const imageUrls: string[] = Array.isArray(data?.images)
-        ? data.images.map((it: any) => it?.imageUrl).filter(Boolean)
+        ? data.images
+            .slice()
+            .sort((a: any, b: any) => (a?.sequence ?? 0) - (b?.sequence ?? 0))
+            .map((it: any) => toAbsoluteUrl(it?.imageUrl)!)
+            .filter(Boolean)
         : [];
 
       const statusNorm =

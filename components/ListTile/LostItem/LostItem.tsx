@@ -6,9 +6,10 @@
 // - '회수' 배지 폴백 색 유지
 // ------------------------------------------------------
 
+import { toAbsoluteUrl } from '@/api/url';
 import React from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
-import styles, { THUMB, GAP } from './LostItem.styles';
+import styles, { GAP, THUMB } from './LostItem.styles';
 
 type Props = {
   title: string;
@@ -39,13 +40,16 @@ export default function LostItem({
     return styles.badgeRetrieved ?? { backgroundColor: '#979797' };
   };
 
+  // ✅ 이미지 URL을 절대 경로로 변환
+  const thumbUri = image ? toAbsoluteUrl(image) : undefined;
+
   // ✅ 썸네일이 없으면 bottomTag를 텍스트 시작선(= 왼쪽)으로 맞춤
-  const bottomTagLeft = image ? THUMB + GAP : 0;
+  const bottomTagLeft = thumbUri ? THUMB + GAP : 0;
 
   return (
     <TouchableOpacity style={styles.container} activeOpacity={0.85} onPress={onPress}>
       {/* 썸네일: 이미지가 있을 때만 렌더링 */}
-      {image ? <Image source={{ uri: image }} style={styles.thumbnail} /> : null}
+      {thumbUri ? <Image source={{ uri: thumbUri }} style={styles.thumbnail} /> : null}
 
       {/* 텍스트 블록 */}
       <View style={styles.info}>

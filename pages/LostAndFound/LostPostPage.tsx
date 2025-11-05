@@ -1,5 +1,6 @@
 // pages/LostAndFound/LostPostPage.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CommonActions, useRoute } from '@react-navigation/native';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
@@ -10,22 +11,23 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { CommonActions, useRoute } from '@react-navigation/native';
 
-import styles from './LostPostPage.styles';
+import { toAbsoluteUrl } from '@/api/url';
+import { uploadImages } from '../../api/images';
 import LocationPicker from '../../components/LocationPicker/LocationPicker';
 import PhotoPicker from '../../components/PhotoPicker/PhotoPicker';
 import { useImagePicker } from '../../hooks/useImagePicker';
+import styles from './LostPostPage.styles';
 
 // ✅ 칩과 동일한 라벨/아이디 매핑을 재사용
 import { DEFAULT_CATEGORIES } from '../../components/CategoryChips/CategoryChips';
 
-import { getCurrentUserEmail } from '../../utils/currentUser';
 import {
   createLostFoundPost,
-  updateLostFoundPost,
   getLostFoundDetail,
+  updateLostFoundPost,
 } from '../../api/lost';
+import { getCurrentUserEmail } from '../../utils/currentUser';
 
 // ===== 상수 =====
 const POSTS_KEY = 'lost_found_posts_v1';
@@ -100,14 +102,33 @@ const CreateForm: React.FC<{ navigation: any }> = ({ navigation }) => {
         return;
       }
 
-      // ✅ 저장 전에 위치를 label로 표준화
+      // ✅ 이미지 업로드 로직 추가 (공지사항 방식)
+      const localUris = images.filter((u) => u.startsWith('file://'));
+      const remoteUris = images.filter((u) => !u.startsWith('file://'));
+
+      let uploadedUrls: string[] = [];
+      if (localUris.length > 0) {
+        try {
+          // ✅ uploadImages 함수를 import 해야 합니다
+          uploadedUrls = await uploadImages(localUris);
+        } catch (err: any) {
+          console.log('[IMAGE UPLOAD ERR]', err?.response?.data || err?.message || err);
+          Alert.alert('오류', '이미지 업로드에 실패했습니다.');
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // ✅ 업로드된 URL + 기존 원격 URL 합치기
+      const finalImageUrls = [...remoteUris, ...uploadedUrls];
+
       const locationLabel = normalizeLocationLabel(place);
 
       const payload = {
         title: title.trim(),
         purpose: (purpose === 'lost' ? 'LOST' : 'FOUND') as 'LOST' | 'FOUND',
         content: desc.trim(),
-        imageUrls: images,
+        imageUrls: finalImageUrls, // ✅ 업로드된 URL 사용
         location: locationLabel,
         status: 'REPORTED',
       };
@@ -115,10 +136,8 @@ const CreateForm: React.FC<{ navigation: any }> = ({ navigation }) => {
       const res = await createLostFoundPost(payload);
 
       Alert.alert('등록 완료', '분실물 게시글이 작성되었습니다.');
-      // 폼 초기화
       setImages([]); setPurpose(null); setTitle(''); setDesc(''); setPlace('');
 
-      // 메인 → 상세로 이동
       navigation.dispatch(
         CommonActions.reset({
           index: 1,
@@ -183,7 +202,13 @@ const EditForm: React.FC<{ navigation: any; postId: string }> = ({ navigation, p
         setDesc(d.content ?? '');
         // ✅ 서버에는 label이 저장되어 있으므로 그대로 세팅 (LocationPicker가 id 기반이면 내부에서 처리)
         setPlace(d.location ?? '');
-        setImages((d.images ?? []).map(it => it.imageUrl).filter(Boolean));
+        // ✅ 이미지 URL을 절대 경로로 변환
+        setImages(
+          (d.images ?? [])
+            .map(it => it.imageUrl)
+            .filter(Boolean)
+            .map(url => toAbsoluteUrl(url)!)
+        );
       } catch (err: any) {
         console.log('[LostEdit] detail failed, fallback → local', err?.response?.data || err?.message);
         try {
@@ -220,7 +245,24 @@ const EditForm: React.FC<{ navigation: any; postId: string }> = ({ navigation, p
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      // ✅ 수정 시에도 label로 표준화 후 전송
+      // ✅ 이미지 업로드 로직 추가
+      const localUris = images.filter((u) => u.startsWith('file://'));
+      const remoteUris = images.filter((u) => !u.startsWith('file://'));
+
+      let uploadedUrls: string[] = [];
+      if (localUris.length > 0) {
+        try {
+          uploadedUrls = await uploadImages(localUris);
+        } catch (err: any) {
+          console.log('[IMAGE UPLOAD ERR]', err?.response?.data || err?.message || err);
+          Alert.alert('오류', '이미지 업로드에 실패했습니다.');
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      const finalImageUrls = [...remoteUris, ...uploadedUrls];
+
       const locationLabel = normalizeLocationLabel(place);
 
       const payload = {
@@ -228,8 +270,9 @@ const EditForm: React.FC<{ navigation: any; postId: string }> = ({ navigation, p
         content: desc.trim(),
         purpose: (purpose === 'lost' ? 'LOST' : 'FOUND') as 'LOST' | 'FOUND',
         location: locationLabel,
-        imageUrls: images,
+        imageUrls: finalImageUrls, // ✅ 업로드된 URL 사용
       };
+      
       await updateLostFoundPost(postId, payload);
 
       Alert.alert('완료', '게시글을 수정했습니다.', [

@@ -1,4 +1,5 @@
 // components/ListTile/MarketItem/MarketItem.tsx
+import { toAbsoluteUrl } from '@/api/url';
 import React from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
 import styles from './MarketItem.styles';
@@ -48,7 +49,7 @@ export default function MarketItem({
     >
       {/* 왼쪽 썸네일: 이미지가 있을 때만 렌더링 (uri undefined 경고 방지) */}
       {image ? (
-        <Image source={{ uri: image }} style={styles.thumbnail} />
+        <Image source={{ uri: toAbsoluteUrl(image)! }} style={styles.thumbnail} />
       ) : null}
 
       {/* 오른쪽 텍스트 블럭 */}

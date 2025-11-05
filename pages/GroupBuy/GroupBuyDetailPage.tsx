@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 
+import { toAbsoluteUrl } from '@/api/url';
 import { DeviceEventEmitter } from 'react-native';
 import {
   applyGroupBuy,
@@ -186,14 +187,21 @@ export default function GroupBuyDetailPage({
   /** 서버 → 화면 상태 매핑 */
   const mapServerToState = useCallback(
     (d: any, prev?: GroupBuyPost | null, countFromCache?: number): GroupBuyPost => {
+      // ✅ 서버에서 받은 원본 이미지 확인
+      console.log('[GroupBuy] 서버 원본 images:', d?.images);
+      console.log('[GroupBuy] 서버 원본 thumbnailUrl:', d?.thumbnailUrl);
       const images =
         Array.isArray(d?.images) && d.images.length
           ? [...d.images]
               .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
               .map((x: any) => x.imageUrl)
+              .filter(Boolean)
+              .map((url: string) => toAbsoluteUrl(url)!)  // ✅ 절대경로 변환 추가
           : d?.thumbnailUrl
-          ? [d.thumbnailUrl]
+          ? [toAbsoluteUrl(d.thumbnailUrl)!]  // ✅ 썸네일도 변환
           : [];
+          // ✅ 변환된 이미지 URL 확인
+          console.log('[GroupBuy] 변환된 이미지 배열:', images);
 
       // 서버 정수 PK 추출
       const serverIdNum =
