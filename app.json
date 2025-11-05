@@ -14,7 +14,8 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.vzhsge.Yongnuri"
     },
     "web": {
       "bundler": "metro",
@@ -35,10 +36,13 @@
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": "http://10.31.3.53:8080",
+      "apiBaseUrl": "http://59.12.8.186:8080",
       "ADMIN_ID": "admin@example.com",
       "ADMIN_PW": "admin1234!",
-      "profilePath": "/mypage"
+      "profilePath": "/mypage",
+      "eas": {
+        "projectId": "35c6b5a2-3b07-4564-b316-e9fbb94cf4d9"
+      }
     }
   }
 }
