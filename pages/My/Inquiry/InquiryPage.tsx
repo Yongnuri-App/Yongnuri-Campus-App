@@ -132,7 +132,7 @@ try {
       Alert.alert("오류", "메시지 전송에 실패했습니다.");
     }
   };
-  };
+
 
   const adaptedMessages: ChatMessage[] = useMemo(() => {
     return messages.map((m): ChatMessage => ({
