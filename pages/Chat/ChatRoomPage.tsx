@@ -456,9 +456,8 @@ export default function ChatRoomPage() {
                 // 백엔드 ImageService로 이미지 업로드
                 const uploadResponse = await uploadImages(fileUris);
 
-                //업로드된 URL들을 가져옴
+                //업로드된 URL
                 const imageUrls = uploadResponse.imageUrls;
-
                 if (imageUrls && imageUrls.length > 0) {
                     let rid = serverRoomId;
                     if (!rid) {
