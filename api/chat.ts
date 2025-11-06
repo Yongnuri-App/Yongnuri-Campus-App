@@ -10,8 +10,8 @@ export type ChatMessageType = 'text' | 'img';
 
 export type CreateRoomReq = {
   type: Exclude<ChatType, 'ALL'>;
-  typeId: number;     // 게시글 ID
-  toUserId: number;   // 상대방 사용자 ID
+  typeId?: number;     //
+  toUserId?: number;  // 상대방 사용자 ID
   message: string;
   messageType: ChatMessageType;
 };
@@ -40,10 +40,7 @@ export type CreateRoomRes = {
 };
 
 export async function createOrGetRoom(body: CreateRoomReq): Promise<CreateRoomRes> {
-  const res = await api.post('/chat/rooms', {
-    ...body,
-    messageType: body.messageType,
-  });
+  const res = await api.post('/chat/rooms', body); //
   return res.data as CreateRoomRes;
 }
 

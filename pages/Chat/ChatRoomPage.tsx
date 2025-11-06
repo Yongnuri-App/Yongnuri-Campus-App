@@ -24,6 +24,8 @@ import usePermissions from '@/hooks/usePermissions';
 import useSaleStatusManager from '@/hooks/useSaleStatusManager';
 import useChatReadSync from '@/hooks/useChatReadSync';
 
+import * as ImagePicker from 'expo-image-picker';
+import { uploadImages } from '@/api/images';
 import {
   blockUser,
   getBlockedAt,
@@ -445,29 +447,65 @@ export default function ChatRoomPage() {
   // ✅ 메시지 전송
   const sendWithServer = useCallback(async (text: string) => {
     await send(text);
-    try {
-      const trimmed = text.trim();
-      if (!trimmed) return;
+    // 이미지 업로드 로직
+        if (attachments.length > 0) {
+            try {
+                //'미리보기'된 이미지 파일 목록(attachments)을 가져옴
+                const fileUris = attachments.map(a => a.uri);
 
-      let rid = serverRoomId;
-      if (!rid) {
-        rid = await ensureServerRoomId();
-        if (!rid) return;
-      }
+                // 백엔드 ImageService로 이미지 업로드
+                const uploadResponse = await uploadImages(fileUris);
 
-      const { userId } = await getLocalIdentity();
-      if (userId != null) {
-        await sendMessage({
-          roomId: rid,
-          sender: Number(userId),
-          message: trimmed,
-          type: 'text',
-        });
-      }
-    } catch (e) {
-      console.log('[ChatRoom] sendWithServer error', e);
-    }
-  }, [send, serverRoomId, ensureServerRoomId]);
+                //업로드된 URL들을 가져옴
+                const imageUrls = uploadResponse.imageUrls;
+
+                if (imageUrls && imageUrls.length > 0) {
+                    let rid = serverRoomId;
+                    if (!rid) {
+                      rid = await ensureServerRoomId();
+                      if (!rid) return;
+                    }
+                    const { userId } = await getLocalIdentity();
+                    if (userId != null) {
+                        for (const imageUrl of imageUrls) {
+                            await sendMessage({
+                                roomId: rid,
+                                message: imageUrl,
+                                type: 'img',
+                                sender: Number(userId)
+                            });
+                        }
+                    }
+                }
+            } catch (e) {
+                console.log('[ChatRoom] sendWithServer (Image) error', e);
+            }
+        }
+   const trimmed = text.trim();
+       if (trimmed) {
+           try {
+               await send(text);
+
+               let rid = serverRoomId;
+               if (!rid) {
+                   rid = await ensureServerRoomId();
+                   if (!rid) return;
+               }
+               const { userId } = await getLocalIdentity();
+               if (userId != null) {
+                   await sendMessage({
+                       roomId: rid,
+                       sender: Number(userId),
+                       message: trimmed,
+                       type: 'text',
+                   });
+               }
+           } catch (e) {
+               console.log('[ChatRoom] sendWithServer (Text) error', e);
+           }
+       }
+   attachments.forEach(a => removeAttachmentAt(0));
+  }, [send, serverRoomId, ensureServerRoomId, attachments]);
 
   // ✅ 판매 상태 변경 래퍼 (약속 필요 시 모달 열기)
   const handleSaleStatusChange = async (nextLabel: SaleStatusLabel) => {

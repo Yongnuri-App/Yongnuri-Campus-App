@@ -12,6 +12,11 @@ import useBusinessHours from '@/hooks/useBusinessHours';
 import styles from './InquiryPage.styles';
 import { getPublicInquiryNotice } from '@/api/notice';
 
+import { createOrGetRoom } from '@/api/chat';
+import { getLocalIdentity } from '@/utils/localIdentity';
+
+
+
 const ADMIN_INQUIRY_NOTICE_KEY = 'admin_inquiry_notice_v1'; // 캐시 키
 const ADMIN_INQUIRY_HOURS_KEY = 'admin_inquiry_hours_v1';
 
@@ -78,9 +83,9 @@ export default function InquiryPage() {
     tzLabel: 'KST',
   });
 
-  const handleSend = (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
+ const handleSend = async (text: string) => {
+     const trimmed = text.trim();
+     if (!trimmed) return;
 
     if (!isOpen) {
       Alert.alert(
@@ -95,7 +100,38 @@ export default function InquiryPage() {
     const msg: Msg = { id: `${Date.now()}`, text: trimmed, who: 'me', ts: nowTime() };
     setMessages(prev => [...prev, msg]);
 
-    // TODO: 실제 문의 메시지 전송 API 연결
+    //  실제 문의 메시지 전송 API 연결
+try {
+      //  내 ID 가져오기
+      const { userId } = await getLocalIdentity();
+      if (!userId) {
+        Alert.alert('오류', '사용자 정보를 찾을 수 없습니다. 다시 로그인해주세요.');
+        return;
+      }
+
+      // createChatRoom API
+      const response = await createOrGetRoom({
+        type: 'ADMIN',
+        message: trimmed,
+        messageType: 'TEXT',
+
+      });
+
+      //성공 시 생성된 채팅방으로이동
+      if (response && response.roomInfo) {
+        navigation.replace('ChatRoom', {
+          serverRoomId: response.roomInfo.roomId,
+          chatType: response.roomInfo.chatType,
+          opponentNickname: response.roomInfo.opponentNickname,
+
+        });
+      }
+
+    } catch (error) {
+      console.error("[InquiryPage] 문의하기 전송 실패:", error);
+      Alert.alert("오류", "메시지 전송에 실패했습니다.");
+    }
+  };
   };
 
   const adaptedMessages: ChatMessage[] = useMemo(() => {
