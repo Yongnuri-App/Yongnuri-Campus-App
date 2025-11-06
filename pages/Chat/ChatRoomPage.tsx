@@ -451,7 +451,7 @@ export default function ChatRoomPage() {
         if (attachments.length > 0) {
             try {
                 //'미리보기'된 이미지 파일 목록(attachments)을 가져옴
-                const fileUris = attachments.map(a => a.uri);
+                const fileUris = attachments;
 
                 // 백엔드 ImageService로 이미지 업로드
                 const uploadResponse = await uploadImages(fileUris);
